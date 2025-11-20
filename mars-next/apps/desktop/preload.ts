@@ -1,3 +1,5 @@
-export function setupPreload(): void {
-  console.log("Preload script placeholder");
-}
+import { contextBridge } from "electron";
+
+contextBridge.exposeInMainWorld("api", {
+  placeholder: true,
+});
