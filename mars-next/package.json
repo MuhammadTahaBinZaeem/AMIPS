@@ -13,6 +13,7 @@
     "build": "npm run clean && npm-run-all build:main build:renderer",
     "build:main": "tsup apps/desktop/main.ts apps/desktop/preload.ts --out-dir dist/desktop --format cjs --platform node --target node18 --clean=false",
     "build:renderer": "vite build --config config/vite.config.ts",
+    "clean:modules": "rimraf node_modules package-lock.json dist",
     "lint": "echo \"Lint placeholder\"",
     "test": "echo \"Test placeholder\""
   },
