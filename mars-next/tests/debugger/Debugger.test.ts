@@ -3,8 +3,10 @@ import { describe, test } from "node:test";
 
 import { BreakpointEngine } from "../../src/core/debugger/BreakpointEngine";
 import { WatchEngine, WatchEvent } from "../../src/core/debugger/WatchEngine";
+import { Assembler } from "../../src/core/assembler/Assembler";
 import { Cpu, DecodedInstruction, InstructionDecoder, InstructionMemory } from "../../src/core/cpu/Cpu";
-import { Pipeline } from "../../src/core/cpu/Pipeline";
+import { Pipeline, ProgramMemory as PipelineProgramMemory } from "../../src/core/cpu/Pipeline";
+import { decodeInstruction } from "../../src/core/cpu/Instructions";
 import { DEFAULT_TEXT_BASE, MachineState } from "../../src/core/state/MachineState";
 
 class ProgramMemory implements InstructionMemory {
@@ -192,6 +194,78 @@ describe("Debugger subsystem", () => {
       oldValue: 0,
       newValue: 99,
     });
+  });
+
+  test("halts on assembled breakpoints and reports watched register changes", () => {
+    const assembler = new Assembler();
+    const program = assembler.assemble(
+      [
+        ".text",
+        "addi $t0, $zero, 1",
+        "addi $t1, $zero, 2",
+        "add $t2, $t0, $t1",
+        "syscall", // treated as program termination in test decoder
+      ].join("\n"),
+    );
+
+    const state = new MachineState();
+    const breakpointAddress = (DEFAULT_TEXT_BASE + 4) | 0;
+
+    const breakpoints = new BreakpointEngine();
+    const watchEngine = new WatchEngine(state);
+
+    const decoder: InstructionDecoder = {
+      decode: (instruction, pc) =>
+        decodeInstruction(instruction, pc) ??
+        (instruction === 0x0000000c
+          ? {
+              name: "syscall",
+              execute: (machine) => machine.terminate(),
+            }
+          : null),
+    };
+
+    const pipeline = new Pipeline({
+      memory: new PipelineProgramMemory(program.text, program.textBase),
+      state,
+      decoder,
+      breakpoints,
+      watchEngine,
+    });
+
+    watchEngine.addWatch("register", "$t2");
+    breakpoints.setBreakpoint(breakpointAddress);
+
+    let status = pipeline.executeCycle();
+    assert.strictEqual(status, "running");
+    assert.strictEqual(state.getRegister(8), 1);
+
+    status = pipeline.executeCycle();
+    assert.strictEqual(status, "breakpoint");
+    assert.strictEqual(state.getProgramCounter(), breakpointAddress);
+    assert.strictEqual(state.getRegister(9), 0);
+    assert.strictEqual(breakpoints.getHitBreakpoint(), breakpointAddress);
+
+    breakpoints.removeBreakpoint(breakpointAddress);
+    pipeline.resume();
+
+    pipeline.run(10);
+
+    assert.strictEqual(pipeline.isHalted(), true);
+    assert.strictEqual(state.isTerminated(), true);
+    assert.strictEqual(state.getProgramCounter(), (DEFAULT_TEXT_BASE + 16) | 0);
+    assert.strictEqual(state.getRegister(9), 2);
+    assert.strictEqual(state.getRegister(10), 3);
+
+    const events = watchEngine.getWatchChanges();
+    assert.deepStrictEqual(events, [
+      {
+        kind: "register",
+        identifier: "t2",
+        oldValue: 0,
+        newValue: 3,
+      },
+    ]);
   });
 });
 
