@@ -1,7 +1,9 @@
 import { Assembler, BinaryImage } from "./assembler/Assembler";
-import { Cpu, InstructionDecoder, InstructionMemory } from "./cpu/Cpu";
+import { Cpu, InstructionDecoder } from "./cpu/Cpu";
 import { ProgramLoader } from "./loader/ProgramLoader";
 import { MachineState } from "./state/MachineState";
+import { Memory } from "./memory/Memory";
+import { MemoryMap } from "./memory/MemoryMap";
 
 export * from "./cpu/Cpu";
 export * from "./cpu/Pipeline";
@@ -17,24 +19,6 @@ export * from "./syscalls/SyscallHandlers";
 export * from "./debugger/BreakpointEngine";
 export * from "./debugger/WatchEngine";
 export * from "./state/MachineState";
-
-class BinaryMemory implements InstructionMemory {
-  constructor(private readonly words: number[], private readonly baseAddress: number) {}
-
-  loadWord(address: number): number {
-    const offset = address - this.baseAddress;
-    if (offset < 0 || offset % 4 !== 0) {
-      throw new Error(`Invalid instruction address: 0x${address.toString(16)}`);
-    }
-
-    const index = offset / 4;
-    if (index < 0 || index >= this.words.length) {
-      throw new Error(`Instruction address out of range: 0x${address.toString(16)}`);
-    }
-
-    return this.words[index];
-  }
-}
 
 class NoopDecoder implements InstructionDecoder {
   constructor(private readonly instructions: number[], private readonly baseAddress: number) {}
@@ -68,7 +52,9 @@ export function assemble(program: string): BinaryImage {
 export function loadMachineFromBinary(image: BinaryImage): MachineState {
   const state = new MachineState();
   state.setProgramCounter(image.textBase);
-  const memory = new BinaryMemory(image.text, image.textBase);
+  const memoryMap = new MemoryMap({ textBase: image.textBase, dataBase: image.dataBase });
+  const memory = new Memory({ map: memoryMap });
+  memory.loadImage(image);
   const decoder = new NoopDecoder(image.text, image.textBase);
   cpuRegistry.set(state, new Cpu({ memory, decoder, state }));
   return state;
