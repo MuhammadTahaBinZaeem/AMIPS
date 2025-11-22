@@ -18,6 +18,7 @@ export class MachineState {
   private programCounter: number;
   private hi: number;
   private lo: number;
+  private terminated: boolean;
 
   private delayedBranchTarget: number | null;
   private delayedBranchState: DelayedBranchState;
@@ -27,6 +28,7 @@ export class MachineState {
     this.programCounter = DEFAULT_TEXT_BASE;
     this.hi = 0;
     this.lo = 0;
+    this.terminated = false;
     this.delayedBranchTarget = null;
     this.delayedBranchState = "cleared";
     this.reset();
@@ -39,6 +41,7 @@ export class MachineState {
     this.hi = 0;
     this.lo = 0;
     this.programCounter = this.toInt32(DEFAULT_TEXT_BASE);
+    this.terminated = false;
     this.clearDelayedBranch();
   }
 
@@ -79,6 +82,14 @@ export class MachineState {
 
   incrementProgramCounter(delta = 4): void {
     this.programCounter = this.toInt32(this.programCounter + delta);
+  }
+
+  terminate(): void {
+    this.terminated = true;
+  }
+
+  isTerminated(): boolean {
+    return this.terminated;
   }
 
   registerDelayedBranch(targetAddress: number): void {
