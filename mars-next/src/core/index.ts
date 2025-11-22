@@ -1,4 +1,4 @@
-import { Assembler } from "./assembler/Assembler";
+import { Assembler, BinaryImage } from "./assembler/Assembler";
 import { Cpu, InstructionDecoder, InstructionMemory } from "./cpu/Cpu";
 import { ProgramLoader } from "./loader/ProgramLoader";
 import { MachineState } from "./state/MachineState";
@@ -18,10 +18,8 @@ export * from "./debugger/BreakpointEngine";
 export * from "./debugger/WatchEngine";
 export * from "./state/MachineState";
 
-type ParsedAssembly = { tokens?: string[] };
-
-class TokenMemory implements InstructionMemory {
-  constructor(private readonly instructions: string[], private readonly baseAddress: number) {}
+class BinaryMemory implements InstructionMemory {
+  constructor(private readonly words: number[], private readonly baseAddress: number) {}
 
   loadWord(address: number): number {
     const offset = address - this.baseAddress;
@@ -30,24 +28,24 @@ class TokenMemory implements InstructionMemory {
     }
 
     const index = offset / 4;
-    if (index < 0 || index >= this.instructions.length) {
+    if (index < 0 || index >= this.words.length) {
       throw new Error(`Instruction address out of range: 0x${address.toString(16)}`);
     }
 
-    return index;
+    return this.words[index];
   }
 }
 
-class TokenDecoder implements InstructionDecoder {
-  constructor(private readonly instructions: string[], private readonly baseAddress: number) {}
+class NoopDecoder implements InstructionDecoder {
+  constructor(private readonly instructions: number[], private readonly baseAddress: number) {}
 
   decode(_instruction: number, programCounter: number) {
     const index = (programCounter - this.baseAddress) / 4;
-    const token = this.instructions[index];
-    if (token === undefined) return null;
+    const word = this.instructions[index];
+    if (word === undefined) return null;
 
     return {
-      name: token,
+      name: `word_${index}`,
       execute: (state, memory, cpu) => {
         void state;
         void memory;
@@ -60,18 +58,18 @@ class TokenDecoder implements InstructionDecoder {
 
 const cpuRegistry = new WeakMap<MachineState, Cpu>();
 
-export function assemble(program: string): MachineState {
+export function assemble(program: string): BinaryImage {
   const loader = new ProgramLoader();
   const normalizedSource = loader.load(program);
-
   const assembler = new Assembler();
-  const parsed = assembler.assemble(normalizedSource) as ParsedAssembly;
-  const instructions = parsed.tokens ?? [];
+  return assembler.assemble(normalizedSource);
+}
 
+export function loadMachineFromBinary(image: BinaryImage): MachineState {
   const state = new MachineState();
-  const memory = new TokenMemory(instructions, state.getProgramCounter());
-  const decoder = new TokenDecoder(instructions, state.getProgramCounter());
-
+  state.setProgramCounter(image.textBase);
+  const memory = new BinaryMemory(image.text, image.textBase);
+  const decoder = new NoopDecoder(image.text, image.textBase);
   cpuRegistry.set(state, new Cpu({ memory, decoder, state }));
   return state;
 }
