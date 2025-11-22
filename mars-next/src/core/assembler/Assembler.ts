@@ -157,43 +157,54 @@ export class Assembler {
     throw new Error(`Unsupported operand for immediate value at line ${line}`);
   }
 
+  private expandLoadImmediate(
+    target: Operand | undefined,
+    immediate: Operand | undefined,
+    line: number,
+    instructionName: string,
+  ): NormalizedInstruction[] {
+    if (!target || target.kind !== "register") {
+      throw new Error(`${instructionName} expects a destination register (line ${line})`);
+    }
+
+    if (!immediate || (immediate.kind !== "immediate" && immediate.kind !== "label")) {
+      throw new Error(`${instructionName} expects an immediate value (line ${line})`);
+    }
+
+    const fits16 = immediate.kind === "immediate" && immediate.value >= -32768 && immediate.value <= 32767;
+    if (fits16) {
+      return [
+        {
+          name: "addi",
+          operands: [target, { kind: "register", name: "$zero", register: 0 }, immediate],
+          line,
+        },
+      ];
+    }
+
+    if (immediate.kind !== "immediate") {
+      // Conservatively expand label immediates into two instructions to allow full address resolution.
+      return [
+        { name: "lui", operands: [target, immediate], line },
+        { name: "ori", operands: [target, target, immediate], line },
+      ];
+    }
+
+    const value = immediate.value >>> 0;
+    const upper = (value >>> 16) & 0xffff;
+    const lower = value & 0xffff;
+    return [
+      { name: "lui", operands: [target, { kind: "immediate", value: upper }], line },
+      { name: "ori", operands: [target, target, { kind: "immediate", value: lower }], line },
+    ];
+  }
+
   private expandInstruction(instruction: InstructionNode): NormalizedInstruction[] {
     const { name, operands, line } = instruction;
     switch (name) {
       case "li": {
         const [dest, immediate] = operands;
-        if (!dest || dest.kind !== "register") {
-          throw new Error(`li expects a destination register (line ${line})`);
-        }
-        if (!immediate || (immediate.kind !== "immediate" && immediate.kind !== "label")) {
-          throw new Error(`li expects an immediate value (line ${line})`);
-        }
-        const fits16 = immediate.kind === "immediate" && immediate.value >= -32768 && immediate.value <= 32767;
-        if (fits16) {
-          return [
-            {
-              name: "addi",
-              operands: [dest, { kind: "register", name: "$zero", register: 0 }, immediate],
-              line,
-            },
-          ];
-        }
-
-        if (immediate.kind !== "immediate") {
-          // Conservatively expand label immediates into two instructions to allow full address resolution.
-          return [
-            { name: "lui", operands: [dest, immediate], line },
-            { name: "ori", operands: [dest, dest, immediate], line },
-          ];
-        }
-
-        const value = immediate.value >>> 0;
-        const upper = (value >>> 16) & 0xffff;
-        const lower = value & 0xffff;
-        return [
-          { name: "lui", operands: [dest, { kind: "immediate", value: upper }], line },
-          { name: "ori", operands: [dest, dest, { kind: "immediate", value: lower }], line },
-        ];
+        return this.expandLoadImmediate(dest, immediate, line, "li");
       }
       case "move": {
         const [dest, source] = operands;
@@ -201,6 +212,16 @@ export class Assembler {
           throw new Error(`move expects two register operands (line ${line})`);
         }
         return [{ name: "addu", operands: [dest, source, { kind: "register", name: "$zero", register: 0 }], line }];
+      }
+      case "muli": {
+        const [dest, source, immediate] = operands;
+        if (!dest || dest.kind !== "register" || !source || source.kind !== "register") {
+          throw new Error(`muli expects two registers followed by an immediate (line ${line})`);
+        }
+
+        const atRegister: Operand = { kind: "register", name: "$at", register: 1 };
+        const loadImmediate = this.expandLoadImmediate(atRegister, immediate, line, "muli");
+        return [...loadImmediate, { name: "mul", operands: [dest, source, atRegister], line }];
       }
       case "nop":
         return [{ name: "sll", operands: [{ kind: "register", name: "$zero", register: 0 }, { kind: "register", name: "$zero", register: 0 }, { kind: "immediate", value: 0 }], line }];
@@ -228,6 +249,9 @@ export class Assembler {
       case "addu":
         this.expectOperands(name, operands, ["register", "register", "register"], line);
         return this.encodeR(0x21, operands[1], operands[2], operands[0], line);
+      case "mul":
+        this.expectOperands(name, operands, ["register", "register", "register"], line);
+        return this.encodeMul(operands[1], operands[2], operands[0], line);
       case "sub":
         this.expectOperands(name, operands, ["register", "register", "register"], line);
         return this.encodeR(0x22, operands[1], operands[2], operands[0], line);
@@ -286,6 +310,13 @@ export class Assembler {
     const rdNum = this.requireRegister(rd, line);
     const shamt = shamtOperand ? this.requireImmediate(shamtOperand, line, 0, 31) : 0;
     return (rsNum << 21) | (rtNum << 16) | (rdNum << 11) | (shamt << 6) | (funct & 0x3f);
+  }
+
+  private encodeMul(rs: Operand, rt: Operand, rd: Operand, line: number): number {
+    const rsNum = this.requireRegister(rs, line);
+    const rtNum = this.requireRegister(rt, line);
+    const rdNum = this.requireRegister(rd, line);
+    return (0x1c << 26) | (rsNum << 21) | (rtNum << 16) | (rdNum << 11) | 0x02;
   }
 
   private encodeI(
