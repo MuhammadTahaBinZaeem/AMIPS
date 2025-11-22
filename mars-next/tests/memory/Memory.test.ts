@@ -2,57 +2,39 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { Memory } from "../../src/core/memory/Memory";
-import { MemoryMap } from "../../src/core/memory/MemoryMap";
-
-function createMemory(): Memory {
-  const map = new MemoryMap({
-    textBase: 0x00000000,
-    textSize: 0x1000,
-    dataBase: 0x00001000,
-    dataSize: 0x2000,
-    heapBase: 0x00002000,
-    stackBase: 0x00005000,
-    stackSize: 0x1000,
-    mmioBase: 0x00006000,
-    mmioSize: 0x1000,
-  });
-
-  return new Memory({ map });
-}
 
 describe("Memory", () => {
-  it("stores and retrieves a word", () => {
-    const memory = createMemory();
-    const address = 0x1000;
-    const value = 0x12345678;
+  it("writes and reads 32-bit words", () => {
+    const memory = new Memory();
+    const address = 0x100;
+    const value = 0x1234_5678;
 
     memory.writeWord(address, value);
-    assert.equal(memory.readWord(address), value >>> 0);
+    assert.equal(memory.readWord(address) >>> 0, value >>> 0);
   });
 
-  it("rejects misaligned word accesses", () => {
-    const memory = createMemory();
+  it("writes and reads individual bytes", () => {
+    const memory = new Memory();
+    const baseAddress = 0x40;
+    const bytes = [0xde, 0xad, 0xbe, 0xef];
 
-    assert.throws(() => memory.writeWord(0x1001, 0xdeadbeef), /unaligned/i);
-    assert.throws(() => memory.readWord(0x1001), /unaligned/i);
+    bytes.forEach((byte, index) => memory.writeByte(baseAddress + index, byte));
+    assert.equal(memory.readWord(baseAddress) >>> 0, 0xdeadbeef);
+    assert.equal(memory.readByte(baseAddress + 3), 0xef);
   });
 
-  it("throws on out-of-bounds access", () => {
-    const memory = createMemory();
+  it("throws on misaligned word access", () => {
+    const memory = new Memory();
 
-    assert.throws(() => memory.readByte(0x9000), /out of bounds/i);
-    assert.throws(() => memory.writeByte(0x9000, 0xff), /out of bounds/i);
+    assert.throws(() => memory.writeWord(0x102, 0xfeedface), /Unaligned word address/i);
+    assert.throws(() => memory.readWord(0x10a), /Unaligned word address/i);
   });
 
-  it("maps data and heap segments separately", () => {
-    const memory = createMemory();
-    const dataAddress = 0x1004;
-    const heapAddress = 0x2008;
+  it("faults on invalid addresses", () => {
+    const memory = new Memory();
 
-    memory.writeWord(dataAddress, 0x0badcafe);
-    memory.writeWord(heapAddress, 0xfeedbeef);
-
-    assert.equal(memory.readWord(dataAddress), 0x0badcafe >>> 0);
-    assert.equal(memory.readWord(heapAddress), 0xfeedbeef >>> 0);
+    assert.throws(() => memory.writeByte(-1, 0x11), /Invalid memory address/i);
+    assert.throws(() => memory.readByte(-4), /Invalid memory address/i);
+    assert.throws(() => memory.writeWord(3.5, 0xbeef), /Invalid memory address/i);
   });
 });
