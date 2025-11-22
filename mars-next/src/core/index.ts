@@ -1,7 +1,10 @@
 import { Assembler, BinaryImage } from "./assembler/Assembler";
-import { Cpu, InstructionDecoder, InstructionMemory } from "./cpu/Cpu";
+import { Cpu, InstructionDecoder } from "./cpu/Cpu";
 import { ProgramLoader } from "./loader/ProgramLoader";
+import { Memory } from "./memory/Memory";
 import { MachineState } from "./state/MachineState";
+import { Memory } from "./memory/Memory";
+import { MemoryMap } from "./memory/MemoryMap";
 
 export * from "./cpu/Cpu";
 export * from "./cpu/Pipeline";
@@ -18,24 +21,6 @@ export * from "./syscalls/SyscallHandlers";
 export * from "./debugger/BreakpointEngine";
 export * from "./debugger/WatchEngine";
 export * from "./state/MachineState";
-
-class BinaryMemory implements InstructionMemory {
-  constructor(private readonly words: number[], private readonly baseAddress: number) {}
-
-  loadWord(address: number): number {
-    const offset = address - this.baseAddress;
-    if (offset < 0 || offset % 4 !== 0) {
-      throw new Error(`Invalid instruction address: 0x${address.toString(16)}`);
-    }
-
-    const index = offset / 4;
-    if (index < 0 || index >= this.words.length) {
-      throw new Error(`Instruction address out of range: 0x${address.toString(16)}`);
-    }
-
-    return this.words[index];
-  }
-}
 
 class NoopDecoder implements InstructionDecoder {
   constructor(private readonly instructions: number[], private readonly baseAddress: number) {}
@@ -60,17 +45,18 @@ class NoopDecoder implements InstructionDecoder {
 const cpuRegistry = new WeakMap<MachineState, Cpu>();
 
 export function assemble(program: string): BinaryImage {
-  const loader = new ProgramLoader();
-  const normalizedSource = loader.load(program);
+  const loader = new ProgramLoader(new Memory());
+  const normalizedSource = loader.normalizeSource(program);
   const assembler = new Assembler();
   return assembler.assemble(normalizedSource);
 }
 
 export function loadMachineFromBinary(image: BinaryImage): MachineState {
   const state = new MachineState();
-  state.setProgramCounter(image.textBase);
-  const memory = new BinaryMemory(image.text, image.textBase);
-  const decoder = new NoopDecoder(image.text, image.textBase);
+  const memory = new Memory();
+  const loader = new ProgramLoader(memory);
+  const { textBase } = loader.loadProgram(state, image);
+  const decoder = new NoopDecoder(image.text, textBase);
   cpuRegistry.set(state, new Cpu({ memory, decoder, state }));
   return state;
 }
