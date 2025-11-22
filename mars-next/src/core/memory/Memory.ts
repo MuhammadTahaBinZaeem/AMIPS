@@ -53,6 +53,16 @@ export class Memory {
     values.forEach((value, index) => this.writeByte(baseAddress + index, value));
   }
 
+  /**
+   * Returns a snapshot of all written bytes sorted by address. Useful for simple UIs or debugging
+   * scenarios where a read-only view of memory contents is needed.
+   */
+  entries(): Array<{ address: number; value: number }> {
+    return [...this.bytes.entries()]
+      .sort(([a], [b]) => a - b)
+      .map(([address, value]) => ({ address, value }));
+  }
+
   private validateAddress(address: number): void {
     if (!Number.isInteger(address) || address < 0) {
       throw new RangeError(`Invalid memory address: ${address}`);
