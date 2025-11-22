@@ -1,26 +1,30 @@
-import { Memory } from "../memory/Memory";
-import { TerminalDevice } from "../devices/TerminalDevice";
-import { MachineState } from "../state/MachineState";
-import { createDefaultSyscallHandlers, SyscallDevices, SyscallHandler } from "./SyscallHandlers";
-
-const defaultDevices: SyscallDevices = {
-  terminal: new TerminalDevice(),
-  input: {
-    readInt: () => 0,
-  },
-};
+import { SyscallHandler } from "./SyscallHandlers";
 
 export class SyscallTable {
-  private readonly handlers = new Map<number, SyscallHandler>();
+  private readonly handlers = new Map<string, SyscallHandler>();
 
-  constructor(
-    private readonly memory: Memory,
-    private readonly devices: SyscallDevices,
-    initialHandlers: Record<number, SyscallHandler> = createDefaultSyscallHandlers(),
-  ) {
-    Object.entries(initialHandlers).forEach(([number, handler]) => {
-      this.register(Number(number), handler);
-    });
+  register(name: string, handler: SyscallHandler): void {
+    if (this.handlers.has(name)) {
+      throw new Error(`Syscall already registered: ${name}`);
+    }
+    this.handlers.set(name, handler);
+  }
+
+  has(name: string): boolean {
+    return this.handlers.has(name);
+  }
+
+  invoke(name: string, ...args: unknown[]): unknown {
+    const handler = this.handlers.get(name);
+    if (!handler) {
+      throw new Error(`Unknown syscall: ${name}`);
+    }
+
+    return handler(...args);
+  }
+
+  asRecord(): Record<string, SyscallHandler> {
+    return Object.fromEntries(this.handlers.entries());
   }
 
   register(number: number, handler: SyscallHandler): void {

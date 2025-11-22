@@ -1,57 +1,45 @@
-import { Memory } from "../memory/Memory";
+import { FileDevice } from "../devices/FileDevice";
 import { TerminalDevice } from "../devices/TerminalDevice";
-import { MachineState } from "../state/MachineState";
+import { TimerDevice } from "../devices/TimerDevice";
 
-export interface InputDevice {
-  readInt(): number;
-}
+export type SyscallHandler = (...args: unknown[]) => unknown;
 
 export interface SyscallDevices {
-  terminal: Pick<TerminalDevice, "write">;
-  input: InputDevice;
+  terminal?: TerminalDevice;
+  file?: FileDevice;
+  timer?: TimerDevice;
 }
 
-export type SyscallHandler = (
-  state: MachineState,
-  memory: Memory,
-  devices: SyscallDevices,
-) => void;
+export function createDefaultSyscallHandlers(devices: SyscallDevices = {}): Record<string, SyscallHandler> {
+  const { terminal, file, timer } = devices;
 
-export function createDefaultSyscallHandlers(): Record<number, SyscallHandler> {
   return {
-    1: handlePrintInteger,
-    4: handlePrintString,
-    5: handleReadInteger,
-    10: handleExit,
+    print_int: (value: unknown) => requireDevice(terminal, "TerminalDevice").printInt(Number(value)),
+    print_string: (value: unknown) => requireDevice(terminal, "TerminalDevice").printString(String(value)),
+    read_string: () => requireDevice(terminal, "TerminalDevice").readString(),
+    file_open: (path: unknown, mode: unknown) => requireDevice(file, "FileDevice").open(String(path), normalizeFileMode(mode)),
+    file_read: (descriptor: unknown) => requireDevice(file, "FileDevice").readFile(Number(descriptor)),
+    file_write: (descriptor: unknown, content: unknown) =>
+      requireDevice(file, "FileDevice").writeFile(Number(descriptor), String(content)),
+    file_close: (descriptor: unknown) => requireDevice(file, "FileDevice").close(Number(descriptor)),
+    timer_now: () => requireDevice(timer, "TimerDevice").getCurrentTime(),
   };
 }
 
-function handlePrintInteger(state: MachineState, _memory: Memory, devices: SyscallDevices): void {
-  const value = state.getRegister(4);
-  devices.terminal.write(value.toString());
-}
-
-function handlePrintString(state: MachineState, memory: Memory, devices: SyscallDevices): void {
-  const baseAddress = state.getRegister(4);
-  const chars: number[] = [];
-  let offset = 0;
-
-  while (true) {
-    const byte = memory.readByte(baseAddress + offset);
-    if (byte === 0) break;
-    chars.push(byte);
-    offset += 1;
+function requireDevice<T>(device: T | undefined, name: string): T {
+  if (!device) {
+    throw new Error(`${name} is not available in this environment`);
   }
-
-  const message = String.fromCharCode(...chars);
-  devices.terminal.write(message);
+  return device;
 }
 
-function handleReadInteger(state: MachineState, _memory: Memory, devices: SyscallDevices): void {
-  const value = devices.input.readInt();
-  state.setRegister(2, value);
-}
-
-function handleExit(state: MachineState): void {
-  state.terminate();
+function normalizeFileMode(mode: unknown): "r" | "w" | "a" {
+  switch (mode) {
+    case "r":
+    case "w":
+    case "a":
+      return mode;
+    default:
+      throw new Error(`Unsupported file mode: ${mode}`);
+  }
 }
