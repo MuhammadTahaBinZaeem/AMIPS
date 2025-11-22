@@ -36,6 +36,7 @@ describe("Assembler pipeline", () => {
     const image = new Assembler().assemble(source);
 
     assert.deepStrictEqual(image.dataWords, [100, 200, -1]);
+    assert.deepStrictEqual(image.data, [0, 0, 0, 100, 0, 0, 0, 200, 255, 255, 255, 255]);
     assert.strictEqual(image.symbols["values"], image.dataBase);
   });
 
@@ -53,10 +54,29 @@ describe("Assembler pipeline", () => {
     assert.strictEqual(image.symbols["main"], image.textBase);
   });
 
+  test("computes forward branch offsets", () => {
+    const source = [
+      "beq $t0, $t1, target",
+      "addi $t2, $zero, 1",
+      "target: addi $t2, $t2, 2",
+    ].join("\n");
+
+    const image = new Assembler().assemble(source);
+    assert.deepStrictEqual(toHexWords(image.text), ["0x11090001", "0x200a0001", "0x214a0002"]);
+    assert.strictEqual(image.symbols["target"], image.textBase + 8);
+  });
+
   test("throws on unknown instructions", () => {
     const source = "bogus $t0, $t1, $t2";
     const assembler = new Assembler();
 
     assert.throws(() => assembler.assemble(source), /Unknown instruction/);
+  });
+
+  test("rejects invalid operand syntax", () => {
+    const assembler = new Assembler();
+
+    assert.throws(() => assembler.assemble(".text\n.word 1"), /.word is only allowed in .data/);
+    assert.throws(() => assembler.assemble("addi $t0 $t1 5"), /Unable to parse operand/);
   });
 });
