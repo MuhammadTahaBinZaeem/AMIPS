@@ -26,4 +26,22 @@ export class SyscallTable {
   asRecord(): Record<string, SyscallHandler> {
     return Object.fromEntries(this.handlers.entries());
   }
+
+  register(number: number, handler: SyscallHandler): void {
+    this.handlers.set(number, handler);
+  }
+
+  handle(number: number, state: MachineState): void {
+    const handler = this.handlers.get(number);
+    if (!handler) {
+      throw new Error(`unimplemented syscall: ${number}`);
+    }
+
+    handler(state, this.memory, this.devices);
+  }
+}
+
+export function handleSyscall(state: MachineState, number: number, table?: SyscallTable): void {
+  const dispatcher = table ?? new SyscallTable(new Memory(), defaultDevices);
+  dispatcher.handle(number, state);
 }
