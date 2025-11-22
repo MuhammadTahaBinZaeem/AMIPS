@@ -1,22 +1,59 @@
 import assert from "node:assert";
 import { describe, test } from "node:test";
 
+import { Assembler } from "../../src/core/assembler/Assembler";
+import { Pipeline, ProgramMemory } from "../../src/core/cpu/Pipeline";
+import { decodeInstruction } from "../../src/core/cpu/Instructions";
+import { InstructionDecoder } from "../../src/core/cpu/Cpu";
 import { FileDevice } from "../../src/core/devices/FileDevice";
 import { TerminalDevice } from "../../src/core/devices/TerminalDevice";
 import { TimerDevice } from "../../src/core/devices/TimerDevice";
 import { MemoryMap } from "../../src/core/memory/MemoryMap";
+import { Memory } from "../../src/core/memory/Memory";
 import { MachineState } from "../../src/core/state/MachineState";
 import { createDefaultSyscallHandlers } from "../../src/core/syscalls/SyscallHandlers";
+import { SyscallTable } from "../../src/core/syscalls/SyscallTable";
 
 describe("TerminalDevice", () => {
-  test("captures output produced through syscall handlers", () => {
+  test("captures output from an assembled print syscall program", () => {
     const terminal = new TerminalDevice();
-    const syscalls = createDefaultSyscallHandlers({ terminal });
+    const assembler = new Assembler();
+    const program = [
+      ".text",
+      "addi $v0, $zero, 1", // syscall: print_int
+      "addi $a0, $zero, 777",
+      "syscall",
+      "addi $v0, $zero, 10", // syscall: exit
+      "syscall",
+    ].join("\n");
 
-    syscalls.print_int(42);
-    syscalls.print_string(" hello");
+    const image = assembler.assemble(program);
+    const state = new MachineState();
+    const instructionMemory = new ProgramMemory(image.text, image.textBase);
+    const dataMemory = new Memory();
+    const syscalls = new SyscallTable(dataMemory, { terminal }, createDefaultSyscallHandlers({ terminal }));
+    const decoder: InstructionDecoder = {
+      decode: (instruction, pc) => {
+        if (instruction === 0x0000000c) {
+          return {
+            name: "syscall",
+            execute: (innerState) => {
+              const number = innerState.getRegister(2);
+              syscalls.handle(number, innerState);
+            },
+          };
+        }
 
-    assert.deepStrictEqual(terminal.getOutputLog(), ["42", " hello"]);
+        return decodeInstruction(instruction, pc);
+      },
+    };
+
+    const pipeline = new Pipeline({ memory: instructionMemory, state, decoder });
+    while (!pipeline.isHalted()) {
+      pipeline.step();
+    }
+
+    assert.deepStrictEqual(terminal.getOutputLog(), ["777"]);
   });
 
   test("reads from queued input", () => {
@@ -56,6 +93,7 @@ describe("TimerDevice", () => {
   test("triggers interrupts on ticks that cross the interval", () => {
     const timer = new TimerDevice();
     const state = new MachineState();
+
     timer.onInterrupt(() => state.setRegister(1, state.getRegister(1) + 1));
     timer.setIntervalMs(10);
 
@@ -64,6 +102,9 @@ describe("TimerDevice", () => {
 
     timer.tick(5);
     assert.strictEqual(state.getRegister(1), 1);
+
+    timer.tick(30);
+    assert.strictEqual(state.getRegister(1), 4);
   });
 
   test("exposes timer state through the memory map", () => {
