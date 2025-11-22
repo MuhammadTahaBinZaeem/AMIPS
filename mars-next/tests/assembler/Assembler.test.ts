@@ -66,6 +66,13 @@ describe("Assembler pipeline", () => {
     assert.strictEqual(image.symbols["target"], image.textBase + 8);
   });
 
+  test("expands muli pseudo-instruction using mul", () => {
+    const source = "muli $t0, $t1, 5";
+
+    const image = new Assembler().assemble(source);
+    assert.deepStrictEqual(toHexWords(image.text), ["0x20010005", "0x71214002"]);
+  });
+
   test("throws on unknown instructions", () => {
     const source = "bogus $t0, $t1, $t2";
     const assembler = new Assembler();

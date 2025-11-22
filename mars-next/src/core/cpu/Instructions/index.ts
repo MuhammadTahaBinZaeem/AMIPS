@@ -53,6 +53,17 @@ function makeAdd(decoded: RTypeFields): DecodedInstruction {
   };
 }
 
+function makeMul(decoded: RTypeFields): DecodedInstruction {
+  const { rd, rs, rt } = decoded;
+  return {
+    name: "mul",
+    execute: (state: MachineState) => {
+      const product = toInt32(state.getRegister(rs) * state.getRegister(rt));
+      state.setRegister(rd, product);
+    },
+  };
+}
+
 function makeAddImmediate(decoded: ITypeFields): DecodedInstruction {
   const { rs, rt, immediate } = decoded;
   const signExtended = signExtend16(immediate);
@@ -101,6 +112,16 @@ export function decodeInstruction(instruction: number, pc: number): DecodedInstr
         return null;
       case 0x20:
         return makeAdd(decoded);
+      default:
+        return null;
+    }
+  }
+
+  if (opcode === 0x1c) {
+    const decoded = decodeRType(instruction);
+    switch (decoded.funct) {
+      case 0x02:
+        return makeMul(decoded);
       default:
         return null;
     }
