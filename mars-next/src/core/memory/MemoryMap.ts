@@ -1,9 +1,8 @@
+import { Device, DeviceData } from "../devices/Device";
+
 export type MemorySegmentName = "text" | "data" | "heap" | "stack" | "mmio";
 
-export interface MemoryMappedDevice {
-  readByte(address: number): number;
-  writeByte(address: number, value: number): void;
-}
+export interface MemoryMappedDevice extends Device {}
 
 export interface MemoryMapOptions {
   textBase?: number;
@@ -124,8 +123,30 @@ export class MemoryMap {
     ];
   }
 
-  registerDevice(start: number, end: number, device: MemoryMappedDevice): void {
-    this.devices.push({ start, end, device });
+  registerDevice(start: number, size: number, device: MemoryMappedDevice): void {
+    const normalizedStart = start >>> 0;
+    const normalizedEnd = (normalizedStart + size - 1) >>> 0;
+    this.devices.push({ start: normalizedStart, end: normalizedEnd, device });
+  }
+
+  read(address: number): DeviceData {
+    const range = this.findDeviceRange(address);
+    if (!range) {
+      throw new RangeError(`No memory-mapped device for address 0x${address.toString(16)}`);
+    }
+
+    const offset = (address - range.start) | 0;
+    return range.device.read(offset);
+  }
+
+  write(address: number, value: number | string | Uint8Array): void {
+    const range = this.findDeviceRange(address);
+    if (!range) {
+      throw new RangeError(`No memory-mapped device for address 0x${address.toString(16)}`);
+    }
+
+    const offset = (address - range.start) | 0;
+    range.device.write(offset, value);
   }
 
   resolve(address: number): MemoryMappingResult {
@@ -135,7 +156,7 @@ export class MemoryMap {
     for (const segment of this.segments) {
       if (this.inSegmentRange(normalizedAddress, segment)) {
         const offset = this.computeOffset(normalizedAddress, segment);
-        const device = segment.name === "mmio" ? this.findDevice(normalizedAddress) : undefined;
+        const device = segment.name === "mmio" ? this.findDeviceRange(normalizedAddress)?.device : undefined;
         return { segment, offset, device };
       }
     }
@@ -159,7 +180,7 @@ export class MemoryMap {
     }
   }
 
-  private findDevice(address: number): MemoryMappedDevice | undefined {
-    return this.devices.find(({ start, end }) => address >= start && address <= end)?.device;
+  private findDeviceRange(address: number): DeviceRange | undefined {
+    return this.devices.find(({ start, end }) => address >= start && address <= end);
   }
 }

@@ -1,11 +1,16 @@
 import { decodeInstruction } from "./Instructions";
 import { Cpu, DecodedInstruction, InstructionDecoder, InstructionMemory } from "./Cpu";
 import { MachineState, DEFAULT_TEXT_BASE } from "../state/MachineState";
+import { BreakpointEngine } from "../debugger/BreakpointEngine";
+import { WatchEngine } from "../debugger/WatchEngine";
 
 export interface PipelineOptions {
-  memory: InstructionMemory;
+  memory?: InstructionMemory;
   state?: MachineState;
   decoder?: InstructionDecoder;
+  cpu?: Cpu;
+  breakpoints?: BreakpointEngine;
+  watchEngine?: WatchEngine;
 }
 
 export class ProgramMemory implements InstructionMemory {
@@ -38,7 +43,8 @@ export class ProgramMemory implements InstructionMemory {
 
 export class Pipeline {
   private readonly cpu: Cpu;
-  private readonly breakpoints: Set<number> = new Set();
+  private readonly breakpoints: BreakpointEngine | null;
+  private readonly watchEngine: WatchEngine | null;
   private halted = false;
 
   constructor(options: PipelineOptions) {
@@ -46,7 +52,13 @@ export class Pipeline {
       decode: (instruction: number, pc: number): DecodedInstruction | null => decodeInstruction(instruction, pc),
     } as InstructionDecoder);
 
-    this.cpu = new Cpu({ memory: options.memory, decoder, state: options.state });
+    if (!options.cpu && !options.memory) {
+      throw new Error("Pipeline requires either a CPU instance or instruction memory");
+    }
+
+    this.cpu = options.cpu ?? new Cpu({ memory: options.memory!, decoder, state: options.state });
+    this.breakpoints = options.breakpoints ?? null;
+    this.watchEngine = options.watchEngine ?? null;
   }
 
   getState(): MachineState {
@@ -66,31 +78,43 @@ export class Pipeline {
   }
 
   addBreakpoint(address: number): void {
-    this.breakpoints.add(address | 0);
+    this.breakpoints?.setBreakpoint(address);
   }
 
   removeBreakpoint(address: number): void {
-    this.breakpoints.delete(address | 0);
+    this.breakpoints?.removeBreakpoint(address);
   }
 
   clearBreakpoints(): void {
-    this.breakpoints.clear();
+    this.breakpoints?.clearAll();
   }
 
-  executeCycle(): void {
-    this.step();
+  executeCycle(): "running" | "breakpoint" | "halted" | "terminated" {
+    return this.step();
   }
 
-  step(): void {
-    if (this.halted) return;
+  step(): "running" | "breakpoint" | "halted" | "terminated" {
+    if (this.halted) return "halted";
 
-    const pc = this.cpu.getState().getProgramCounter();
-    if (this.breakpoints.has(pc)) {
+    const state = this.cpu.getState();
+    const pc = state.getProgramCounter();
+    const instructionIndex = ((pc - DEFAULT_TEXT_BASE) / 4) | 0;
+
+    if (this.breakpoints?.checkForHit(pc, instructionIndex)) {
       this.halted = true;
-      return;
+      return "breakpoint";
     }
 
+    this.watchEngine?.beginStep();
     this.cpu.step();
+    this.watchEngine?.completeStep();
+
+    if (state.isTerminated()) {
+      this.halted = true;
+      return "terminated";
+    }
+
+    return "running";
   }
 
   run(maxCycles = Number.MAX_SAFE_INTEGER): void {

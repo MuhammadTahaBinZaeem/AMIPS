@@ -42,4 +42,10 @@ export class BreakpointEngine {
   clearHit(): void {
     this.lastHit = null;
   }
+
+  clearAll(): void {
+    this.addressBreakpoints.clear();
+    this.instructionBreakpoints.clear();
+    this.clearHit();
+  }
 }
