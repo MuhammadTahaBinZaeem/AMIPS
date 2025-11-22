@@ -19,6 +19,17 @@ export class Memory {
     return value | 0;
   }
 
+  /**
+   * Convenience wrapper used by debugger subsystems to read either a word (aligned) or a single byte (unaligned).
+   */
+  read(address: number): number {
+    if (address % 4 === 0) {
+      return this.readWord(address);
+    }
+
+    return this.readByte(address);
+  }
+
   writeWord(address: number, value: number): void {
     this.validateWordAddress(address);
 

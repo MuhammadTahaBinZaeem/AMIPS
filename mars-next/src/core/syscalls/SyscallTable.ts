@@ -1,6 +1,7 @@
 import { Memory } from "../memory/Memory";
 import { MachineState } from "../state/MachineState";
-import { SyscallDevices, SyscallHandler, InputDevice, TerminalDevice } from "./SyscallHandlers";
+import { TerminalDevice } from "../devices/TerminalDevice";
+import { SyscallDevices, SyscallHandler, InputDevice } from "./SyscallHandlers";
 
 export type SyscallImplementation = (state: MachineState) => void;
 
