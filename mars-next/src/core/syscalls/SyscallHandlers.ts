@@ -8,15 +8,17 @@ export interface SyscallDevices {
   terminal?: TerminalDevice;
   file?: FileDevice;
   timer?: TimerDevice;
+  input?: InputDevice;
 }
 
 export function createDefaultSyscallHandlers(devices: SyscallDevices = {}): Record<string, SyscallHandler> {
-  const { terminal, file, timer } = devices;
+  const { terminal, file, timer, input } = devices;
 
   return {
     print_int: (value: unknown) => requireDevice(terminal, "TerminalDevice").printInt(Number(value)),
     print_string: (value: unknown) => requireDevice(terminal, "TerminalDevice").printString(String(value)),
     read_string: () => requireDevice(terminal, "TerminalDevice").readString(),
+    read_int: () => requireDevice(input, "InputDevice").readInt(),
     file_open: (path: unknown, mode: unknown) => requireDevice(file, "FileDevice").open(String(path), normalizeFileMode(mode)),
     file_read: (descriptor: unknown) => requireDevice(file, "FileDevice").readFile(Number(descriptor)),
     file_write: (descriptor: unknown, content: unknown) =>
@@ -42,4 +44,8 @@ function normalizeFileMode(mode: unknown): "r" | "w" | "a" {
     default:
       throw new Error(`Unsupported file mode: ${mode}`);
   }
+}
+
+export interface InputDevice {
+  readInt(): number;
 }
