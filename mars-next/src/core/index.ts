@@ -1,8 +1,10 @@
 import { Assembler, BinaryImage } from "./assembler/Assembler";
-import { Cpu, InstructionDecoder, InstructionMemory } from "./cpu/Cpu";
+import { Cpu, InstructionDecoder } from "./cpu/Cpu";
 import { ProgramLoader } from "./loader/ProgramLoader";
 import { Memory } from "./memory/Memory";
 import { MachineState } from "./state/MachineState";
+import { Memory } from "./memory/Memory";
+import { MemoryMap } from "./memory/MemoryMap";
 
 export * from "./cpu/Cpu";
 export * from "./cpu/Pipeline";
