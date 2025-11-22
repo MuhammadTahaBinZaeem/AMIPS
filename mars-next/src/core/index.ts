@@ -9,6 +9,7 @@ export * from "./memory/Memory";
 export * from "./memory/MemoryMap";
 export * from "./assembler/Assembler";
 export * from "./loader/ProgramLoader";
+export * from "./devices/Device";
 export * from "./devices/TerminalDevice";
 export * from "./devices/FileDevice";
 export * from "./devices/TimerDevice";
