@@ -41,9 +41,14 @@ describe("Program loading placement", () => {
     const binary: BinaryImage = {
       textBase: map.textBase,
       dataBase: 0x10010000,
+      ktextBase: 0x80000000,
+      kdataBase: 0x90000000,
       text: [0x8fa40000, 0x27bdfff0],
       data: [0xaa, 0xbb, 0xcc, 0xdd],
+      ktext: [],
+      kdata: [],
       dataWords: [],
+      kdataWords: [],
       symbols: {},
     };
 

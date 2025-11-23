@@ -8,10 +8,17 @@ export interface BinaryImage {
   text: number[]; // machine words
   data: number[]; // bytes
   dataWords: number[]; // data values aligned to 4 bytes where applicable
+  ktextBase: number;
+  kdataBase: number;
+  ktext: number[]; // kernel machine words
+  kdata: number[]; // kernel data bytes
+  kdataWords: number[]; // kernel data values aligned to 4 bytes
   symbols: Record<string, number>;
 }
 
 const DEFAULT_DATA_BASE = 0x10010000;
+const DEFAULT_KTEXT_BASE = 0x80000000;
+const DEFAULT_KDATA_BASE = 0x90000000;
 
 type SymbolTable = Map<string, number>;
 
@@ -29,14 +36,19 @@ export class Assembler {
     const lexed = this.lexer.tokenize(source);
     const ast = this.parser.parse(lexed);
     const symbols = this.buildSymbolTable(ast);
-    const { text, data, dataWords } = this.emit(ast, symbols);
+    const { text, data, dataWords, ktext, kdata, kdataWords } = this.emit(ast, symbols);
 
     return {
       textBase: DEFAULT_TEXT_BASE,
       dataBase: DEFAULT_DATA_BASE,
+      ktextBase: DEFAULT_KTEXT_BASE,
+      kdataBase: DEFAULT_KDATA_BASE,
       text,
       data,
+      ktext,
+      kdata,
       dataWords,
+      kdataWords,
       symbols: Object.fromEntries(symbols),
     };
   }
@@ -45,36 +57,73 @@ export class Assembler {
     let segment: Segment = "text";
     let textOffset = 0;
     let dataOffset = 0;
+    let ktextOffset = 0;
+    let kdataOffset = 0;
     const symbols: SymbolTable = new Map();
+    const definedSymbols = new Set<string>();
+    const externSymbols = new Set<string>();
+    const globalSymbols = new Set<string>();
+    const eqvDefinitions: Array<{ name: string; value: Operand; line: number }> = [];
 
     for (const node of ast.nodes) {
       switch (node.kind) {
         case "directive": {
           if (node.name === ".text") segment = "text";
+          if (node.name === ".ktext") segment = "ktext";
           if (node.name === ".data") segment = "data";
-          if (segment === "data") {
+          if (node.name === ".kdata") segment = "kdata";
+
+          if (node.name === ".globl" || node.name === ".extern") {
+            node.args.forEach((arg) => {
+              if (arg.kind === "label") {
+                if (node.name === ".globl") {
+                  globalSymbols.add(arg.name);
+                } else {
+                  externSymbols.add(arg.name);
+                  if (!symbols.has(arg.name)) symbols.set(arg.name, 0);
+                }
+              }
+            });
+          }
+
+          if (node.name === ".eqv") {
+            const name = (node.args[0] as Operand & { kind: "label" }).name;
+            eqvDefinitions.push({ name, value: node.args[1], line: node.line });
+          }
+
+          if (segment === "data" || segment === "kdata") {
             switch (node.name) {
               case ".byte":
-                dataOffset += node.args.length;
+                if (segment === "data") dataOffset += node.args.length;
+                else kdataOffset += node.args.length;
                 break;
               case ".half":
-                dataOffset += 2 * node.args.length;
+                if (segment === "data") dataOffset += 2 * node.args.length;
+                else kdataOffset += 2 * node.args.length;
                 break;
               case ".word":
               case ".float":
-                dataOffset += 4 * node.args.length;
+                if (segment === "data") dataOffset += 4 * node.args.length;
+                else kdataOffset += 4 * node.args.length;
                 break;
               case ".double":
-                dataOffset += 8 * node.args.length;
+                if (segment === "data") dataOffset += 8 * node.args.length;
+                else kdataOffset += 8 * node.args.length;
                 break;
               case ".ascii":
-                dataOffset += this.encodeString((node.args[0] as Operand & { kind: "string" }).value).length;
+                if (segment === "data")
+                  dataOffset += this.encodeString((node.args[0] as Operand & { kind: "string" }).value).length;
+                else kdataOffset += this.encodeString((node.args[0] as Operand & { kind: "string" }).value).length;
                 break;
               case ".asciiz":
-                dataOffset += this.encodeString((node.args[0] as Operand & { kind: "string" }).value).length + 1;
+                if (segment === "data")
+                  dataOffset += this.encodeString((node.args[0] as Operand & { kind: "string" }).value).length + 1;
+                else kdataOffset += this.encodeString((node.args[0] as Operand & { kind: "string" }).value).length + 1;
                 break;
               case ".space":
-                dataOffset += (node.args[0] as Operand & { kind: "immediate" }).value;
+                if (segment === "data")
+                  dataOffset += (node.args[0] as Operand & { kind: "immediate" }).value;
+                else kdataOffset += (node.args[0] as Operand & { kind: "immediate" }).value;
                 break;
               case ".align": {
                 const power = (node.args[0] as Operand & { kind: "immediate" }).value as number;
@@ -82,8 +131,10 @@ export class Assembler {
                 if (!Number.isFinite(alignment) || alignment <= 0) {
                   throw new Error(`Invalid alignment at line ${node.line}`);
                 }
-                const padding = (alignment - (dataOffset % alignment)) % alignment;
-                dataOffset += padding;
+                const currentOffset = segment === "data" ? dataOffset : kdataOffset;
+                const padding = (alignment - (currentOffset % alignment)) % alignment;
+                if (segment === "data") dataOffset += padding;
+                else kdataOffset += padding;
                 break;
               }
             }
@@ -91,153 +142,231 @@ export class Assembler {
           break;
         }
         case "label": {
-          const address = segment === "text" ? DEFAULT_TEXT_BASE + textOffset : DEFAULT_DATA_BASE + dataOffset;
-          if (symbols.has(node.name)) {
+          const base =
+            segment === "text"
+              ? DEFAULT_TEXT_BASE
+              : segment === "ktext"
+                ? DEFAULT_KTEXT_BASE
+                : segment === "kdata"
+                  ? DEFAULT_KDATA_BASE
+                  : DEFAULT_DATA_BASE;
+          const offset =
+            segment === "text"
+              ? textOffset
+              : segment === "ktext"
+                ? ktextOffset
+                : segment === "kdata"
+                  ? kdataOffset
+                  : dataOffset;
+          const address = base + offset;
+          if (definedSymbols.has(node.name)) {
             throw new Error(`Duplicate label '${node.name}' at line ${node.line}`);
           }
           symbols.set(node.name, address | 0);
+          definedSymbols.add(node.name);
           break;
         }
         case "instruction": {
           const expansion = this.expandInstruction(node);
-          textOffset += expansion.length * 4;
+          if (segment === "text") {
+            textOffset += expansion.length * 4;
+          } else if (segment === "ktext") {
+            ktextOffset += expansion.length * 4;
+          }
           break;
         }
+      }
+    }
+
+    for (const { name, value, line } of eqvDefinitions) {
+      if (definedSymbols.has(name)) {
+        throw new Error(`Duplicate symbol '${name}' at line ${line}`);
+      }
+      const resolved = this.resolveValue(value, symbols, line);
+      symbols.set(name, this.toInt32(resolved));
+      definedSymbols.add(name);
+    }
+
+    for (const name of globalSymbols) {
+      if (!definedSymbols.has(name)) {
+        throw new Error(`Global symbol '${name}' declared but not defined`);
       }
     }
 
     return symbols;
   }
 
-  private emit(ast: ProgramAst, symbols: SymbolTable): { text: number[]; data: number[]; dataWords: number[] } {
+  private emit(
+    ast: ProgramAst,
+    symbols: SymbolTable,
+  ): { text: number[]; data: number[]; dataWords: number[]; ktext: number[]; kdata: number[]; kdataWords: number[] } {
     let segment: Segment = "text";
     let pc = DEFAULT_TEXT_BASE;
     const text: number[] = [];
+    const ktext: number[] = [];
     const data: number[] = [];
+    const kdata: number[] = [];
     const dataWords: number[] = [];
+    const kdataWords: number[] = [];
     let dataOffset = 0;
+    let kdataOffset = 0;
+    let textOffset = 0;
+    let ktextOffset = 0;
 
     for (const node of ast.nodes) {
       if (node.kind === "directive") {
         switch (node.name) {
           case ".text":
             segment = "text";
+            pc = DEFAULT_TEXT_BASE + textOffset;
+            continue;
+          case ".ktext":
+            segment = "ktext";
+            pc = DEFAULT_KTEXT_BASE + ktextOffset;
             continue;
           case ".data":
             segment = "data";
             continue;
+          case ".kdata":
+            segment = "kdata";
+            continue;
           case ".word": {
-            if (segment !== "data") {
-              throw new Error(`.word directive encountered outside .data at line ${node.line}`);
+            if (segment !== "data" && segment !== "kdata") {
+              throw new Error(`.word directive encountered outside .data/.kdata at line ${node.line}`);
             }
+            const targetWords = segment === "data" ? dataWords : kdataWords;
+            const targetBytes = segment === "data" ? data : kdata;
             for (const arg of node.args) {
               if (arg.kind !== "immediate" && arg.kind !== "label") {
                 throw new Error(`.word expects numeric arguments (line ${node.line})`);
               }
               const value = this.resolveValue(arg, symbols, node.line);
-              dataWords.push(this.toInt32(value));
-              this.pushWordBytes(value, data);
-              dataOffset += 4;
+              targetWords.push(this.toInt32(value));
+              this.pushWordBytes(value, targetBytes);
+              if (segment === "data") dataOffset += 4;
+              else kdataOffset += 4;
             }
             continue;
           }
           case ".byte": {
-            if (segment !== "data") {
-              throw new Error(`.byte directive encountered outside .data at line ${node.line}`);
+            if (segment !== "data" && segment !== "kdata") {
+              throw new Error(`.byte directive encountered outside .data/.kdata at line ${node.line}`);
             }
+            const target = segment === "data" ? data : kdata;
             for (const arg of node.args) {
               if (arg.kind !== "immediate" && arg.kind !== "label") {
                 throw new Error(`.byte expects numeric arguments (line ${node.line})`);
               }
               const value = this.resolveValue(arg, symbols, node.line);
-              data.push(value & 0xff);
-              dataOffset += 1;
+              target.push(value & 0xff);
+              if (segment === "data") dataOffset += 1;
+              else kdataOffset += 1;
             }
             continue;
           }
           case ".half": {
-            if (segment !== "data") {
-              throw new Error(`.half directive encountered outside .data at line ${node.line}`);
+            if (segment !== "data" && segment !== "kdata") {
+              throw new Error(`.half directive encountered outside .data/.kdata at line ${node.line}`);
             }
+            const target = segment === "data" ? data : kdata;
             for (const arg of node.args) {
               if (arg.kind !== "immediate" && arg.kind !== "label") {
                 throw new Error(`.half expects numeric arguments (line ${node.line})`);
               }
               const value = this.resolveValue(arg, symbols, node.line);
-              this.pushHalfBytes(value, data);
-              dataOffset += 2;
+              this.pushHalfBytes(value, target);
+              if (segment === "data") dataOffset += 2;
+              else kdataOffset += 2;
             }
             continue;
           }
           case ".float": {
-            if (segment !== "data") {
-              throw new Error(`.float directive encountered outside .data at line ${node.line}`);
+            if (segment !== "data" && segment !== "kdata") {
+              throw new Error(`.float directive encountered outside .data/.kdata at line ${node.line}`);
             }
+            const target = segment === "data" ? data : kdata;
             for (const arg of node.args) {
               if (arg.kind !== "immediate") {
                 throw new Error(`.float expects numeric arguments (line ${node.line})`);
               }
-              this.pushFloatBytes(arg.value, data);
-              dataOffset += 4;
+              this.pushFloatBytes(arg.value, target);
+              if (segment === "data") dataOffset += 4;
+              else kdataOffset += 4;
             }
             continue;
           }
           case ".double": {
-            if (segment !== "data") {
-              throw new Error(`.double directive encountered outside .data at line ${node.line}`);
+            if (segment !== "data" && segment !== "kdata") {
+              throw new Error(`.double directive encountered outside .data/.kdata at line ${node.line}`);
             }
+            const target = segment === "data" ? data : kdata;
             for (const arg of node.args) {
               if (arg.kind !== "immediate") {
                 throw new Error(`.double expects numeric arguments (line ${node.line})`);
               }
-              this.pushDoubleBytes(arg.value, data);
-              dataOffset += 8;
+              this.pushDoubleBytes(arg.value, target);
+              if (segment === "data") dataOffset += 8;
+              else kdataOffset += 8;
             }
             continue;
           }
           case ".asciiz": {
-            if (segment !== "data") {
-              throw new Error(`.asciiz directive encountered outside .data at line ${node.line}`);
+            if (segment !== "data" && segment !== "kdata") {
+              throw new Error(`.asciiz directive encountered outside .data/.kdata at line ${node.line}`);
             }
             const literal = (node.args[0] as Operand & { kind: "string" }).value;
             const bytes = [...this.encodeString(literal), 0];
-            data.push(...bytes.map((b) => b & 0xff));
-            dataOffset += bytes.length;
+            const target = segment === "data" ? data : kdata;
+            target.push(...bytes.map((b) => b & 0xff));
+            if (segment === "data") dataOffset += bytes.length;
+            else kdataOffset += bytes.length;
             continue;
           }
           case ".ascii": {
-            if (segment !== "data") {
-              throw new Error(`.ascii directive encountered outside .data at line ${node.line}`);
+            if (segment !== "data" && segment !== "kdata") {
+              throw new Error(`.ascii directive encountered outside .data/.kdata at line ${node.line}`);
             }
             const literal = (node.args[0] as Operand & { kind: "string" }).value;
             const bytes = this.encodeString(literal);
-            data.push(...bytes.map((b) => b & 0xff));
-            dataOffset += bytes.length;
+            const target = segment === "data" ? data : kdata;
+            target.push(...bytes.map((b) => b & 0xff));
+            if (segment === "data") dataOffset += bytes.length;
+            else kdataOffset += bytes.length;
             continue;
           }
           case ".space": {
-            if (segment !== "data") {
-              throw new Error(`.space directive encountered outside .data at line ${node.line}`);
+            if (segment !== "data" && segment !== "kdata") {
+              throw new Error(`.space directive encountered outside .data/.kdata at line ${node.line}`);
             }
             const count = (node.args[0] as Operand & { kind: "immediate" }).value;
-            for (let i = 0; i < count; i++) data.push(0);
-            dataOffset += count;
+            const target = segment === "data" ? data : kdata;
+            for (let i = 0; i < count; i++) target.push(0);
+            if (segment === "data") dataOffset += count;
+            else kdataOffset += count;
             continue;
           }
           case ".align": {
-            if (segment !== "data") {
-              throw new Error(`.align directive encountered outside .data at line ${node.line}`);
+            if (segment !== "data" && segment !== "kdata") {
+              throw new Error(`.align directive encountered outside .data/.kdata at line ${node.line}`);
             }
             const power = (node.args[0] as Operand & { kind: "immediate" }).value;
             const alignment = Math.pow(2, power);
             if (!Number.isFinite(alignment) || alignment <= 0) {
               throw new Error(`Invalid alignment at line ${node.line}`);
             }
-            const padding = (alignment - (dataOffset % alignment)) % alignment;
-            for (let i = 0; i < padding; i++) data.push(0);
-            dataOffset += padding;
+            const currentOffset = segment === "data" ? dataOffset : kdataOffset;
+            const padding = (alignment - (currentOffset % alignment)) % alignment;
+            const target = segment === "data" ? data : kdata;
+            for (let i = 0; i < padding; i++) target.push(0);
+            if (segment === "data") dataOffset += padding;
+            else kdataOffset += padding;
             continue;
           }
+          case ".globl":
+          case ".extern":
+          case ".eqv":
+          case ".set":
+            continue;
           default:
             throw new Error(`Unsupported directive ${node.name} at line ${node.line}`);
         }
@@ -248,20 +377,33 @@ export class Assembler {
       }
 
       if (node.kind === "instruction") {
-        if (segment !== "text") {
+        if (segment !== "text" && segment !== "ktext") {
           throw new Error(`Instruction in non-text segment at line ${node.line}`);
         }
 
         const normalized = this.expandInstruction(node);
+        const targetText = segment === "ktext" ? ktext : text;
         for (const inst of normalized) {
           const encoded = this.encodeInstruction(inst, pc, symbols);
-          text.push(encoded);
+          targetText.push(encoded);
+          if (segment === "text") {
+            textOffset += 4;
+          } else {
+            ktextOffset += 4;
+          }
           pc = (pc + 4) | 0;
         }
       }
     }
 
-    return { text: text.map((w) => this.toInt32(w)), data, dataWords: dataWords.map((w) => this.toInt32(w)) };
+    return {
+      text: text.map((w) => this.toInt32(w)),
+      data,
+      dataWords: dataWords.map((w) => this.toInt32(w)),
+      ktext: ktext.map((w) => this.toInt32(w)),
+      kdata,
+      kdataWords: kdataWords.map((w) => this.toInt32(w)),
+    };
   }
 
   private resolveValue(operand: Operand, symbols: SymbolTable, line: number): number {
