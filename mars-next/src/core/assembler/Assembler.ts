@@ -93,7 +93,36 @@ export class Assembler {
     const definedSymbols = new Set<string>();
     const externSymbols = new Set<string>();
     const globalSymbols = new Set<string>();
-    const eqvDefinitions: Array<{ name: string; value: Operand; line: number }> = [];
+    const eqvDefinitions = new Map<string, { value: Operand; line: number }>();
+    const resolvedEqvSymbols = new Set<string>();
+    const resolvingEqv = new Set<string>();
+
+    const resolveEqv = (name: string, line: number): number => {
+      const existing = symbols.get(name);
+      if (existing !== undefined) return existing;
+
+      const eqv = eqvDefinitions.get(name);
+      if (eqv === undefined) {
+        throw new Error(`Undefined label '${name}' (line ${line})`);
+      }
+
+      if (resolvingEqv.has(name)) {
+        throw new Error(`Circular .eqv definition involving '${name}' (line ${eqv.line})`);
+      }
+
+      resolvingEqv.add(name);
+
+      // Resolve and cache the .eqv value to make it visible during this pass.
+      const resolved = this.resolveValue(eqv.value, symbols, eqv.line, resolveEqv);
+      symbols.set(name, this.toInt32(resolved));
+      resolvedEqvSymbols.add(name);
+      definedSymbols.add(name);
+      resolvingEqv.delete(name);
+      return resolved;
+    };
+
+    const resolveValue = (operand: Operand, line: number): number =>
+      this.resolveValue(operand, symbols, line, resolveEqv);
 
     for (let i = 0; i < ast.nodes.length; i++) {
       const node = ast.nodes[i];
@@ -133,7 +162,10 @@ export class Assembler {
 
           if (node.name === ".eqv") {
             const name = (node.args[0] as Operand & { kind: "label" }).name;
-            eqvDefinitions.push({ name, value: node.args[1], line: node.line });
+            if (definedSymbols.has(name) || eqvDefinitions.has(name)) {
+              throw new Error(`Duplicate symbol '${name}' at line ${node.line}`);
+            }
+            eqvDefinitions.set(name, { value: node.args[1], line: node.line });
           }
 
           if (segment === "data" || segment === "kdata") {
@@ -166,7 +198,7 @@ export class Assembler {
                 else kdataOffset += this.encodeString((node.args[0] as Operand & { kind: "string" }).value).length + 1;
             break;
           case ".space":
-            const spaceSize = this.resolveValue(node.args[0], symbols, node.line);
+            const spaceSize = resolveValue(node.args[0], node.line);
             if (!Number.isInteger(spaceSize) || spaceSize < 0) {
               throw new Error(`.space size must be a non-negative integer (line ${node.line})`);
             }
@@ -174,7 +206,7 @@ export class Assembler {
             else kdataOffset += spaceSize;
             break;
           case ".align": {
-            const power = this.resolveValue(node.args[0], symbols, node.line) as number;
+            const power = resolveValue(node.args[0], node.line) as number;
             if (!Number.isInteger(power) || power < 0) {
               throw new Error(`.align expects a non-negative integer (line ${node.line})`);
             }
@@ -229,12 +261,17 @@ export class Assembler {
       }
     }
 
-    for (const { name, value, line } of eqvDefinitions) {
+    for (const [name, { value, line }] of eqvDefinitions) {
+      if (symbols.has(name)) {
+        if (resolvedEqvSymbols.has(name)) continue;
+        throw new Error(`Duplicate symbol '${name}' at line ${line}`);
+      }
       if (definedSymbols.has(name)) {
         throw new Error(`Duplicate symbol '${name}' at line ${line}`);
       }
-      const resolved = this.resolveValue(value, symbols, line);
+      const resolved = this.resolveValue(value, symbols, line, resolveEqv);
       symbols.set(name, this.toInt32(resolved));
+      resolvedEqvSymbols.add(name);
       definedSymbols.add(name);
     }
 
@@ -525,27 +562,37 @@ export class Assembler {
     return (alignment - (offset % alignment)) % alignment;
   }
 
-  private resolveValue(operand: Operand, symbols: SymbolTable, line: number): number {
+  private resolveValue(
+    operand: Operand,
+    symbols: SymbolTable,
+    line: number,
+    eqvResolver?: (name: string, line: number) => number,
+  ): number {
     if (operand.kind === "immediate") return operand.value;
-    if (operand.kind === "expression") return this.evaluateExpression(operand.expression, symbols, line);
+    if (operand.kind === "expression")
+      return this.evaluateExpression(operand.expression, symbols, line, eqvResolver);
     if (operand.kind === "label") {
       const value = symbols.get(operand.name);
-      if (value === undefined) {
-        throw new Error(`Undefined label '${operand.name}' (line ${line})`);
-      }
-      return value;
+      if (value !== undefined) return value;
+      if (eqvResolver) return eqvResolver(operand.name, line);
+      throw new Error(`Undefined label '${operand.name}' (line ${line})`);
     }
     throw new Error(`Unsupported operand for immediate value at line ${line}`);
   }
 
-  private evaluateExpression(node: ExpressionNode, symbols: SymbolTable, line: number): number {
+  private evaluateExpression(
+    node: ExpressionNode,
+    symbols: SymbolTable,
+    line: number,
+    eqvResolver?: (name: string, line: number) => number,
+  ): number {
     switch (node.type) {
       case "number":
         return node.value;
       case "symbol":
-        return this.resolveValue({ kind: "label", name: node.name }, symbols, line);
+        return this.resolveValue({ kind: "label", name: node.name }, symbols, line, eqvResolver);
       case "unary": {
-        const value = this.evaluateExpression(node.argument, symbols, line);
+        const value = this.evaluateExpression(node.argument, symbols, line, eqvResolver);
         switch (node.op) {
           case "plus":
             return value;
@@ -557,8 +604,8 @@ export class Assembler {
         break;
       }
       case "binary": {
-        const left = this.evaluateExpression(node.left, symbols, line);
-        const right = this.evaluateExpression(node.right, symbols, line);
+        const left = this.evaluateExpression(node.left, symbols, line, eqvResolver);
+        const right = this.evaluateExpression(node.right, symbols, line, eqvResolver);
         switch (node.op) {
           case "add":
             return left + right;
