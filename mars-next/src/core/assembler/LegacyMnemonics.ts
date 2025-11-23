@@ -1,41 +1,20 @@
 // Generated from legacy/mars/mips/instructions/InstructionSet.java
 //
 // This catalog preserves the syntax and descriptive text for each legacy
-// mnemonic to aid porting and UI work. It is metadata only—the assembler and
-// CPU execution paths still depend on their own opcode tables and do not yet
-// consume this list.
+// mnemonic to aid porting and UI work. Now that core instructions are wired
+// directly into the assembler and CPU, this list intentionally tracks only
+// mnemonics whose behaviors have not yet been ported.
 export interface LegacyMnemonicForm { syntax: string; description: string; }
 export interface LegacyMnemonic { mnemonic: string; forms: LegacyMnemonicForm[]; }
 export const LEGACY_MNEMONICS: LegacyMnemonic[] = [
-  { mnemonic: "nop", forms: [
-    { syntax: "nop", description: "Null operation : machine code is all zeroes" },
-  ] },
-  { mnemonic: "add", forms: [
-    { syntax: "add $t1,$t2,$t3", description: "Addition with overflow : set $t1 to ($t2 plus $t3)" },
-  ] },
-  { mnemonic: "sub", forms: [
-    { syntax: "sub $t1,$t2,$t3", description: "Subtraction with overflow : set $t1 to ($t2 minus $t3)" },
-  ] },
-  { mnemonic: "addi", forms: [
-    { syntax: "addi $t1,$t2,-100", description: "Addition immediate with overflow : set $t1 to ($t2 plus signed 16-bit immediate)" },
-  ] },
-  { mnemonic: "addu", forms: [
-    { syntax: "addu $t1,$t2,$t3", description: "Addition unsigned without overflow : set $t1 to ($t2 plus $t3), no overflow" },
-  ] },
   { mnemonic: "subu", forms: [
     { syntax: "subu $t1,$t2,$t3", description: "Subtraction unsigned without overflow : set $t1 to ($t2 minus $t3), no overflow" },
-  ] },
-  { mnemonic: "addiu", forms: [
-    { syntax: "addiu $t1,$t2,-100", description: "Addition immediate unsigned without overflow : set $t1 to ($t2 plus signed 16-bit immediate), no overflow" },
   ] },
   { mnemonic: "mult", forms: [
     { syntax: "mult $t1,$t2", description: "Multiplication : Set hi to high-order 32 bits, lo to low-order 32 bits of the product of $t1 and $t2 (use mfhi to access hi, mflo to access lo)" },
   ] },
   { mnemonic: "multu", forms: [
     { syntax: "multu $t1,$t2", description: "Multiplication unsigned : Set HI to high-order 32 bits, LO to low-order 32 bits of the product of unsigned $t1 and $t2 (use mfhi to access HI, mflo to access LO)" },
-  ] },
-  { mnemonic: "mul", forms: [
-    { syntax: "mul $t1,$t2,$t3", description: "Multiplication without overflow  : Set HI to high-order 32 bits, LO and $t1 to low-order 32 bits of the product of $t2 and $t3 (use mfhi to access HI, mflo to access LO)" },
   ] },
   { mnemonic: "madd", forms: [
     { syntax: "madd $t1,$t2", description: "Multiply add : Multiply $t1 by $t2 then increment HI by high-order 32 bits of product, increment LO by low-order 32 bits of product (use mfhi to access HI, mflo to access LO)" },
@@ -67,17 +46,8 @@ export const LEGACY_MNEMONICS: LegacyMnemonic[] = [
   { mnemonic: "mtlo", forms: [
     { syntax: "mtlo $t1", description: "Move to LO register : Set LO to contents of $t1 (see multiply and divide operations)" },
   ] },
-  { mnemonic: "and", forms: [
-    { syntax: "and $t1,$t2,$t3", description: "Bitwise AND : Set $t1 to bitwise AND of $t2 and $t3" },
-  ] },
-  { mnemonic: "or", forms: [
-    { syntax: "or $t1,$t2,$t3", description: "Bitwise OR : Set $t1 to bitwise OR of $t2 and $t3" },
-  ] },
   { mnemonic: "andi", forms: [
     { syntax: "andi $t1,$t2,100", description: "Bitwise AND immediate : Set $t1 to bitwise AND of $t2 and zero-extended 16-bit immediate" },
-  ] },
-  { mnemonic: "ori", forms: [
-    { syntax: "ori $t1,$t2,100", description: "Bitwise OR immediate : Set $t1 to bitwise OR of $t2 and zero-extended 16-bit immediate" },
   ] },
   { mnemonic: "nor", forms: [
     { syntax: "nor $t1,$t2,$t3", description: "Bitwise NOR : Set $t1 to bitwise NOR of $t2 and $t3" },
@@ -87,9 +57,6 @@ export const LEGACY_MNEMONICS: LegacyMnemonic[] = [
   ] },
   { mnemonic: "xori", forms: [
     { syntax: "xori $t1,$t2,100", description: "Bitwise XOR immediate : Set $t1 to bitwise XOR of $t2 and zero-extended 16-bit immediate" },
-  ] },
-  { mnemonic: "sll", forms: [
-    { syntax: "sll $t1,$t2,10", description: "Shift left logical : Set $t1 to result of shifting $t2 left by number of bits specified by immediate" },
   ] },
   { mnemonic: "sllv", forms: [
     { syntax: "sllv $t1,$t2,$t3", description: "Shift left logical variable : Set $t1 to result of shifting $t2 left by number of bits specified by value in low-order 5 bits of $t3" },
@@ -130,15 +97,6 @@ export const LEGACY_MNEMONICS: LegacyMnemonic[] = [
   { mnemonic: "swr", forms: [
     { syntax: "swr $t1,-100($t2)", description: "Store word right : Store low-order 1 to 4 bytes of $t1 into memory, starting with high-order byte of word containing effective byte address and continuing through that byte address" },
   ] },
-  { mnemonic: "lui", forms: [
-    { syntax: "lui $t1,100", description: "Load upper immediate : Set high-order 16 bits of $t1 to 16-bit immediate and low-order 16 bits to 0" },
-  ] },
-  { mnemonic: "beq", forms: [
-    { syntax: "beq $t1,$t2,label", description: "Branch if equal : Branch to statement at label's address if $t1 and $t2 are equal" },
-  ] },
-  { mnemonic: "bne", forms: [
-    { syntax: "bne $t1,$t2,label", description: "Branch if not equal : Branch to statement at label's address if $t1 and $t2 are not equal" },
-  ] },
   { mnemonic: "bgez", forms: [
     { syntax: "bgez $t1,label", description: "Branch if greater than or equal to zero : Branch to statement at label's address if $t1 is greater than or equal to zero" },
   ] },
@@ -157,14 +115,8 @@ export const LEGACY_MNEMONICS: LegacyMnemonic[] = [
   { mnemonic: "bltzal", forms: [
     { syntax: "bltzal $t1,label", description: "Branch if less than zero and link : If $t1 is less than or equal to zero, then set $ra to the Program Counter and branch to statement at label's address" },
   ] },
-  { mnemonic: "slt", forms: [
-    { syntax: "slt $t1,$t2,$t3", description: "Set less than : If $t2 is less than $t3, then set $t1 to 1 else set $t1 to 0" },
-  ] },
   { mnemonic: "sltu", forms: [
     { syntax: "sltu $t1,$t2,$t3", description: "Set less than unsigned : If $t2 is less than $t3 using unsigned comparision, then set $t1 to 1 else set $t1 to 0" },
-  ] },
-  { mnemonic: "slti", forms: [
-    { syntax: "slti $t1,$t2,-100", description: "Set less than immediate : If $t2 is less than sign-extended 16-bit immediate, then set $t1 to 1 else set $t1 to 0" },
   ] },
   { mnemonic: "sltiu", forms: [
     { syntax: "sltiu $t1,$t2,-100", description: "Set less than immediate unsigned : If $t2 is less than  sign-extended 16-bit immediate using unsigned comparison, then set $t1 to 1 else set $t1 to 0" },
@@ -186,18 +138,6 @@ export const LEGACY_MNEMONICS: LegacyMnemonic[] = [
   { mnemonic: "break", forms: [
     { syntax: "break 100", description: "Break execution with code : Terminate program execution with specified exception code" },
     { syntax: "break", description: "Break execution : Terminate program execution with exception" },
-  ] },
-  { mnemonic: "syscall", forms: [
-    { syntax: "syscall", description: "Issue a system call : Execute the system call specified by value in $v0" },
-  ] },
-  { mnemonic: "j", forms: [
-    { syntax: "j target", description: "Jump unconditionally : Jump to statement at target address" },
-  ] },
-  { mnemonic: "jr", forms: [
-    { syntax: "jr $t1", description: "Jump register unconditionally : Jump to statement whose address is in $t1" },
-  ] },
-  { mnemonic: "jal", forms: [
-    { syntax: "jal target", description: "Jump and link : Set $ra to Program Counter (return address) then jump to statement at target address" },
   ] },
   { mnemonic: "jalr", forms: [
     { syntax: "jalr $t1,$t2", description: "Jump and link register : Set $t1 to Program Counter (return address) then jump to statement whose address is in $t2" },

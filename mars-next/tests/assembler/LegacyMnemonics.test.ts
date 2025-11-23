@@ -8,27 +8,46 @@ function findMnemonic(name: string) {
 }
 
 describe("legacy mnemonic catalog", () => {
-  test("includes the full legacy set", () => {
-    assert.strictEqual(LEGACY_MNEMONICS.length, 139);
+  test("tracks only unported instructions", () => {
+    const integrated = [
+      "add",
+      "addi",
+      "addiu",
+      "addu",
+      "and",
+      "beq",
+      "bne",
+      "j",
+      "jal",
+      "jr",
+      "lui",
+      "mul",
+      "nop",
+      "or",
+      "ori",
+      "sll",
+      "slt",
+      "slti",
+      "sub",
+      "syscall",
+    ];
+
+    assert.strictEqual(LEGACY_MNEMONICS.length, 139 - integrated.length);
+    integrated.forEach((name) => {
+      assert.strictEqual(findMnemonic(name), undefined, `${name} should be fully ported and omitted`);
+    });
   });
 
   test("carries syntax and descriptions for representative instructions", () => {
-    const add = findMnemonic("add");
-    assert.ok(add, "add should be captured from the legacy instruction set");
-    assert.ok(
-      add.forms.some((form) => form.syntax.startsWith("add $t1")),
-      "add should preserve syntax examples",
-    );
-
-    const j = findMnemonic("j");
-    assert.ok(j, "j should be present");
-    assert.ok(j.forms.some((form) => form.description.toLowerCase().includes("jump")));
-
     const cvt = findMnemonic("cvt.s.w");
     assert.ok(cvt, "floating point conversion instructions should be preserved");
     assert.ok(
       cvt.forms.some((form) => form.description.toLowerCase().includes("single precision")),
     );
+
+    const branchLessThanZero = findMnemonic("bltz");
+    assert.ok(branchLessThanZero, "branch families should remain tracked until implemented");
+    assert.ok(branchLessThanZero.forms[0].syntax.startsWith("bltz"));
   });
 
   test("provides syntax and descriptive text for every mnemonic", () => {

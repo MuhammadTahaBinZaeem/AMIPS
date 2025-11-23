@@ -214,16 +214,15 @@ describe("Debugger subsystem", () => {
     const breakpoints = new BreakpointEngine();
     const watchEngine = new WatchEngine(state);
 
-    const decoder: InstructionDecoder = {
-      decode: (instruction, pc) =>
-        decodeInstruction(instruction, pc) ??
-        (instruction === 0x0000000c
-          ? {
-              name: "syscall",
-              execute: (machine) => machine.terminate(),
-            }
-          : null),
-    };
+      const decoder: InstructionDecoder = {
+        decode: (instruction, pc) => {
+          if (instruction === 0x0000000c) {
+            return { name: "syscall", execute: (machine) => machine.terminate() };
+          }
+
+          return decodeInstruction(instruction, pc);
+        },
+      };
 
     const pipeline = new Pipeline({
       memory: new PipelineProgramMemory(program.text, program.textBase),
