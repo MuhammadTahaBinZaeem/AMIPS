@@ -172,6 +172,134 @@ const makeNop = (): DecodedInstruction => ({
   },
 });
 
+const makeAndImmediate = (decoded: ITypeFields): DecodedInstruction =>
+  createImmediateBinary("andi", decoded, (l, imm) => l & imm, (imm) => imm & 0xffff);
+
+const makeBranchOnReg = (
+  name: string,
+  decoded: ITypeFields,
+  pc: number,
+  predicate: (value: number) => boolean,
+  withLink: boolean,
+): DecodedInstruction => {
+  const { rs, immediate } = decoded;
+  const offset = signExtend16(immediate) << 2;
+  const branchTarget = toInt32(pc + 4 + offset);
+  const returnAddress = toInt32(pc + 8);
+
+  return {
+    name,
+    execute: (state: MachineState) => {
+      const value = state.getRegister(rs);
+      if (withLink) {
+        state.setRegister(31, returnAddress);
+      }
+      if (predicate(value)) {
+        state.registerDelayedBranch(branchTarget);
+      }
+    },
+  };
+};
+
+const makeBranchOnConditionFlag = (
+  name: string,
+  instruction: number,
+  pc: number,
+  expected: boolean,
+): DecodedInstruction => {
+  const conditionFlag = (instruction >>> 18) & 0x7;
+  const immediate = instruction & 0xffff;
+  const offset = signExtend16(immediate) << 2;
+  const branchTarget = toInt32(pc + 4 + offset);
+
+  return {
+    name,
+    execute: (state: MachineState) => {
+      if (state.getFpuConditionFlag(conditionFlag) === expected) {
+        state.registerDelayedBranch(branchTarget);
+      }
+    },
+  };
+};
+
+const makeBreak = (): DecodedInstruction => ({
+  name: "break",
+  execute: () => {
+    throw new Error("Encountered break instruction");
+  },
+});
+
+const decodeCop1 = (instruction: number, pc: number): DecodedInstruction | null => {
+  const fmt = (instruction >>> 21) & 0x1f;
+
+  if (fmt === 0x08) {
+    const isTrueBranch = ((instruction >>> 16) & 0x1) === 1;
+    return makeBranchOnConditionFlag(isTrueBranch ? "bc1t" : "bc1f", instruction, pc, isTrueBranch);
+  }
+
+  const ft = (instruction >>> 16) & 0x1f;
+  const fs = (instruction >>> 11) & 0x1f;
+  const fd = (instruction >>> 6) & 0x1f;
+  const funct = instruction & 0x3f;
+  const conditionCode = (instruction >>> 8) & 0x7;
+
+  const isSingle = fmt === 0x10;
+  const isDouble = fmt === 0x11;
+
+  if (!isSingle && !isDouble) {
+    return null;
+  }
+
+  const read = isSingle
+    ? (register: number, state: MachineState) => state.getFloatRegisterSingle(register)
+    : (register: number, state: MachineState) => state.getFloatRegisterDouble(register);
+  const write = isSingle
+    ? (register: number, state: MachineState, value: number) => state.setFloatRegisterSingle(register, value)
+    : (register: number, state: MachineState, value: number) => state.setFloatRegisterDouble(register, value);
+
+  switch (funct) {
+    case 0x00:
+      return {
+        name: isSingle ? "add.s" : "add.d",
+        execute: (state: MachineState) => {
+          const result = read(fs, state) + read(ft, state);
+          write(fd, state, isSingle ? Math.fround(result) : result);
+        },
+      };
+    case 0x05:
+      return {
+        name: isSingle ? "abs.s" : "abs.d",
+        execute: (state: MachineState) => {
+          const value = read(fs, state);
+          write(fd, state, isSingle ? Math.fround(Math.abs(value)) : Math.abs(value));
+        },
+      };
+    case 0x32:
+      return {
+        name: isSingle ? "c.eq.s" : "c.eq.d",
+        execute: (state: MachineState) => {
+          state.setFpuConditionFlag(conditionCode, read(fs, state) === read(ft, state));
+        },
+      };
+    case 0x3e:
+      return {
+        name: isSingle ? "c.le.s" : "c.le.d",
+        execute: (state: MachineState) => {
+          state.setFpuConditionFlag(conditionCode, read(fs, state) <= read(ft, state));
+        },
+      };
+    case 0x3c:
+      return {
+        name: isSingle ? "c.lt.s" : "c.lt.d",
+        execute: (state: MachineState) => {
+          state.setFpuConditionFlag(conditionCode, read(fs, state) < read(ft, state));
+        },
+      };
+    default:
+      return null;
+  }
+};
+
 export function decodeInstruction(instruction: number, pc: number): DecodedInstruction | null {
   const opcode = (instruction >>> 26) & 0x3f;
 
@@ -186,6 +314,8 @@ export function decodeInstruction(instruction: number, pc: number): DecodedInstr
         return makeJumpRegister(decoded);
       case 0x0c:
         return makeSyscall();
+      case 0x0d:
+        return makeBreak();
       case 0x20:
         return createRegisterBinary("add", decoded, (l, r) => l + r);
       case 0x21:
@@ -213,6 +343,13 @@ export function decodeInstruction(instruction: number, pc: number): DecodedInstr
     }
   }
 
+  if (opcode === 0x11) {
+    const copDecoded = decodeCop1(instruction, pc);
+    if (copDecoded) {
+      return copDecoded;
+    }
+  }
+
   const decoded = decodeIType(instruction);
 
   switch (opcode) {
@@ -220,6 +357,8 @@ export function decodeInstruction(instruction: number, pc: number): DecodedInstr
       return createImmediateBinary("addi", decoded, (l, imm) => l + imm);
     case 0x09:
       return createImmediateBinary("addiu", decoded, (l, imm) => l + imm);
+    case 0x0c:
+      return makeAndImmediate(decoded);
     case 0x0d:
       return createImmediateBinary("ori", decoded, (l, imm) => l | imm, (imm) => imm & 0xffff);
     case 0x0f:
@@ -230,6 +369,23 @@ export function decodeInstruction(instruction: number, pc: number): DecodedInstr
       return makeBranchNotEqual(decoded, pc);
     case 0x0a:
       return createImmediateBinary("slti", decoded, (l, imm) => (l < imm ? 1 : 0));
+    case 0x01:
+      switch (decoded.rt) {
+        case 0x00:
+          return makeBranchOnReg("bltz", decoded, pc, (value) => value < 0, false);
+        case 0x01:
+          return makeBranchOnReg("bgez", decoded, pc, (value) => value >= 0, false);
+        case 0x10:
+          return makeBranchOnReg("bltzal", decoded, pc, (value) => value < 0, true);
+        case 0x11:
+          return makeBranchOnReg("bgezal", decoded, pc, (value) => value >= 0, true);
+        default:
+          return null;
+      }
+    case 0x07:
+      return makeBranchOnReg("bgtz", decoded, pc, (value) => value > 0, false);
+    case 0x06:
+      return makeBranchOnReg("blez", decoded, pc, (value) => value <= 0, false);
     case 0x02:
       return makeJump(instruction, pc);
     case 0x03:
