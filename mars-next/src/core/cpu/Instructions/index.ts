@@ -42,41 +42,49 @@ function toInt32(value: number): number {
   return value | 0;
 }
 
-function makeAdd(decoded: RTypeFields): DecodedInstruction {
+const createRegisterBinary = (
+  name: string,
+  decoded: RTypeFields,
+  op: (left: number, right: number) => number,
+): DecodedInstruction => {
   const { rd, rs, rt } = decoded;
   return {
-    name: "add",
+    name,
     execute: (state: MachineState) => {
-      const sum = toInt32(state.getRegister(rs) + state.getRegister(rt));
-      state.setRegister(rd, sum);
+      const result = toInt32(op(state.getRegister(rs), state.getRegister(rt)));
+      state.setRegister(rd, result);
     },
   };
-}
+};
 
-function makeMul(decoded: RTypeFields): DecodedInstruction {
-  const { rd, rs, rt } = decoded;
-  return {
-    name: "mul",
-    execute: (state: MachineState) => {
-      const product = toInt32(state.getRegister(rs) * state.getRegister(rt));
-      state.setRegister(rd, product);
-    },
-  };
-}
-
-function makeAddImmediate(decoded: ITypeFields): DecodedInstruction {
+const createImmediateBinary = (
+  name: string,
+  decoded: ITypeFields,
+  op: (registerValue: number, immediate: number) => number,
+  immediateTransform: (immediate: number) => number = signExtend16,
+): DecodedInstruction => {
   const { rs, rt, immediate } = decoded;
-  const signExtended = signExtend16(immediate);
+  const transformed = immediateTransform(immediate);
   return {
-    name: "addi",
+    name,
     execute: (state: MachineState) => {
-      const sum = toInt32(state.getRegister(rs) + signExtended);
-      state.setRegister(rt, sum);
+      const result = toInt32(op(state.getRegister(rs), transformed));
+      state.setRegister(rt, result);
     },
   };
-}
+};
 
-function makeBranchEqual(decoded: ITypeFields, pc: number): DecodedInstruction {
+const makeSll = (decoded: RTypeFields): DecodedInstruction => {
+  const { rd, rt, shamt } = decoded;
+  return {
+    name: "sll",
+    execute: (state: MachineState) => {
+      state.setRegister(rd, toInt32(state.getRegister(rt) << shamt));
+    },
+  };
+};
+
+const makeBranchEqual = (decoded: ITypeFields, pc: number): DecodedInstruction => {
   const { rs, rt, immediate } = decoded;
   const offset = signExtend16(immediate) << 2;
   const branchTarget = toInt32(pc + 4 + offset);
@@ -89,16 +97,80 @@ function makeBranchEqual(decoded: ITypeFields, pc: number): DecodedInstruction {
       }
     },
   };
-}
+};
 
-function makeNop(): DecodedInstruction {
+const makeBranchNotEqual = (decoded: ITypeFields, pc: number): DecodedInstruction => {
+  const { rs, rt, immediate } = decoded;
+  const offset = signExtend16(immediate) << 2;
+  const branchTarget = toInt32(pc + 4 + offset);
+
   return {
-    name: "nop",
-    execute: () => {
-      /* intentionally empty */
+    name: "bne",
+    execute: (state: MachineState) => {
+      if (state.getRegister(rs) !== state.getRegister(rt)) {
+        state.registerDelayedBranch(branchTarget);
+      }
     },
   };
-}
+};
+
+const makeJump = (instruction: number, pc: number): DecodedInstruction => {
+  const targetField = instruction & 0x03ffffff;
+  const branchTarget = ((pc + 4) & 0xf0000000) | (targetField << 2);
+
+  return {
+    name: "j",
+    execute: (state: MachineState) => state.registerDelayedBranch(branchTarget),
+  };
+};
+
+const makeJumpAndLink = (instruction: number, pc: number): DecodedInstruction => {
+  const targetField = instruction & 0x03ffffff;
+  const branchTarget = ((pc + 4) & 0xf0000000) | (targetField << 2);
+  const returnAddress = toInt32(pc + 8);
+
+  return {
+    name: "jal",
+    execute: (state: MachineState) => {
+      state.setRegister(31, returnAddress);
+      state.registerDelayedBranch(branchTarget);
+    },
+  };
+};
+
+const makeJumpRegister = (decoded: RTypeFields): DecodedInstruction => {
+  const { rs } = decoded;
+  return {
+    name: "jr",
+    execute: (state: MachineState) => {
+      state.registerDelayedBranch(state.getRegister(rs));
+    },
+  };
+};
+
+const makeLoadUpperImmediate = (decoded: ITypeFields): DecodedInstruction => {
+  const { rt, immediate } = decoded;
+  return {
+    name: "lui",
+    execute: (state: MachineState) => {
+      state.setRegister(rt, toInt32(immediate << 16));
+    },
+  };
+};
+
+const makeSyscall = (): DecodedInstruction => ({
+  name: "syscall",
+  execute: () => {
+    throw new Error("Encountered syscall instruction without a SyscallTable wired");
+  },
+});
+
+const makeNop = (): DecodedInstruction => ({
+  name: "nop",
+  execute: () => {
+    /* intentionally empty */
+  },
+});
 
 export function decodeInstruction(instruction: number, pc: number): DecodedInstruction | null {
   const opcode = (instruction >>> 26) & 0x3f;
@@ -109,9 +181,23 @@ export function decodeInstruction(instruction: number, pc: number): DecodedInstr
     switch (decoded.funct) {
       case 0x00:
         if (instruction === 0) return makeNop();
-        return null;
+        return makeSll(decoded);
+      case 0x08:
+        return makeJumpRegister(decoded);
+      case 0x0c:
+        return makeSyscall();
       case 0x20:
-        return makeAdd(decoded);
+        return createRegisterBinary("add", decoded, (l, r) => l + r);
+      case 0x21:
+        return createRegisterBinary("addu", decoded, (l, r) => l + r);
+      case 0x22:
+        return createRegisterBinary("sub", decoded, (l, r) => l - r);
+      case 0x24:
+        return createRegisterBinary("and", decoded, (l, r) => l & r);
+      case 0x25:
+        return createRegisterBinary("or", decoded, (l, r) => l | r);
+      case 0x2a:
+        return createRegisterBinary("slt", decoded, (l, r) => (l < r ? 1 : 0));
       default:
         return null;
     }
@@ -121,7 +207,7 @@ export function decodeInstruction(instruction: number, pc: number): DecodedInstr
     const decoded = decodeRType(instruction);
     switch (decoded.funct) {
       case 0x02:
-        return makeMul(decoded);
+        return createRegisterBinary("mul", decoded, (l, r) => l * r);
       default:
         return null;
     }
@@ -131,9 +217,23 @@ export function decodeInstruction(instruction: number, pc: number): DecodedInstr
 
   switch (opcode) {
     case 0x08:
-      return makeAddImmediate(decoded);
+      return createImmediateBinary("addi", decoded, (l, imm) => l + imm);
+    case 0x09:
+      return createImmediateBinary("addiu", decoded, (l, imm) => l + imm);
+    case 0x0d:
+      return createImmediateBinary("ori", decoded, (l, imm) => l | imm, (imm) => imm & 0xffff);
+    case 0x0f:
+      return makeLoadUpperImmediate(decoded);
     case 0x04:
       return makeBranchEqual(decoded, pc);
+    case 0x05:
+      return makeBranchNotEqual(decoded, pc);
+    case 0x0a:
+      return createImmediateBinary("slti", decoded, (l, imm) => (l < imm ? 1 : 0));
+    case 0x02:
+      return makeJump(instruction, pc);
+    case 0x03:
+      return makeJumpAndLink(instruction, pc);
     default:
       return null;
   }
