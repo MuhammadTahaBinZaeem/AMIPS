@@ -1,6 +1,16 @@
 # MIPS syntax coverage in mars-next
 
-The legacy simulator defines 139 unique instruction mnemonics in `InstructionSet.java`, while `mars-next` currently decodes 20 (`add`, `addu`, `sub`, `and`, `or`, `slt`, `sll`, `jr`, `mul`, `addi`, `addiu`, `ori`, `lui`, `slti`, `beq`, `bne`, `j`, `jal`, `syscall`, and the implicit `nop`). The comparison below was produced by collecting mnemonic names from `legacy/mars/mips/instructions/InstructionSet.java` and `mars-next/src/core/cpu/Instructions/index.ts` and then diffing the two sets.
+The legacy simulator defines 139 unique instruction mnemonics in `InstructionSet.java`, while `mars-next` currently decodes 20. The comparison below was produced by collecting mnemonic names from `legacy/mars/mips/instructions/InstructionSet.java` and `mars-next/src/core/cpu/Instructions/index.ts` and then diffing the two sets.
+
+## Fully implemented instruction mnemonics
+
+The following instructions have been fully ported from the legacy simulator and execute with matching behavior:
+
+- Arithmetic and logic: `add`, `addu`, `sub`, `and`, `or`, `slt`, `mul`
+- Immediate arithmetic and logic: `addi`, `addiu`, `ori`, `lui`, `slti`
+- Shifts: `sll`
+- Control flow: `beq`, `bne`, `j`, `jal`, `jr`
+- System and no-ops: `syscall`, and the implicit `nop` encoding
 
 ## Missing instruction mnemonics
 
