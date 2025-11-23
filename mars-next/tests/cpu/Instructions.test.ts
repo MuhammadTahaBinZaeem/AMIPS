@@ -5,6 +5,15 @@ import { decodeInstruction } from "../../src/core/cpu/Instructions";
 import { Memory } from "../../src/core/memory/Memory";
 import { DEFAULT_TEXT_BASE, MachineState } from "../../src/core/state/MachineState";
 
+const buildR = (rs: number, rt: number, rd: number, shamt: number, funct: number) =>
+  ((rs << 21) | (rt << 16) | (rd << 11) | (shamt << 6) | funct) >>> 0;
+
+const buildI = (opcode: number, rs: number, rt: number, immediate: number) =>
+  ((opcode << 26) | (rs << 21) | (rt << 16) | (immediate & 0xffff)) >>> 0;
+
+const buildCop1 = (fmt: number, ft: number, fs: number, fd: number, funct: number) =>
+  ((0x11 << 26) | (fmt << 21) | (ft << 16) | (fs << 11) | (fd << 6) | funct) >>> 0;
+
 describe("Instruction decoding", () => {
   test("decodes and executes mul", () => {
     const state = new MachineState();
@@ -45,6 +54,16 @@ describe("Instruction decoding", () => {
     assert.ok(sltiDecoded);
     sltiDecoded!.execute(state);
     assert.strictEqual(state.getRegister(10), 1);
+
+    const xori = decodeInstruction(buildI(0x0e, 0, 11, 0xffff), DEFAULT_TEXT_BASE);
+    assert.ok(xori);
+    xori!.execute(state);
+    assert.strictEqual(state.getRegister(11), 0x0000ffff);
+
+    const xor = decodeInstruction(buildR(8, 9, 12, 0, 0x26), DEFAULT_TEXT_BASE);
+    assert.ok(xor);
+    xor!.execute(state);
+    assert.strictEqual(state.getRegister(12), 0x0000ff07);
   });
 
   test("decodes and executes division and bit count helpers", () => {
@@ -120,14 +139,24 @@ describe("Instruction decoding", () => {
     assert.ok(cvtWdDecoded);
     cvtWdDecoded!.execute(state);
     assert.strictEqual(state.getFloatRegisterBits(4), -3);
+
+    state.setFloatRegisterSingle(8, Math.fround(-2.9));
+    const truncWsDecoded = decodeInstruction(buildCop1(0x10, 0, 8, 6, 0x0d), DEFAULT_TEXT_BASE);
+    assert.ok(truncWsDecoded);
+    truncWsDecoded!.execute(state);
+    assert.strictEqual(state.getFloatRegisterBits(6), -2);
+
+    state.setFloatRegisterDouble(8, 7.9);
+    const truncWdDecoded = decodeInstruction(buildCop1(0x11, 0, 8, 10, 0x0d), DEFAULT_TEXT_BASE);
+    assert.ok(truncWdDecoded);
+    truncWdDecoded!.execute(state);
+    assert.strictEqual(state.getFloatRegisterBits(10), 7);
   });
 
   test("decodes and executes memory load/store instructions", () => {
     const state = new MachineState();
     const memory = new Memory();
     const base = 0x10010000;
-    const buildI = (opcode: number, rs: number, rt: number, immediate: number) =>
-      ((opcode << 26) | (rs << 21) | (rt << 16) | (immediate & 0xffff)) >>> 0;
 
     state.setRegister(1, base); // $at
     memory.writeWord(base, 0x11223344);
@@ -173,6 +202,21 @@ describe("Instruction decoding", () => {
     const sb = decodeInstruction(buildI(0x28, 1, 9, 22), DEFAULT_TEXT_BASE);
     sb?.execute(state, memory);
     assert.strictEqual(memory.readByte(base + 22), 0x78);
+
+    const swl = decodeInstruction(buildI(0x2a, 1, 8, 1), DEFAULT_TEXT_BASE);
+    swl?.execute(state, memory);
+    assert.strictEqual(memory.readByte(base), 0xbb);
+    assert.strictEqual(memory.readByte(base + 1), 0xaa);
+
+    const swr = decodeInstruction(buildI(0x2e, 1, 8, 6), DEFAULT_TEXT_BASE);
+    swr?.execute(state, memory);
+    assert.strictEqual(memory.readByte(base + 6), 0xdd);
+    assert.strictEqual(memory.readByte(base + 7), 0xcc);
+
+    state.setFloatRegisterBits(2, 0x0bad1dea);
+    const swc1 = decodeInstruction(buildI(0x39, 1, 2, 32), DEFAULT_TEXT_BASE);
+    swc1?.execute(state, memory);
+    assert.strictEqual(memory.readWord(base + 32), 0x0bad1dea | 0);
   });
 
   test("decodes control flow helpers", () => {
@@ -196,5 +240,42 @@ describe("Instruction decoding", () => {
     assert.ok(jalDecoded);
     jalDecoded!.execute(state);
     assert.strictEqual(state.getRegister(31), DEFAULT_TEXT_BASE + 8);
+  });
+
+  test("decodes trap instructions", () => {
+    const teqState = new MachineState();
+    teqState.setRegister(8, 5);
+    teqState.setRegister(9, 5);
+    const teq = decodeInstruction(buildR(8, 9, 0, 0, 0x34), DEFAULT_TEXT_BASE);
+    assert.ok(teq);
+    assert.throws(() => teq!.execute(teqState));
+    teqState.setRegister(9, 6);
+    assert.doesNotThrow(() => teq!.execute(teqState));
+
+    const unsignedState = new MachineState();
+    unsignedState.setRegister(4, -1);
+    unsignedState.setRegister(5, 1);
+    const tgeu = decodeInstruction(buildR(4, 5, 0, 0, 0x31), DEFAULT_TEXT_BASE);
+    assert.ok(tgeu);
+    assert.throws(() => tgeu!.execute(unsignedState));
+    unsignedState.setRegister(4, 0);
+    unsignedState.setRegister(5, -1);
+    assert.doesNotThrow(() => tgeu!.execute(unsignedState));
+
+    const tltiu = decodeInstruction(buildI(0x01, 6, 0x0b, 4), DEFAULT_TEXT_BASE);
+    assert.ok(tltiu);
+    const immediateTrapState = new MachineState();
+    immediateTrapState.setRegister(6, 3);
+    assert.throws(() => tltiu!.execute(immediateTrapState));
+    immediateTrapState.setRegister(6, 9);
+    assert.doesNotThrow(() => tltiu!.execute(immediateTrapState));
+
+    const teqi = decodeInstruction(buildI(0x01, 7, 0x0c, -1), DEFAULT_TEXT_BASE);
+    assert.ok(teqi);
+    const equalityTrapState = new MachineState();
+    equalityTrapState.setRegister(7, -1);
+    assert.throws(() => teqi!.execute(equalityTrapState));
+    equalityTrapState.setRegister(7, 0);
+    assert.doesNotThrow(() => teqi!.execute(equalityTrapState));
   });
 });

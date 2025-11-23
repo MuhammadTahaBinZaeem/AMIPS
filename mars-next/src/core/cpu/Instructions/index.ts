@@ -111,6 +111,8 @@ function setByteInWord(word: number, byteIndex: number, byteValue: number): numb
   return toInt32(cleared | (masked << shift));
 }
 
+const extractByteFromWord = (word: number, byteIndex: number): number => (word >>> (byteIndex << 3)) & 0xff;
+
 function composeHiLo(hi: number, lo: number): bigint {
   return (BigInt(hi) << 32n) | (BigInt(lo) & 0xffffffffn);
 }
@@ -321,6 +323,12 @@ const makeNop = (): DecodedInstruction => ({
 const makeAndImmediate = (decoded: ITypeFields): DecodedInstruction =>
   createImmediateBinary("andi", decoded, (l, imm) => l & imm, (imm) => imm & 0xffff);
 
+const makeExclusiveOr = (decoded: RTypeFields): DecodedInstruction =>
+  createRegisterBinary("xor", decoded, (l, r) => l ^ r);
+
+const makeExclusiveOrImmediate = (decoded: ITypeFields): DecodedInstruction =>
+  createImmediateBinary("xori", decoded, (l, imm) => l ^ imm, (imm) => imm & 0xffff);
+
 const computeAddress = (decoded: ITypeFields, state: MachineState): number => {
   const { rs, immediate } = decoded;
   return toInt32(state.getRegister(rs) + signExtend16(immediate));
@@ -478,6 +486,48 @@ const makeStoreWord = (decoded: ITypeFields): DecodedInstruction => {
   };
 };
 
+const makeStoreWordCop1 = (decoded: ITypeFields): DecodedInstruction => {
+  const { rt } = decoded;
+  return {
+    name: "swc1",
+    execute: (state: MachineState, memory: InstructionMemory) => {
+      const address = computeAddress(decoded, state);
+      memory.writeWord(address, state.getFloatRegisterBits(rt));
+    },
+  };
+};
+
+const makeStoreWordLeft = (decoded: ITypeFields): DecodedInstruction => {
+  const { rt } = decoded;
+  return {
+    name: "swl",
+    execute: (state: MachineState, memory: InstructionMemory) => {
+      const address = computeAddress(decoded, state);
+      const value = state.getRegister(rt);
+      const offset = address % 4;
+      for (let i = 0; i <= offset; i++) {
+        const byteIndex = 3 - i;
+        memory.writeByte(address - i, extractByteFromWord(value, byteIndex));
+      }
+    },
+  };
+};
+
+const makeStoreWordRight = (decoded: ITypeFields): DecodedInstruction => {
+  const { rt } = decoded;
+  return {
+    name: "swr",
+    execute: (state: MachineState, memory: InstructionMemory) => {
+      const address = computeAddress(decoded, state);
+      const value = state.getRegister(rt);
+      const offset = address % 4;
+      for (let i = 0; i <= 3 - offset; i++) {
+        memory.writeByte(address + i, extractByteFromWord(value, i));
+      }
+    },
+  };
+};
+
 const makeStoreConditional = (decoded: ITypeFields): DecodedInstruction => {
   const { rt } = decoded;
   return {
@@ -506,6 +556,44 @@ const makeStoreDoubleCop1 = (decoded: ITypeFields): DecodedInstruction => {
       const high = state.getFloatRegisterBits(rt + 1);
       memory.writeWord(address, high);
       memory.writeWord(address + 4, low);
+    },
+  };
+};
+
+const triggerTrap = (name: string): never => {
+  throw new Error(`Trap exception triggered by ${name}`);
+};
+
+const makeTrapRegisterComparison = (
+  name: string,
+  decoded: RTypeFields,
+  predicate: (left: number, right: number) => boolean,
+): DecodedInstruction => {
+  const { rs, rt } = decoded;
+  return {
+    name,
+    execute: (state: MachineState) => {
+      if (predicate(state.getRegister(rs), state.getRegister(rt))) {
+        triggerTrap(name);
+      }
+    },
+  };
+};
+
+const makeTrapImmediateComparison = (
+  name: string,
+  decoded: ITypeFields,
+  predicate: (left: number, immediate: number) => boolean,
+  transform: (immediate: number) => number = signExtend16,
+): DecodedInstruction => {
+  const { rs, immediate } = decoded;
+  const transformed = transform(immediate);
+  return {
+    name,
+    execute: (state: MachineState) => {
+      if (predicate(state.getRegister(rs), transformed)) {
+        triggerTrap(name);
+      }
     },
   };
 };
@@ -769,6 +857,15 @@ const decodeCop1 = (instruction: number, pc: number): DecodedInstruction | null 
           state.setFloatRegisterBits(fd, roundFloatToNearestEvenWord(value));
         },
       };
+    case 0x0d:
+      if (!isSingle && !isDouble) return null;
+      return {
+        name: isSingle ? "trunc.w.s" : "trunc.w.d",
+        execute: (state: MachineState) => {
+          const value = read(fs, state);
+          state.setFloatRegisterBits(fd, clampFloatToWord(value));
+        },
+      };
     case 0x20:
       if (isDouble) {
         return {
@@ -1028,12 +1125,26 @@ export function decodeInstruction(instruction: number, pc: number): DecodedInstr
         return createRegisterBinary("and", decoded, (l, r) => l & r);
       case 0x25:
         return createRegisterBinary("or", decoded, (l, r) => l | r);
+      case 0x26:
+        return makeExclusiveOr(decoded);
       case 0x27:
         return createRegisterBinary("nor", decoded, (l, r) => ~(l | r));
       case 0x2a:
         return createRegisterBinary("slt", decoded, (l, r) => (l < r ? 1 : 0));
       case 0x2b:
         return createRegisterBinary("sltu", decoded, (l, r) => ((l >>> 0) < (r >>> 0) ? 1 : 0));
+      case 0x30:
+        return makeTrapRegisterComparison("tge", decoded, (l, r) => l >= r);
+      case 0x31:
+        return makeTrapRegisterComparison("tgeu", decoded, (l, r) => (l >>> 0) >= (r >>> 0));
+      case 0x32:
+        return makeTrapRegisterComparison("tlt", decoded, (l, r) => l < r);
+      case 0x33:
+        return makeTrapRegisterComparison("tltu", decoded, (l, r) => (l >>> 0) < (r >>> 0));
+      case 0x34:
+        return makeTrapRegisterComparison("teq", decoded, (l, r) => l === r);
+      case 0x36:
+        return makeTrapRegisterComparison("tne", decoded, (l, r) => l !== r);
       case 0x06:
         return makeSrlv(decoded);
       case 0x07:
@@ -1155,6 +1266,8 @@ export function decodeInstruction(instruction: number, pc: number): DecodedInstr
       return makeAndImmediate(decoded);
     case 0x0d:
       return createImmediateBinary("ori", decoded, (l, imm) => l | imm, (imm) => imm & 0xffff);
+    case 0x0e:
+      return makeExclusiveOrImmediate(decoded);
     case 0x0f:
       return makeLoadUpperImmediate(decoded);
     case 0x04:
@@ -1175,6 +1288,18 @@ export function decodeInstruction(instruction: number, pc: number): DecodedInstr
           return makeBranchOnReg("bltzal", decoded, pc, (value) => value < 0, true);
         case 0x11:
           return makeBranchOnReg("bgezal", decoded, pc, (value) => value >= 0, true);
+        case 0x08:
+          return makeTrapImmediateComparison("tgei", decoded, (l, imm) => l >= imm);
+        case 0x09:
+          return makeTrapImmediateComparison("tgeiu", decoded, (l, imm) => (l >>> 0) >= (imm >>> 0));
+        case 0x0a:
+          return makeTrapImmediateComparison("tlti", decoded, (l, imm) => l < imm);
+        case 0x0b:
+          return makeTrapImmediateComparison("tltiu", decoded, (l, imm) => (l >>> 0) < (imm >>> 0));
+        case 0x0c:
+          return makeTrapImmediateComparison("teqi", decoded, (l, imm) => l === imm);
+        case 0x0e:
+          return makeTrapImmediateComparison("tnei", decoded, (l, imm) => l !== imm);
         default:
           return null;
       }
@@ -1212,8 +1337,14 @@ export function decodeInstruction(instruction: number, pc: number): DecodedInstr
       return makeStoreHalf(decoded);
     case 0x2b:
       return makeStoreWord(decoded);
+    case 0x2a:
+      return makeStoreWordLeft(decoded);
+    case 0x2e:
+      return makeStoreWordRight(decoded);
     case 0x38:
       return makeStoreConditional(decoded);
+    case 0x39:
+      return makeStoreWordCop1(decoded);
     case 0x3d:
       return makeStoreDoubleCop1(decoded);
     default:
