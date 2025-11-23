@@ -21,6 +21,8 @@ export class MachineState {
   private programCounter: number;
   private hi: number;
   private lo: number;
+  private cop0Status: number;
+  private cop0Epc: number;
   private terminated: boolean;
 
   private readonly fpuConditionFlags: boolean[];
@@ -34,6 +36,8 @@ export class MachineState {
     this.programCounter = DEFAULT_TEXT_BASE;
     this.hi = 0;
     this.lo = 0;
+    this.cop0Status = 0;
+    this.cop0Epc = 0;
     this.terminated = false;
     this.fpuConditionFlags = Array.from({ length: MachineState.FPU_FLAG_COUNT }, () => false);
     this.delayedBranchTarget = null;
@@ -48,6 +52,8 @@ export class MachineState {
     this.registers[29] = this.toInt32(DEFAULT_STACK_POINTER);
     this.hi = 0;
     this.lo = 0;
+    this.cop0Status = 0;
+    this.cop0Epc = 0;
     this.programCounter = this.toUint32(DEFAULT_TEXT_BASE);
     this.terminated = false;
     this.fpuConditionFlags.fill(false);
@@ -79,6 +85,22 @@ export class MachineState {
 
   setLo(value: number): void {
     this.lo = this.toInt32(value);
+  }
+
+  getCop0Status(): number {
+    return this.cop0Status;
+  }
+
+  setCop0Status(value: number): void {
+    this.cop0Status = this.toUint32(value);
+  }
+
+  getCop0Epc(): number {
+    return this.cop0Epc;
+  }
+
+  setCop0Epc(value: number): void {
+    this.cop0Epc = this.toUint32(value);
   }
 
   getProgramCounter(): number {
