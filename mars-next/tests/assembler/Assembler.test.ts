@@ -148,4 +148,37 @@ describe("Assembler pipeline", () => {
       ],
     );
   });
+
+  test("expands simple macros with parameters", () => {
+    const source = [
+      ".macro inc reg",
+      "addi reg, reg, 1",
+      ".end_macro",
+      ".text",
+      "inc $t0",
+      "inc $t1",
+    ].join("\n");
+
+    const image = new Assembler().assemble(source);
+    assert.deepStrictEqual(toHexWords(image.text), ["0x21080001", "0x21290001"]);
+  });
+
+  test("renames macro-local labels per expansion", () => {
+    const source = [
+      ".macro loop reg",
+      "loop_body:",
+      "addi reg, reg, -1",
+      "bne reg, $zero, loop_body",
+      ".end_macro",
+      ".text",
+      "loop $t0",
+      "loop $t1",
+    ].join("\n");
+
+    const image = new Assembler().assemble(source);
+
+    assert.strictEqual(image.symbols["loop_body_M0"], image.textBase);
+    assert.strictEqual(image.symbols["loop_body_M1"], image.textBase + 8);
+    assert.deepStrictEqual(toHexWords(image.text), ["0x2108ffff", "0x1500fffe", "0x2129ffff", "0x1520fffe"]);
+  });
 });
