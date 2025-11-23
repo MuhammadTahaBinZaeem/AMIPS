@@ -131,21 +131,57 @@ export class Parser {
         }
         break;
       case ".word":
+      case ".byte":
+      case ".half":
         if (segment !== "data") {
-          throw new Error(`Directive .word is only allowed in .data (line ${line})`);
+          throw new Error(`Directive ${name} is only allowed in .data (line ${line})`);
         }
         args.forEach((arg) => {
           if (arg.kind !== "immediate" && arg.kind !== "label") {
-            throw new Error(`.word expects numeric arguments (line ${line})`);
+            throw new Error(`${name} expects numeric arguments (line ${line})`);
           }
         });
         break;
+      case ".float":
+      case ".double":
+        if (segment !== "data") {
+          throw new Error(`Directive ${name} is only allowed in .data (line ${line})`);
+        }
+        args.forEach((arg) => {
+          if (arg.kind !== "immediate") {
+            throw new Error(`${name} expects numeric arguments (line ${line})`);
+          }
+        });
+        break;
+      case ".ascii":
       case ".asciiz":
         if (segment !== "data") {
-          throw new Error(`Directive .asciiz is only allowed in .data (line ${line})`);
+          throw new Error(`Directive ${name} is only allowed in .data (line ${line})`);
         }
         if (args.length !== 1 || args[0].kind !== "string") {
-          throw new Error(`.asciiz expects a single string argument (line ${line})`);
+          throw new Error(`${name} expects a single string argument (line ${line})`);
+        }
+        break;
+      case ".space":
+        if (segment !== "data") {
+          throw new Error(`Directive .space is only allowed in .data (line ${line})`);
+        }
+        if (args.length !== 1 || args[0].kind !== "immediate") {
+          throw new Error(`.space expects a single size argument (line ${line})`);
+        }
+        if (!Number.isInteger(args[0].value) || args[0].value < 0) {
+          throw new Error(`.space size must be a non-negative integer (line ${line})`);
+        }
+        break;
+      case ".align":
+        if (segment !== "data") {
+          throw new Error(`Directive .align is only allowed in .data (line ${line})`);
+        }
+        if (args.length !== 1 || args[0].kind !== "immediate") {
+          throw new Error(`.align expects a single power-of-two argument (line ${line})`);
+        }
+        if (!Number.isInteger(args[0].value) || args[0].value < 0) {
+          throw new Error(`.align expects a non-negative integer (line ${line})`);
         }
         break;
       default:

@@ -26,8 +26,8 @@ export const LEGACY_PORTING_GAPS: LegacyPortingGap[] = [
     legacyLocation: "legacy/mars/assembler/PseudoOps.java",
     status: "partial",
     notes: [
-      "Assembler only accepts .text, .data, .word, .asciiz plus li/move/nop expansions",
-      "Legacy directives like .byte, .half, .float, .double, .space, .align, .ascii/.asciiz, .globl/.extern, .eqv, .macro/.end_macro, and .include remain unrecognized",
+      "Assembler now supports core data layout directives (.byte/.half/.word/.float/.double/.ascii/.asciiz/.space/.align) alongside li/move/nop expansions",
+      "Remaining gaps include symbol export/import (.globl/.extern), macro and include processing, expression evaluation, and additional pseudo-ops like .eqv",
       "Macro expansion, directive-driven alignment, .include substitution, and expression handling from the legacy assembler are unimplemented",
     ],
   },

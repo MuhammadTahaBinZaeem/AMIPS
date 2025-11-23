@@ -52,12 +52,41 @@ export class Assembler {
         case "directive": {
           if (node.name === ".text") segment = "text";
           if (node.name === ".data") segment = "data";
-          if (node.name === ".word") {
-            dataOffset += 4 * node.args.length;
-          }
-          if (node.name === ".asciiz") {
-            const literal = (node.args[0] as Operand & { kind: "string" }).value;
-            dataOffset += new TextEncoder().encode(literal).length + 1;
+          if (segment === "data") {
+            switch (node.name) {
+              case ".byte":
+                dataOffset += node.args.length;
+                break;
+              case ".half":
+                dataOffset += 2 * node.args.length;
+                break;
+              case ".word":
+              case ".float":
+                dataOffset += 4 * node.args.length;
+                break;
+              case ".double":
+                dataOffset += 8 * node.args.length;
+                break;
+              case ".ascii":
+                dataOffset += this.encodeString((node.args[0] as Operand & { kind: "string" }).value).length;
+                break;
+              case ".asciiz":
+                dataOffset += this.encodeString((node.args[0] as Operand & { kind: "string" }).value).length + 1;
+                break;
+              case ".space":
+                dataOffset += (node.args[0] as Operand & { kind: "immediate" }).value;
+                break;
+              case ".align": {
+                const power = (node.args[0] as Operand & { kind: "immediate" }).value as number;
+                const alignment = Math.pow(2, power);
+                if (!Number.isFinite(alignment) || alignment <= 0) {
+                  throw new Error(`Invalid alignment at line ${node.line}`);
+                }
+                const padding = (alignment - (dataOffset % alignment)) % alignment;
+                dataOffset += padding;
+                break;
+              }
+            }
           }
           break;
         }
@@ -86,6 +115,7 @@ export class Assembler {
     const text: number[] = [];
     const data: number[] = [];
     const dataWords: number[] = [];
+    let dataOffset = 0;
 
     for (const node of ast.nodes) {
       if (node.kind === "directive") {
@@ -107,6 +137,61 @@ export class Assembler {
               const value = this.resolveValue(arg, symbols, node.line);
               dataWords.push(this.toInt32(value));
               this.pushWordBytes(value, data);
+              dataOffset += 4;
+            }
+            continue;
+          }
+          case ".byte": {
+            if (segment !== "data") {
+              throw new Error(`.byte directive encountered outside .data at line ${node.line}`);
+            }
+            for (const arg of node.args) {
+              if (arg.kind !== "immediate" && arg.kind !== "label") {
+                throw new Error(`.byte expects numeric arguments (line ${node.line})`);
+              }
+              const value = this.resolveValue(arg, symbols, node.line);
+              data.push(value & 0xff);
+              dataOffset += 1;
+            }
+            continue;
+          }
+          case ".half": {
+            if (segment !== "data") {
+              throw new Error(`.half directive encountered outside .data at line ${node.line}`);
+            }
+            for (const arg of node.args) {
+              if (arg.kind !== "immediate" && arg.kind !== "label") {
+                throw new Error(`.half expects numeric arguments (line ${node.line})`);
+              }
+              const value = this.resolveValue(arg, symbols, node.line);
+              this.pushHalfBytes(value, data);
+              dataOffset += 2;
+            }
+            continue;
+          }
+          case ".float": {
+            if (segment !== "data") {
+              throw new Error(`.float directive encountered outside .data at line ${node.line}`);
+            }
+            for (const arg of node.args) {
+              if (arg.kind !== "immediate") {
+                throw new Error(`.float expects numeric arguments (line ${node.line})`);
+              }
+              this.pushFloatBytes(arg.value, data);
+              dataOffset += 4;
+            }
+            continue;
+          }
+          case ".double": {
+            if (segment !== "data") {
+              throw new Error(`.double directive encountered outside .data at line ${node.line}`);
+            }
+            for (const arg of node.args) {
+              if (arg.kind !== "immediate") {
+                throw new Error(`.double expects numeric arguments (line ${node.line})`);
+              }
+              this.pushDoubleBytes(arg.value, data);
+              dataOffset += 8;
             }
             continue;
           }
@@ -115,8 +200,42 @@ export class Assembler {
               throw new Error(`.asciiz directive encountered outside .data at line ${node.line}`);
             }
             const literal = (node.args[0] as Operand & { kind: "string" }).value;
-            const bytes = [...new TextEncoder().encode(literal), 0];
+            const bytes = [...this.encodeString(literal), 0];
             data.push(...bytes.map((b) => b & 0xff));
+            dataOffset += bytes.length;
+            continue;
+          }
+          case ".ascii": {
+            if (segment !== "data") {
+              throw new Error(`.ascii directive encountered outside .data at line ${node.line}`);
+            }
+            const literal = (node.args[0] as Operand & { kind: "string" }).value;
+            const bytes = this.encodeString(literal);
+            data.push(...bytes.map((b) => b & 0xff));
+            dataOffset += bytes.length;
+            continue;
+          }
+          case ".space": {
+            if (segment !== "data") {
+              throw new Error(`.space directive encountered outside .data at line ${node.line}`);
+            }
+            const count = (node.args[0] as Operand & { kind: "immediate" }).value;
+            for (let i = 0; i < count; i++) data.push(0);
+            dataOffset += count;
+            continue;
+          }
+          case ".align": {
+            if (segment !== "data") {
+              throw new Error(`.align directive encountered outside .data at line ${node.line}`);
+            }
+            const power = (node.args[0] as Operand & { kind: "immediate" }).value;
+            const alignment = Math.pow(2, power);
+            if (!Number.isFinite(alignment) || alignment <= 0) {
+              throw new Error(`Invalid alignment at line ${node.line}`);
+            }
+            const padding = (alignment - (dataOffset % alignment)) % alignment;
+            for (let i = 0; i < padding; i++) data.push(0);
+            dataOffset += padding;
             continue;
           }
           default:
@@ -428,11 +547,41 @@ export class Assembler {
     return operand.value;
   }
 
+  private encodeString(literal: string): Uint8Array {
+    return new TextEncoder().encode(literal);
+  }
+
   private toInt32(value: number): number {
     return value | 0;
   }
 
+  private pushHalfBytes(value: number, sink: number[]): void {
+    const short = value & 0xffff;
+    sink.push((short >>> 8) & 0xff, short & 0xff);
+  }
+
   private pushWordBytes(value: number, sink: number[]): void {
     sink.push((value >>> 24) & 0xff, (value >>> 16) & 0xff, (value >>> 8) & 0xff, value & 0xff);
+  }
+
+  private pushFloatBytes(value: number, sink: number[]): void {
+    const view = new DataView(new ArrayBuffer(4));
+    view.setFloat32(0, value, false);
+    sink.push(view.getUint8(0), view.getUint8(1), view.getUint8(2), view.getUint8(3));
+  }
+
+  private pushDoubleBytes(value: number, sink: number[]): void {
+    const view = new DataView(new ArrayBuffer(8));
+    view.setFloat64(0, value, false);
+    sink.push(
+      view.getUint8(0),
+      view.getUint8(1),
+      view.getUint8(2),
+      view.getUint8(3),
+      view.getUint8(4),
+      view.getUint8(5),
+      view.getUint8(6),
+      view.getUint8(7),
+    );
   }
 }
