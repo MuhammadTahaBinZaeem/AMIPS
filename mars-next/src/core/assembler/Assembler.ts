@@ -1,4 +1,5 @@
 import { DEFAULT_TEXT_BASE } from "../state/MachineState";
+import { IncludeProcessor, type IncludeProcessOptions, type IncludeResolver } from "./IncludeProcessor";
 import { Lexer } from "./Lexer";
 import { MacroExpander } from "./MacroExpander";
 import { InstructionNode, Operand, Parser, ProgramAst, Segment } from "./Parser";
@@ -29,13 +30,39 @@ interface NormalizedInstruction {
   line: number;
 }
 
+export interface AssemblerOptions extends IncludeProcessOptions {
+  includeResolver?: IncludeResolver | null;
+}
+
 export class Assembler {
   private readonly lexer = new Lexer();
   private readonly parser = new Parser();
   private readonly macroExpander = new MacroExpander(this.lexer);
 
-  assemble(source: string): BinaryImage {
-    const expanded = this.macroExpander.expand(source);
+  private readonly includeProcessor: IncludeProcessor;
+  private readonly defaultIncludeOptions: IncludeProcessOptions;
+
+  constructor(options: AssemblerOptions = {}) {
+    const includeResolver = options.includeResolver ?? options.resolver ?? null;
+    this.includeProcessor = new IncludeProcessor(this.lexer, includeResolver);
+    this.defaultIncludeOptions = {
+      baseDir: options.baseDir,
+      ...(includeResolver !== null && includeResolver !== undefined ? { resolver: includeResolver } : {}),
+    };
+  }
+
+  assemble(source: string, options: AssemblerOptions = {}): BinaryImage {
+    const includeOptions: IncludeProcessOptions = {
+      baseDir: options.baseDir ?? this.defaultIncludeOptions.baseDir,
+    };
+
+    const resolver = options.includeResolver ?? options.resolver ?? this.defaultIncludeOptions.resolver;
+    if (resolver !== undefined) {
+      includeOptions.resolver = resolver;
+    }
+
+    const withIncludes = this.includeProcessor.process(source, includeOptions);
+    const expanded = this.macroExpander.expand(withIncludes);
     const lexed = this.lexer.tokenize(expanded);
     const ast = this.parser.parse(lexed);
     const symbols = this.buildSymbolTable(ast);
