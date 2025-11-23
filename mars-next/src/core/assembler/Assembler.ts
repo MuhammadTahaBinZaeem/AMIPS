@@ -95,7 +95,25 @@ export class Assembler {
     const globalSymbols = new Set<string>();
     const eqvDefinitions: Array<{ name: string; value: Operand; line: number }> = [];
 
-    for (const node of ast.nodes) {
+    for (let i = 0; i < ast.nodes.length; i++) {
+      const node = ast.nodes[i];
+      const nextNode = ast.nodes[i + 1];
+
+      if (
+        (node.kind === "directive" || node.kind === "label") &&
+        (segment === "data" || segment === "kdata")
+      ) {
+        const alignment = this.directiveAlignment(
+          node.kind === "directive" ? node.name : nextNode?.kind === "directive" ? nextNode.name : null,
+        );
+        if (alignment !== null) {
+          const currentOffset = segment === "data" ? dataOffset : kdataOffset;
+          const padding = this.calculatePadding(currentOffset, alignment);
+          if (segment === "data") dataOffset += padding;
+          else kdataOffset += padding;
+        }
+      }
+
       switch (node.kind) {
         case "directive": {
           if (node.name === ".text") segment = "text";
@@ -162,7 +180,7 @@ export class Assembler {
                   throw new Error(`Invalid alignment at line ${node.line}`);
                 }
                 const currentOffset = segment === "data" ? dataOffset : kdataOffset;
-                const padding = (alignment - (currentOffset % alignment)) % alignment;
+                const padding = this.calculatePadding(currentOffset, alignment);
                 if (segment === "data") dataOffset += padding;
                 else kdataOffset += padding;
                 break;
@@ -243,7 +261,27 @@ export class Assembler {
     let textOffset = 0;
     let ktextOffset = 0;
 
-    for (const node of ast.nodes) {
+    for (let i = 0; i < ast.nodes.length; i++) {
+      const node = ast.nodes[i];
+      const nextNode = ast.nodes[i + 1];
+
+      if (
+        (node.kind === "directive" || node.kind === "label") &&
+        (segment === "data" || segment === "kdata")
+      ) {
+        const alignment = this.directiveAlignment(
+          node.kind === "directive" ? node.name : nextNode?.kind === "directive" ? nextNode.name : null,
+        );
+        if (alignment !== null) {
+          const target = segment === "data" ? data : kdata;
+          const currentOffset = segment === "data" ? dataOffset : kdataOffset;
+          const padding = this.calculatePadding(currentOffset, alignment);
+          for (let pad = 0; pad < padding; pad++) target.push(0);
+          if (segment === "data") dataOffset += padding;
+          else kdataOffset += padding;
+        }
+      }
+
       if (node.kind === "directive") {
         switch (node.name) {
           case ".text":
@@ -385,7 +423,7 @@ export class Assembler {
               throw new Error(`Invalid alignment at line ${node.line}`);
             }
             const currentOffset = segment === "data" ? dataOffset : kdataOffset;
-            const padding = (alignment - (currentOffset % alignment)) % alignment;
+            const padding = this.calculatePadding(currentOffset, alignment);
             const target = segment === "data" ? data : kdata;
             for (let i = 0; i < padding; i++) target.push(0);
             if (segment === "data") dataOffset += padding;
@@ -434,6 +472,24 @@ export class Assembler {
       kdata,
       kdataWords: kdataWords.map((w) => this.toInt32(w)),
     };
+  }
+
+  private directiveAlignment(name: string | null | undefined): number | null {
+    switch (name) {
+      case ".half":
+        return 2;
+      case ".word":
+      case ".float":
+        return 4;
+      case ".double":
+        return 8;
+      default:
+        return null;
+    }
+  }
+
+  private calculatePadding(offset: number, alignment: number): number {
+    return (alignment - (offset % alignment)) % alignment;
   }
 
   private resolveValue(operand: Operand, symbols: SymbolTable, line: number): number {

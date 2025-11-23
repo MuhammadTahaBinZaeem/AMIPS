@@ -29,7 +29,7 @@ export const LEGACY_PORTING_GAPS: LegacyPortingGap[] = [
       "Assembler now supports core data layout directives (.byte/.half/.word/.float/.double/.ascii/.asciiz/.space/.align) alongside li/move/nop expansions",
       "Segment selectors (.ktext/.kdata) and symbol utilities (.globl/.extern/.eqv/.set) are recognized in addition to the base directive set",
       "Macro expansion and .include file substitution are implemented, but expression evaluation and other pseudo-ops remain",
-      "Directive-driven alignment beyond explicit .align is not yet available",
+      "Data directives now apply implicit alignment consistent with their natural sizes",
     ],
   },
   {

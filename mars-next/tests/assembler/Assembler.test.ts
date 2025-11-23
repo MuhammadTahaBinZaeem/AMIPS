@@ -137,6 +137,10 @@ describe("Assembler pipeline", () => {
         0x00,
         0x00,
         ...floatBytes(1.5),
+        0x00,
+        0x00,
+        0x00,
+        0x00,
         ...doubleBytes(-2.5),
         0x00,
         0x00,
@@ -144,6 +148,65 @@ describe("Assembler pipeline", () => {
         0x68,
         0x69,
         0x7a,
+        0x00,
+      ],
+    );
+  });
+
+  test("aligns data according to directive requirements", () => {
+    const source = [
+      ".data",
+      ".byte 0xaa",
+      "half_label: .half 0x1234",
+      ".byte 0xdd",
+      "word_label: .word 0x11223344",
+      ".byte 0xee",
+      "double_label: .double 0",
+      ".byte 0xff",
+      "float_label: .float 0",
+    ].join("\n");
+
+    const image = new Assembler().assemble(source);
+
+    assert.strictEqual(image.symbols["half_label"], image.dataBase + 2);
+    assert.strictEqual(image.symbols["word_label"], image.dataBase + 8);
+    assert.strictEqual(image.symbols["double_label"], image.dataBase + 16);
+    assert.strictEqual(image.symbols["float_label"], image.dataBase + 28);
+    assert.deepStrictEqual(image.dataWords, [0x11223344]);
+    assert.deepStrictEqual(
+      image.data,
+      [
+        0xaa,
+        0x00,
+        0x12,
+        0x34,
+        0xdd,
+        0x00,
+        0x00,
+        0x00,
+        0x11,
+        0x22,
+        0x33,
+        0x44,
+        0xee,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0xff,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
         0x00,
       ],
     );
