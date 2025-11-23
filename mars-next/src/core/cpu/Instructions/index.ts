@@ -428,6 +428,41 @@ const makeMultiplyAccumulate = (
   };
 };
 
+const makeMultiplySubtract = (
+  name: string,
+  decoded: RTypeFields,
+  unsigned: boolean,
+): DecodedInstruction => {
+  const { rs, rt } = decoded;
+  return {
+    name,
+    execute: (state: MachineState) => {
+      const left = unsigned ? BigInt(state.getRegister(rs) >>> 0) : BigInt(state.getRegister(rs));
+      const right = unsigned ? BigInt(state.getRegister(rt) >>> 0) : BigInt(state.getRegister(rt));
+      const product = left * right;
+      const difference = composeHiLo(state.getHi(), state.getLo()) - product;
+      const { hi, lo } = splitToHiLo(difference);
+      state.setHi(hi);
+      state.setLo(lo);
+    },
+  };
+};
+
+const makeMultiply = (name: string, decoded: RTypeFields, unsigned: boolean): DecodedInstruction => {
+  const { rs, rt } = decoded;
+  return {
+    name,
+    execute: (state: MachineState) => {
+      const left = unsigned ? BigInt(state.getRegister(rs) >>> 0) : BigInt(state.getRegister(rs));
+      const right = unsigned ? BigInt(state.getRegister(rt) >>> 0) : BigInt(state.getRegister(rt));
+      const product = left * right;
+      const { hi, lo } = splitToHiLo(product);
+      state.setHi(hi);
+      state.setLo(lo);
+    },
+  };
+};
+
 const makeBranchOnReg = (
   name: string,
   decoded: ITypeFields,
@@ -525,6 +560,15 @@ const decodeCop1 = (instruction: number, pc: number): DecodedInstruction | null 
         name: isSingle ? "add.s" : "add.d",
         execute: (state: MachineState) => {
           const result = read(fs, state) + read(ft, state);
+          write(fd, state, isSingle ? Math.fround(result) : result);
+        },
+      };
+    case 0x02:
+      if (!isSingle && !isDouble) return null;
+      return {
+        name: isSingle ? "mul.s" : "mul.d",
+        execute: (state: MachineState) => {
+          const result = read(fs, state) * read(ft, state);
           write(fd, state, isSingle ? Math.fround(result) : result);
         },
       };
@@ -645,6 +689,16 @@ const decodeCop1 = (instruction: number, pc: number): DecodedInstruction | null 
         };
       }
       return null;
+    case 0x12:
+      if (!isSingle && !isDouble) return null;
+      return {
+        name: isSingle ? "movz.s" : "movz.d",
+        execute: (state: MachineState) => {
+          if (state.getRegister(ft) === 0) {
+            write(fd, state, read(fs, state));
+          }
+        },
+      };
     case 0x13:
       if (!isSingle && !isDouble) return null;
       return {
@@ -702,6 +756,17 @@ export function decodeInstruction(instruction: number, pc: number): DecodedInstr
         return makeSyscall();
       case 0x0d:
         return makeBreak();
+      case 0x0a: {
+        const { rd, rs, rt } = decoded;
+        return {
+          name: "movz",
+          execute: (state: MachineState) => {
+            if (state.getRegister(rt) === 0) {
+              state.setRegister(rd, state.getRegister(rs));
+            }
+          },
+        };
+      }
       case 0x0b: {
         const { rd, rs, rt } = decoded;
         return {
@@ -744,6 +809,24 @@ export function decodeInstruction(instruction: number, pc: number): DecodedInstr
           },
         };
       }
+      case 0x11: {
+        const { rs } = decoded;
+        return {
+          name: "mthi",
+          execute: (state: MachineState) => {
+            state.setHi(state.getRegister(rs));
+          },
+        };
+      }
+      case 0x13: {
+        const { rs } = decoded;
+        return {
+          name: "mtlo",
+          execute: (state: MachineState) => {
+            state.setLo(state.getRegister(rs));
+          },
+        };
+      }
       case 0x1a: {
         const { rs, rt } = decoded;
         return {
@@ -770,6 +853,10 @@ export function decodeInstruction(instruction: number, pc: number): DecodedInstr
           },
         };
       }
+      case 0x18:
+        return makeMultiply("mult", decoded, false);
+      case 0x19:
+        return makeMultiply("multu", decoded, true);
       case 0x20:
         return createRegisterBinary("add", decoded, (l, r) => l + r);
       case 0x21:
@@ -796,6 +883,10 @@ export function decodeInstruction(instruction: number, pc: number): DecodedInstr
         return makeMultiplyAccumulate("madd", decoded, false);
       case 0x01:
         return makeMultiplyAccumulate("maddu", decoded, true);
+      case 0x04:
+        return makeMultiplySubtract("msub", decoded, false);
+      case 0x05:
+        return makeMultiplySubtract("msubu", decoded, true);
       case 0x20: {
         const { rd, rs } = decoded;
         return {
@@ -843,6 +934,15 @@ export function decodeInstruction(instruction: number, pc: number): DecodedInstr
       };
     }
 
+    if (copOpcode === 0x04) {
+      return {
+        name: "mtc1",
+        execute: (state: MachineState) => {
+          state.setFloatRegisterBits(fs, state.getRegister(rt));
+        },
+      };
+    }
+
     const copDecoded = decodeCop1(instruction, pc);
     if (copDecoded) {
       return copDecoded;
@@ -859,6 +959,14 @@ export function decodeInstruction(instruction: number, pc: number): DecodedInstr
         name: "mfc0",
         execute: (state: MachineState) => {
           state.setRegister(rt, state.getCop0Register(rd));
+        },
+      };
+    }
+    if (copOpcode === 0x04) {
+      return {
+        name: "mtc0",
+        execute: (state: MachineState) => {
+          state.setCop0Register(rd, state.getRegister(rt));
         },
       };
     }
