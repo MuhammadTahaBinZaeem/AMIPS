@@ -707,8 +707,8 @@ export class Assembler {
   ): number {
     const rsNum = this.requireRegister(rs, line);
     const rtNum = this.requireRegister(rt, line);
-    const address = this.resolveLabelOrImmediate(target, symbols, line);
-    const offset = ((address - (pc + 4)) / 4) | 0;
+    const address = this.toInt32(this.resolveLabelOrImmediate(target, symbols, line));
+    const offset = ((address - (this.toInt32(pc) + 4)) / 4) | 0;
     if (offset < -32768 || offset > 32767) {
       throw new Error(`Branch target out of range at line ${line}`);
     }
