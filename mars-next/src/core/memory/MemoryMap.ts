@@ -130,28 +130,29 @@ export class MemoryMap {
   }
 
   read(address: number): DeviceData {
-    const range = this.findDeviceRange(address);
+    const normalizedAddress = this.validateAddress(address);
+    const range = this.findDeviceRange(normalizedAddress);
     if (!range) {
       throw new RangeError(`No memory-mapped device for address 0x${address.toString(16)}`);
     }
 
-    const offset = (address - range.start) | 0;
+    const offset = (normalizedAddress - range.start) | 0;
     return range.device.read(offset);
   }
 
   write(address: number, value: number | string | Uint8Array): void {
-    const range = this.findDeviceRange(address);
+    const normalizedAddress = this.validateAddress(address);
+    const range = this.findDeviceRange(normalizedAddress);
     if (!range) {
       throw new RangeError(`No memory-mapped device for address 0x${address.toString(16)}`);
     }
 
-    const offset = (address - range.start) | 0;
+    const offset = (normalizedAddress - range.start) | 0;
     range.device.write(offset, value);
   }
 
   resolve(address: number): MemoryMappingResult {
-    this.validateAddress(address);
-    const normalizedAddress = address >>> 0;
+    const normalizedAddress = this.validateAddress(address);
 
     for (const segment of this.segments) {
       if (this.inSegmentRange(normalizedAddress, segment)) {
@@ -174,10 +175,11 @@ export class MemoryMap {
     return segment.direction === "up" ? address - segment.start : segment.start - address;
   }
 
-  private validateAddress(address: number): void {
+  private validateAddress(address: number): number {
     if (!Number.isInteger(address)) {
       throw new RangeError(`Address must be an integer: ${address}`);
     }
+    return address >>> 0;
   }
 
   private findDeviceRange(address: number): DeviceRange | undefined {
