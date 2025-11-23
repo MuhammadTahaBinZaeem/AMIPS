@@ -18,6 +18,7 @@ export class MachineState {
 
   private readonly registers: Int32Array;
   private readonly floatRegisters: Int32Array;
+  private readonly cop0Registers: Int32Array;
   private programCounter: number;
   private hi: number;
   private lo: number;
@@ -33,6 +34,7 @@ export class MachineState {
   constructor() {
     this.registers = new Int32Array(MachineState.REGISTER_COUNT);
     this.floatRegisters = new Int32Array(MachineState.FPU_REGISTER_COUNT);
+    this.cop0Registers = new Int32Array(MachineState.REGISTER_COUNT);
     this.programCounter = DEFAULT_TEXT_BASE;
     this.hi = 0;
     this.lo = 0;
@@ -48,12 +50,13 @@ export class MachineState {
   reset(): void {
     this.registers.fill(0);
     this.floatRegisters.fill(0);
+    this.cop0Registers.fill(0);
     this.registers[28] = this.toInt32(DEFAULT_GLOBAL_POINTER);
     this.registers[29] = this.toInt32(DEFAULT_STACK_POINTER);
     this.hi = 0;
     this.lo = 0;
-    this.cop0Status = 0;
-    this.cop0Epc = 0;
+    this.setCop0Status(0);
+    this.setCop0Epc(0);
     this.programCounter = this.toUint32(DEFAULT_TEXT_BASE);
     this.terminated = false;
     this.fpuConditionFlags.fill(false);
@@ -92,7 +95,9 @@ export class MachineState {
   }
 
   setCop0Status(value: number): void {
-    this.cop0Status = this.toUint32(value);
+    const normalized = this.toUint32(value);
+    this.cop0Status = normalized;
+    this.cop0Registers[12] = normalized;
   }
 
   getCop0Epc(): number {
@@ -100,7 +105,28 @@ export class MachineState {
   }
 
   setCop0Epc(value: number): void {
-    this.cop0Epc = this.toUint32(value);
+    const normalized = this.toUint32(value);
+    this.cop0Epc = normalized;
+    this.cop0Registers[14] = normalized;
+  }
+
+  getCop0Register(index: number): number {
+    this.validateCop0RegisterIndex(index);
+    if (index === 12) return this.getCop0Status();
+    if (index === 14) return this.getCop0Epc();
+    return this.cop0Registers[index];
+  }
+
+  setCop0Register(index: number, value: number): void {
+    this.validateCop0RegisterIndex(index);
+    const normalized = this.toUint32(value);
+    this.cop0Registers[index] = normalized;
+    if (index === 12) {
+      this.cop0Status = normalized;
+    }
+    if (index === 14) {
+      this.cop0Epc = normalized;
+    }
   }
 
   getProgramCounter(): number {
@@ -215,6 +241,12 @@ export class MachineState {
   private validateRegisterIndex(index: number): void {
     if (!Number.isInteger(index) || index < 0 || index >= MachineState.REGISTER_COUNT) {
       throw new RangeError(`Register index out of bounds: ${index}`);
+    }
+  }
+
+  private validateCop0RegisterIndex(index: number): void {
+    if (!Number.isInteger(index) || index < 0 || index >= MachineState.REGISTER_COUNT) {
+      throw new RangeError(`Coprocessor 0 register index out of bounds: ${index}`);
     }
   }
 
