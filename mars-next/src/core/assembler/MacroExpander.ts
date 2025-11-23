@@ -109,11 +109,26 @@ export class MacroExpander {
     return args;
   }
 
-  private matchingMacro(macros: MacroDefinition[], tokens: Token[]): MacroDefinition | undefined {
-    if (tokens.length === 0 || tokens[0]?.type !== "identifier") return undefined;
-    return macros
-      .filter((macro) => macro.name === tokens[0].raw)
-      .find((macro) => macro.params.length === this.splitArguments(tokens.slice(1)).length);
+  private matchingMacro(
+    macros: MacroDefinition[],
+    tokens: Token[],
+  ): { macro: MacroDefinition; startIndex: number } | undefined {
+    let startIndex = 0;
+
+    while (
+      startIndex + 1 < tokens.length &&
+      tokens[startIndex]?.type === "identifier" &&
+      tokens[startIndex + 1]?.type === "colon"
+    ) {
+      startIndex += 2; // Skip leading label definitions.
+    }
+
+    const nameToken = tokens[startIndex];
+    if (!nameToken || nameToken.type !== "identifier") return undefined;
+
+    const args = this.splitArguments(tokens.slice(startIndex + 1));
+    const macro = macros.find((definition) => definition.name === nameToken.raw && definition.params.length === args.length);
+    return macro ? { macro, startIndex } : undefined;
   }
 
   private expandLines(lines: LexedLine[], macros: MacroDefinition[]): string[] {
@@ -124,18 +139,23 @@ export class MacroExpander {
       const line = stack.pop() as LexedLine;
       const macroCall = this.matchingMacro(macros, line.tokens);
       if (macroCall) {
-        const args = this.splitArguments(line.tokens.slice(1));
-        if (args.length !== macroCall.params.length) {
-          throw new Error(`.macro ${macroCall.name} expects ${macroCall.params.length} argument(s) (line ${line.line})`);
+        const { macro, startIndex } = macroCall;
+        const args = this.splitArguments(line.tokens.slice(startIndex + 1));
+        if (args.length !== macro.params.length) {
+          throw new Error(`.macro ${macro.name} expects ${macro.params.length} argument(s) (line ${line.line})`);
         }
-        if (this.callStack.includes(macroCall.name)) {
-          throw new Error(`Recursive macro expansion detected for '${macroCall.name}' (line ${line.line})`);
+        if (this.callStack.includes(macro.name)) {
+          throw new Error(`Recursive macro expansion detected for '${macro.name}' (line ${line.line})`);
         }
 
         const suffix = `_M${this.counter++}`;
-        const substituted = macroCall.body.map((bodyLine) => this.substituteLine(bodyLine, macroCall, args, suffix));
+        let substituted = macro.body.map((bodyLine) => this.substituteLine(bodyLine, macro, args, suffix));
+        const labelPrefix = this.tokensToText(line.tokens.slice(0, startIndex));
+        if (labelPrefix && substituted.length > 0) {
+          substituted = [`${labelPrefix} ${substituted[0]}`, ...substituted.slice(1)];
+        }
         const lexedExpansion = this.lexer.tokenize(substituted.join("\n"));
-        this.callStack.push(macroCall.name);
+        this.callStack.push(macro.name);
         const expanded = this.expandLines(lexedExpansion, macros);
         this.callStack.pop();
         output.push(...expanded);
