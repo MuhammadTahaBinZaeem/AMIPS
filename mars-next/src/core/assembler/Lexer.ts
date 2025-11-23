@@ -102,7 +102,7 @@ export class Lexer {
         continue;
       }
 
-      if (/[A-Za-z_]/.test(char)) {
+      if (/[A-Za-z_%]/.test(char)) {
         const { token, length } = this.readWordToken("identifier", cleaned, i, lineNumber, column);
         tokens.push(token);
         i += length;
@@ -185,7 +185,7 @@ export class Lexer {
     column: number,
   ): { token: Token; length: number } {
     let i = start;
-    while (i < text.length && /[A-Za-z0-9_.$]/.test(text[i])) i++;
+    while (i < text.length && /[A-Za-z0-9_.$%]/.test(text[i])) i++;
     const raw = text.slice(start - (type === "identifier" ? 0 : 1), i);
     const value = text.slice(start, i);
     return {

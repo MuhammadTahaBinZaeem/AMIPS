@@ -1,5 +1,6 @@
 import { DEFAULT_TEXT_BASE } from "../state/MachineState";
 import { Lexer } from "./Lexer";
+import { MacroExpander } from "./MacroExpander";
 import { InstructionNode, Operand, Parser, ProgramAst, Segment } from "./Parser";
 
 export interface BinaryImage {
@@ -31,9 +32,11 @@ interface NormalizedInstruction {
 export class Assembler {
   private readonly lexer = new Lexer();
   private readonly parser = new Parser();
+  private readonly macroExpander = new MacroExpander(this.lexer);
 
   assemble(source: string): BinaryImage {
-    const lexed = this.lexer.tokenize(source);
+    const expanded = this.macroExpander.expand(source);
+    const lexed = this.lexer.tokenize(expanded);
     const ast = this.parser.parse(lexed);
     const symbols = this.buildSymbolTable(ast);
     const { text, data, dataWords, ktext, kdata, kdataWords } = this.emit(ast, symbols);
