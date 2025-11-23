@@ -42,6 +42,22 @@ function toInt32(value: number): number {
   return value | 0;
 }
 
+function clampFloatToWord(value: number): number {
+  if (!Number.isFinite(value)) {
+    return value > 0 ? 0x7fffffff : value < 0 ? 0x80000000 : 0;
+  }
+  if (value >= 0x7fffffff) return 0x7fffffff;
+  if (value <= -0x80000000) return -0x80000000;
+  return toInt32(Math.trunc(value));
+}
+
+function ceilFloatToWord(value: number): number {
+  if (!Number.isFinite(value) || value < -0x80000000 || value > 0x7fffffff) {
+    return 0x7fffffff;
+  }
+  return toInt32(Math.ceil(value));
+}
+
 const createRegisterBinary = (
   name: string,
   decoded: RTypeFields,
@@ -245,10 +261,7 @@ const decodeCop1 = (instruction: number, pc: number): DecodedInstruction | null 
 
   const isSingle = fmt === 0x10;
   const isDouble = fmt === 0x11;
-
-  if (!isSingle && !isDouble) {
-    return null;
-  }
+  const isWord = fmt === 0x14;
 
   const read = isSingle
     ? (register: number, state: MachineState) => state.getFloatRegisterSingle(register)
@@ -259,6 +272,7 @@ const decodeCop1 = (instruction: number, pc: number): DecodedInstruction | null 
 
   switch (funct) {
     case 0x00:
+      if (!isSingle && !isDouble) return null;
       return {
         name: isSingle ? "add.s" : "add.d",
         execute: (state: MachineState) => {
@@ -266,7 +280,17 @@ const decodeCop1 = (instruction: number, pc: number): DecodedInstruction | null 
           write(fd, state, isSingle ? Math.fround(result) : result);
         },
       };
+    case 0x03:
+      if (!isSingle && !isDouble) return null;
+      return {
+        name: isSingle ? "div.s" : "div.d",
+        execute: (state: MachineState) => {
+          const result = read(fs, state) / read(ft, state);
+          write(fd, state, isSingle ? Math.fround(result) : result);
+        },
+      };
     case 0x05:
+      if (!isSingle && !isDouble) return null;
       return {
         name: isSingle ? "abs.s" : "abs.d",
         execute: (state: MachineState) => {
@@ -274,7 +298,77 @@ const decodeCop1 = (instruction: number, pc: number): DecodedInstruction | null 
           write(fd, state, isSingle ? Math.fround(Math.abs(value)) : Math.abs(value));
         },
       };
+    case 0x0e:
+      if (!isSingle && !isDouble) return null;
+      return {
+        name: isSingle ? "ceil.w.s" : "ceil.w.d",
+        execute: (state: MachineState) => {
+          const value = read(fs, state);
+          state.setFloatRegisterBits(fd, ceilFloatToWord(value));
+        },
+      };
+    case 0x20:
+      if (isDouble) {
+        return {
+          name: "cvt.s.d",
+          execute: (state: MachineState) => {
+            const value = state.getFloatRegisterDouble(fs);
+            state.setFloatRegisterSingle(fd, Math.fround(value));
+          },
+        };
+      }
+      if (isWord) {
+        return {
+          name: "cvt.s.w",
+          execute: (state: MachineState) => {
+            const value = state.getFloatRegisterBits(fs);
+            state.setFloatRegisterSingle(fd, Math.fround(value));
+          },
+        };
+      }
+      return null;
+    case 0x21:
+      if (isSingle) {
+        return {
+          name: "cvt.d.s",
+          execute: (state: MachineState) => {
+            const value = state.getFloatRegisterSingle(fs);
+            state.setFloatRegisterDouble(fd, value);
+          },
+        };
+      }
+      if (isWord) {
+        return {
+          name: "cvt.d.w",
+          execute: (state: MachineState) => {
+            const value = state.getFloatRegisterBits(fs);
+            state.setFloatRegisterDouble(fd, value);
+          },
+        };
+      }
+      return null;
+    case 0x24:
+      if (isSingle) {
+        return {
+          name: "cvt.w.s",
+          execute: (state: MachineState) => {
+            const value = state.getFloatRegisterSingle(fs);
+            state.setFloatRegisterBits(fd, clampFloatToWord(value));
+          },
+        };
+      }
+      if (isDouble) {
+        return {
+          name: "cvt.w.d",
+          execute: (state: MachineState) => {
+            const value = state.getFloatRegisterDouble(fs);
+            state.setFloatRegisterBits(fd, clampFloatToWord(value));
+          },
+        };
+      }
+      return null;
     case 0x32:
+      if (!isSingle && !isDouble) return null;
       return {
         name: isSingle ? "c.eq.s" : "c.eq.d",
         execute: (state: MachineState) => {
@@ -282,6 +376,7 @@ const decodeCop1 = (instruction: number, pc: number): DecodedInstruction | null 
         },
       };
     case 0x3e:
+      if (!isSingle && !isDouble) return null;
       return {
         name: isSingle ? "c.le.s" : "c.le.d",
         execute: (state: MachineState) => {
@@ -289,6 +384,7 @@ const decodeCop1 = (instruction: number, pc: number): DecodedInstruction | null 
         },
       };
     case 0x3c:
+      if (!isSingle && !isDouble) return null;
       return {
         name: isSingle ? "c.lt.s" : "c.lt.d",
         execute: (state: MachineState) => {
@@ -316,6 +412,32 @@ export function decodeInstruction(instruction: number, pc: number): DecodedInstr
         return makeSyscall();
       case 0x0d:
         return makeBreak();
+      case 0x1a: {
+        const { rs, rt } = decoded;
+        return {
+          name: "div",
+          execute: (state: MachineState) => {
+            const divisor = state.getRegister(rt);
+            if (divisor === 0) return;
+            const dividend = state.getRegister(rs);
+            state.setHi(dividend % divisor);
+            state.setLo(toInt32(dividend / divisor));
+          },
+        };
+      }
+      case 0x1b: {
+        const { rs, rt } = decoded;
+        return {
+          name: "divu",
+          execute: (state: MachineState) => {
+            const divisor = state.getRegister(rt) >>> 0;
+            if (divisor === 0) return;
+            const dividend = state.getRegister(rs) >>> 0;
+            state.setHi(toInt32((dividend % divisor) >>> 0));
+            state.setLo(toInt32((dividend / divisor) >>> 0));
+          },
+        };
+      }
       case 0x20:
         return createRegisterBinary("add", decoded, (l, r) => l + r);
       case 0x21:
@@ -338,6 +460,34 @@ export function decodeInstruction(instruction: number, pc: number): DecodedInstr
     switch (decoded.funct) {
       case 0x02:
         return createRegisterBinary("mul", decoded, (l, r) => l * r);
+      case 0x20: {
+        const { rd, rs } = decoded;
+        return {
+          name: "clz",
+          execute: (state: MachineState) => {
+            const value = state.getRegister(rs) >>> 0;
+            let count = 0;
+            for (let bit = 31; bit >= 0 && ((value >>> bit) & 1) === 0; bit--) {
+              count++;
+            }
+            state.setRegister(rd, count);
+          },
+        };
+      }
+      case 0x21: {
+        const { rd, rs } = decoded;
+        return {
+          name: "clo",
+          execute: (state: MachineState) => {
+            const value = state.getRegister(rs) >>> 0;
+            let count = 0;
+            for (let bit = 31; bit >= 0 && ((value >>> bit) & 1) === 1; bit--) {
+              count++;
+            }
+            state.setRegister(rd, count);
+          },
+        };
+      }
       default:
         return null;
     }

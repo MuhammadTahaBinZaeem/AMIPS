@@ -11,25 +11,13 @@ The following instructions have been fully ported from the legacy simulator and 
 - Shifts: `sll`
 - Control flow: `beq`, `bne`, `bgez`, `bgezal`, `bgtz`, `blez`, `bltz`, `bltzal`, `j`, `jal`, `jr`, `bc1f`, `bc1t`
 - System and no-ops: `syscall`, `break`, and the implicit `nop` encoding
-- Floating point arithmetic and comparisons: `abs.s`, `abs.d`, `add.s`, `add.d`, `c.eq.s`, `c.eq.d`, `c.le.s`, `c.le.d`, `c.lt.s`, `c.lt.d`
+- Integer division and bit counting: `div`, `divu`, `clo`, `clz`
+- Floating point arithmetic and comparisons: `abs.s`, `abs.d`, `add.s`, `add.d`, `c.eq.s`, `c.eq.d`, `c.le.s`, `c.le.d`, `c.lt.s`, `c.lt.d`, `div.s`, `div.d`
+- Floating point conversions and rounding to word: `ceil.w.s`, `ceil.w.d`, `cvt.d.s`, `cvt.d.w`, `cvt.s.d`, `cvt.s.w`, `cvt.w.d`, `cvt.w.s`
 
 ## Missing instruction mnemonics
 
-ceil.w.d
-ceil.w.s
-clo
-clz
-cvt.d.s  
-cvt.d.w  
-cvt.s.d  
-cvt.s.w  
-cvt.w.d  
-cvt.w.s  
-div  
-div.d  
-div.s  
-divu  
-eret  
+eret
 floor.w.d
 floor.w.s
 jalr
