@@ -158,7 +158,7 @@ export class Assembler {
                 : segment === "kdata"
                   ? kdataOffset
                   : dataOffset;
-          const address = base + offset;
+          const address = this.toUint32(base + offset);
           if (definedSymbols.has(node.name)) {
             throw new Error(`Duplicate label '${node.name}' at line ${node.line}`);
           }
@@ -218,11 +218,11 @@ export class Assembler {
         switch (node.name) {
           case ".text":
             segment = "text";
-            pc = DEFAULT_TEXT_BASE + textOffset;
+            pc = this.toUint32(DEFAULT_TEXT_BASE + textOffset);
             continue;
           case ".ktext":
             segment = "ktext";
-            pc = DEFAULT_KTEXT_BASE + ktextOffset;
+            pc = this.toUint32(DEFAULT_KTEXT_BASE + ktextOffset);
             continue;
           case ".data":
             segment = "data";
@@ -391,7 +391,7 @@ export class Assembler {
           } else {
             ktextOffset += 4;
           }
-          pc = (pc + 4) | 0;
+          pc = this.toUint32(pc + 4);
         }
       }
     }
@@ -695,6 +695,10 @@ export class Assembler {
 
   private toInt32(value: number): number {
     return value | 0;
+  }
+
+  private toUint32(value: number): number {
+    return value >>> 0;
   }
 
   private pushHalfBytes(value: number, sink: number[]): void {

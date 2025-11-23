@@ -10,11 +10,11 @@ export class Memory {
   }
 
   readWord(address: number): number {
-    this.validateWordAddress(address);
+    const normalizedAddress = this.validateWordAddress(address);
 
     let value = 0;
     for (let i = 0; i < 4; i++) {
-      value = (value << 8) | this.readByte(address + i);
+      value = (value << 8) | this.readByte(normalizedAddress + i);
     }
     return value | 0;
   }
@@ -31,22 +31,22 @@ export class Memory {
   }
 
   writeWord(address: number, value: number): void {
-    this.validateWordAddress(address);
+    const normalizedAddress = this.validateWordAddress(address);
 
     for (let i = 0; i < 4; i++) {
       const shift = 24 - 8 * i;
-      this.writeByte(address + i, (value >>> shift) & 0xff);
+      this.writeByte(normalizedAddress + i, (value >>> shift) & 0xff);
     }
   }
 
   readByte(address: number): number {
-    this.validateAddress(address);
-    return this.bytes.get(address) ?? 0;
+    const normalizedAddress = this.validateAddress(address);
+    return this.bytes.get(normalizedAddress) ?? 0;
   }
 
   writeByte(address: number, value: number): void {
-    this.validateAddress(address);
-    this.bytes.set(address, value & 0xff);
+    const normalizedAddress = this.validateAddress(address);
+    this.bytes.set(normalizedAddress, value & 0xff);
   }
 
   writeBytes(baseAddress: number, values: number[]): void {
@@ -63,16 +63,19 @@ export class Memory {
       .map(([address, value]) => ({ address, value }));
   }
 
-  private validateAddress(address: number): void {
-    if (!Number.isInteger(address) || address < 0) {
+  private validateAddress(address: number): number {
+    if (!Number.isInteger(address)) {
       throw new RangeError(`Invalid memory address: ${address}`);
     }
+
+    return address >>> 0;
   }
 
-  private validateWordAddress(address: number): void {
-    this.validateAddress(address);
-    if (address % 4 !== 0) {
+  private validateWordAddress(address: number): number {
+    const normalizedAddress = this.validateAddress(address);
+    if (normalizedAddress % 4 !== 0) {
       throw new RangeError(`Unaligned word address: ${address}`);
     }
+    return normalizedAddress;
   }
 }

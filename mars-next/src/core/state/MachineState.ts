@@ -48,7 +48,7 @@ export class MachineState {
     this.registers[29] = this.toInt32(DEFAULT_STACK_POINTER);
     this.hi = 0;
     this.lo = 0;
-    this.programCounter = this.toInt32(DEFAULT_TEXT_BASE);
+    this.programCounter = this.toUint32(DEFAULT_TEXT_BASE);
     this.terminated = false;
     this.fpuConditionFlags.fill(false);
     this.clearDelayedBranch();
@@ -86,11 +86,11 @@ export class MachineState {
   }
 
   setProgramCounter(value: number): void {
-    this.programCounter = this.toInt32(value);
+    this.programCounter = this.toUint32(value);
   }
 
   incrementProgramCounter(delta = 4): void {
-    this.programCounter = this.toInt32(this.programCounter + delta);
+    this.programCounter = this.toUint32(this.programCounter + delta);
   }
 
   terminate(): void {
@@ -104,7 +104,7 @@ export class MachineState {
   registerDelayedBranch(targetAddress: number): void {
     switch (this.delayedBranchState) {
       case "cleared":
-        this.delayedBranchTarget = this.toInt32(targetAddress);
+        this.delayedBranchTarget = this.toUint32(targetAddress);
       // fall through
       case "registered":
       case "triggered":
@@ -218,5 +218,9 @@ export class MachineState {
 
   private toInt32(value: number): number {
     return value | 0;
+  }
+
+  private toUint32(value: number): number {
+    return value >>> 0;
   }
 }

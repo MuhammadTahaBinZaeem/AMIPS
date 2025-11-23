@@ -30,11 +30,17 @@ describe("Memory", () => {
     assert.throws(() => memory.readWord(0x10a), /Unaligned word address/i);
   });
 
-  it("faults on invalid addresses", () => {
+  it("normalizes 32-bit addresses and rejects non-integer input", () => {
     const memory = new Memory();
 
-    assert.throws(() => memory.writeByte(-1, 0x11), /Invalid memory address/i);
-    assert.throws(() => memory.readByte(-4), /Invalid memory address/i);
+    const kernelByteAddress = 0x8000_0000;
+    memory.writeByte(-0x8000_0000, 0x11);
+    assert.equal(memory.readByte(kernelByteAddress), 0x11);
+
+    const kernelWordAddress = 0x9000_0000;
+    memory.writeWord(-0x7000_0000, 0xfeedface);
+    assert.equal(memory.readWord(kernelWordAddress) >>> 0, 0xfeedface);
+
     assert.throws(() => memory.writeWord(3.5, 0xbeef), /Invalid memory address/i);
   });
 });
