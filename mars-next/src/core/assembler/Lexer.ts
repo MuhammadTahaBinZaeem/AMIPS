@@ -7,7 +7,18 @@ export type TokenType =
   | "comma"
   | "colon"
   | "lparen"
-  | "rparen";
+  | "rparen"
+  | "plus"
+  | "minus"
+  | "star"
+  | "slash"
+  | "percent"
+  | "amp"
+  | "pipe"
+  | "caret"
+  | "tilde"
+  | "lshift"
+  | "rshift";
 
 export interface Token {
   type: TokenType;
@@ -95,10 +106,76 @@ export class Lexer {
         continue;
       }
 
-      if (/[0-9-]/.test(char)) {
+      if (this.isNumberStart(cleaned, i)) {
         const { token, length } = this.readNumber(cleaned, i, lineNumber, column);
         tokens.push(token);
         i += length;
+        continue;
+      }
+
+      if (char === "+") {
+        tokens.push({ type: "plus", value: "+", line: lineNumber, column, raw: "+" });
+        i++;
+        continue;
+      }
+
+      if (char === "-") {
+        tokens.push({ type: "minus", value: "-", line: lineNumber, column, raw: "-" });
+        i++;
+        continue;
+      }
+
+      if (char === "*") {
+        tokens.push({ type: "star", value: "*", line: lineNumber, column, raw: "*" });
+        i++;
+        continue;
+      }
+
+      if (char === "%") {
+        tokens.push({ type: "percent", value: "%", line: lineNumber, column, raw: "%" });
+        i++;
+        continue;
+      }
+
+      if (char === "&") {
+        tokens.push({ type: "amp", value: "&", line: lineNumber, column, raw: "&" });
+        i++;
+        continue;
+      }
+
+      if (char === "|") {
+        tokens.push({ type: "pipe", value: "|", line: lineNumber, column, raw: "|" });
+        i++;
+        continue;
+      }
+
+      if (char === "^") {
+        tokens.push({ type: "caret", value: "^", line: lineNumber, column, raw: "^" });
+        i++;
+        continue;
+      }
+
+      if (char === "~") {
+        tokens.push({ type: "tilde", value: "~", line: lineNumber, column, raw: "~" });
+        i++;
+        continue;
+      }
+
+      if (char === "<" && cleaned[i + 1] === "<") {
+        tokens.push({ type: "lshift", value: "<<", line: lineNumber, column, raw: "<<" });
+        i += 2;
+        continue;
+      }
+
+      if (char === ">" && cleaned[i + 1] === ">") {
+        tokens.push({ type: "rshift", value: ">>", line: lineNumber, column, raw: ">>" });
+        i += 2;
+        continue;
+      }
+
+      if (char === "/") {
+        tokens.push({ type: "slash", value: "/", line: lineNumber, column, raw: "/" });
+        i++;
         continue;
       }
 
@@ -113,6 +190,13 @@ export class Lexer {
     }
 
     return tokens;
+  }
+
+  private isNumberStart(text: string, index: number): boolean {
+    if (/[0-9]/.test(text[index] ?? "")) return true;
+    if (text[index] === "." && /[0-9]/.test(text[index + 1] ?? "")) return true;
+    if (text[index] === "-" && /[0-9.]/.test(text[index + 1] ?? "")) return true;
+    return false;
   }
 
   private stripComment(text: string): string {
@@ -195,14 +279,12 @@ export class Lexer {
   }
 
   private readNumber(text: string, start: number, line: number, column: number): { token: Token; length: number } {
-    let i = start;
-    if (text[i] === "-") i++;
-
-    while (i < text.length && /[0-9A-Fa-fxX.+eE-]/.test(text[i])) {
-      i++;
+    const match = text.slice(start).match(/^[-]?(?:0x[0-9A-Fa-f]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/);
+    if (!match) {
+      throw new Error(`Invalid number at line ${line}, column ${column}`);
     }
 
-    const raw = text.slice(start, i);
+    const raw = match[0];
     const numeric = Number(raw);
     if (!Number.isFinite(numeric)) {
       throw new Error(`Invalid number '${raw}' at line ${line}, column ${column}`);
@@ -210,7 +292,7 @@ export class Lexer {
 
     return {
       token: { type: "number", value: numeric, line, column, raw },
-      length: i - start,
+      length: raw.length,
     };
   }
 }

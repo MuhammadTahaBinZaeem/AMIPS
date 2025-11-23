@@ -7,7 +7,19 @@ export type Operand =
   | { kind: "immediate"; value: number }
   | { kind: "label"; name: string }
   | { kind: "string"; value: string }
-  | { kind: "memory"; base: number; offset: number };
+  | { kind: "memory"; base: number; offset: number }
+  | { kind: "expression"; expression: ExpressionNode };
+
+export type ExpressionNode =
+  | { type: "number"; value: number }
+  | { type: "symbol"; name: string }
+  | { type: "unary"; op: "plus" | "minus" | "bitnot"; argument: ExpressionNode }
+  | {
+      type: "binary";
+      op: "add" | "sub" | "mul" | "div" | "mod" | "lshift" | "rshift" | "and" | "xor" | "or";
+      left: ExpressionNode;
+      right: ExpressionNode;
+    };
 
 export type DirectiveNode = {
   kind: "directive";
@@ -122,7 +134,7 @@ export class Parser {
     const name = tokens[0].raw.startsWith(".")
       ? tokens[0].raw.toLowerCase()
       : `.${String(tokens[0].value).toLowerCase()}`;
-    const args = this.collectArguments(tokens.slice(1), line);
+    const args = this.collectArguments(tokens.slice(1), line, false, true);
     switch (name) {
       case ".text":
       case ".ktext":
@@ -139,7 +151,7 @@ export class Parser {
           throw new Error(`Directive ${name} is only allowed in .data/.kdata (line ${line})`);
         }
         args.forEach((arg) => {
-          if (arg.kind !== "immediate" && arg.kind !== "label") {
+          if (arg.kind !== "immediate" && arg.kind !== "label" && arg.kind !== "expression") {
             throw new Error(`${name} expects numeric arguments (line ${line})`);
           }
         });
@@ -150,7 +162,7 @@ export class Parser {
           throw new Error(`Directive ${name} is only allowed in .data/.kdata (line ${line})`);
         }
         args.forEach((arg) => {
-          if (arg.kind !== "immediate") {
+          if (arg.kind !== "immediate" && arg.kind !== "expression") {
             throw new Error(`${name} expects numeric arguments (line ${line})`);
           }
         });
@@ -168,22 +180,16 @@ export class Parser {
         if (segment !== "data" && segment !== "kdata") {
           throw new Error(`Directive .space is only allowed in .data/.kdata (line ${line})`);
         }
-        if (args.length !== 1 || args[0].kind !== "immediate") {
+        if (args.length !== 1 || (args[0].kind !== "immediate" && args[0].kind !== "expression")) {
           throw new Error(`.space expects a single size argument (line ${line})`);
-        }
-        if (!Number.isInteger(args[0].value) || args[0].value < 0) {
-          throw new Error(`.space size must be a non-negative integer (line ${line})`);
         }
         break;
       case ".align":
         if (segment !== "data" && segment !== "kdata") {
           throw new Error(`Directive .align is only allowed in .data/.kdata (line ${line})`);
         }
-        if (args.length !== 1 || args[0].kind !== "immediate") {
+        if (args.length !== 1 || (args[0].kind !== "immediate" && args[0].kind !== "expression")) {
           throw new Error(`.align expects a single power-of-two argument (line ${line})`);
-        }
-        if (!Number.isInteger(args[0].value) || args[0].value < 0) {
-          throw new Error(`.align expects a non-negative integer (line ${line})`);
         }
         break;
       case ".globl":
@@ -201,7 +207,7 @@ export class Parser {
         if (
           args.length !== 2 ||
           args[0].kind !== "label" ||
-          (args[1].kind !== "immediate" && args[1].kind !== "label")
+          (args[1].kind !== "immediate" && args[1].kind !== "label" && args[1].kind !== "expression")
         ) {
           throw new Error(`${name} expects a symbol name followed by a value (line ${line})`);
         }
@@ -224,12 +230,12 @@ export class Parser {
     return { kind: "instruction", name, operands: args, segment, line };
   }
 
-  private collectArguments(tokens: Token[], line: number, allowMemory = false): Operand[] {
+  private collectArguments(tokens: Token[], line: number, allowMemory = false, allowExpression = false): Operand[] {
     const operands: Operand[] = [];
     let current: Token[] = [];
     const flush = () => {
       if (current.length === 0) return;
-      operands.push(this.parseOperand(current, line, allowMemory));
+      operands.push(this.parseOperand(current, line, allowMemory, allowExpression));
       current = [];
     };
 
@@ -245,7 +251,7 @@ export class Parser {
     return operands;
   }
 
-  private parseOperand(tokens: Token[], line: number, allowMemory: boolean): Operand {
+  private parseOperand(tokens: Token[], line: number, allowMemory: boolean, allowExpression: boolean): Operand {
     if (tokens.length === 0) {
       throw new Error(`Missing operand at line ${line}`);
     }
@@ -272,6 +278,11 @@ export class Parser {
       if (token.type === "identifier") {
         return { kind: "label", name: String(token.value) };
       }
+    }
+
+    if (allowExpression) {
+      const expression = this.parseExpression(tokens, line);
+      return { kind: "expression", expression };
     }
 
     throw new Error(`Unable to parse operand near '${tokens.map((t) => t.raw).join(" ")}' (line ${line})`);
@@ -310,6 +321,11 @@ export class Parser {
     };
   }
 
+  private parseExpression(tokens: Token[], line: number): ExpressionNode {
+    const parser = new ExpressionParser(tokens, line);
+    return parser.parse();
+  }
+
   private parseRegister(register: string, line: number): number {
     const trimmed = register.replace(/^\$/g, "").toLowerCase();
     if (/^\d+$/.test(trimmed)) {
@@ -325,5 +341,149 @@ export class Parser {
     }
 
     throw new Error(`Unknown register ${register} (line ${line})`);
+  }
+}
+
+class ExpressionParser {
+  private readonly tokens: Token[];
+  private readonly line: number;
+  private index = 0;
+
+  constructor(tokens: Token[], line: number) {
+    this.tokens = tokens;
+    this.line = line;
+  }
+
+  parse(): ExpressionNode {
+    const expression = this.parsePrecedence(0);
+    if (this.peek() !== null) {
+      throw new Error(`Unexpected token '${this.peek()!.raw}' in expression (line ${this.line})`);
+    }
+    return expression;
+  }
+
+  private parsePrecedence(minPrecedence: number): ExpressionNode {
+    let left = this.parseUnary();
+
+    while (true) {
+      const operator = this.peek();
+      const precedence = operator ? this.binaryPrecedence(operator.type) : -1;
+      if (precedence < minPrecedence) break;
+
+      this.index++;
+      const right = this.parsePrecedence(precedence + 1);
+      left = { type: "binary", op: this.toBinaryOp(operator!.type), left, right };
+    }
+
+    return left;
+  }
+
+  private parseUnary(): ExpressionNode {
+    const token = this.peek();
+    if (token?.type === "plus" || token?.type === "minus" || token?.type === "tilde") {
+      this.index++;
+      const argument = this.parseUnary();
+      return { type: "unary", op: this.toUnaryOp(token.type), argument };
+    }
+
+    return this.parsePrimary();
+  }
+
+  private parsePrimary(): ExpressionNode {
+    const token = this.next();
+    if (!token) {
+      throw new Error(`Unexpected end of expression (line ${this.line})`);
+    }
+
+    if (token.type === "number") {
+      return { type: "number", value: Number(token.value) };
+    }
+
+    if (token.type === "identifier") {
+      return { type: "symbol", name: String(token.value) };
+    }
+
+    if (token.type === "lparen") {
+      const inner = this.parsePrecedence(0);
+      const closing = this.next();
+      if (!closing || closing.type !== "rparen") {
+        throw new Error(`Unclosed parenthesis in expression (line ${this.line})`);
+      }
+      return inner;
+    }
+
+    throw new Error(`Unexpected token '${token.raw}' in expression (line ${this.line})`);
+  }
+
+  private peek(): Token | null {
+    return this.tokens[this.index] ?? null;
+  }
+
+  private next(): Token | null {
+    if (this.index >= this.tokens.length) return null;
+    return this.tokens[this.index++] ?? null;
+  }
+
+  private binaryPrecedence(type: Token["type"]): number {
+    switch (type) {
+      case "pipe":
+        return 1;
+      case "caret":
+        return 2;
+      case "amp":
+        return 3;
+      case "lshift":
+      case "rshift":
+        return 4;
+      case "plus":
+      case "minus":
+        return 5;
+      case "star":
+      case "slash":
+      case "percent":
+        return 6;
+      default:
+        return -1;
+    }
+  }
+
+  private toBinaryOp(type: Token["type"]): ExpressionNode["op"] {
+    switch (type) {
+      case "plus":
+        return "add";
+      case "minus":
+        return "sub";
+      case "star":
+        return "mul";
+      case "slash":
+        return "div";
+      case "percent":
+        return "mod";
+      case "lshift":
+        return "lshift";
+      case "rshift":
+        return "rshift";
+      case "amp":
+        return "and";
+      case "caret":
+        return "xor";
+      case "pipe":
+        return "or";
+      default:
+        throw new Error(`Unsupported operator in expression (line ${this.line})`);
+    }
+  }
+
+  private toUnaryOp(type: Token["type"]): "plus" | "minus" | "bitnot" {
+    switch (type) {
+      case "plus":
+        return "plus" as const;
+      case "minus":
+        return "minus" as const;
+      case "tilde":
+        return "bitnot" as const;
+      default:
+        throw new Error(`Unsupported unary operator (line ${this.line})`);
+    }
   }
 }
