@@ -546,6 +546,14 @@ const decodeCop1 = (instruction: number, pc: number): DecodedInstruction | null 
           write(fd, state, isSingle ? Math.fround(Math.abs(value)) : Math.abs(value));
         },
       };
+    case 0x06:
+      if (!isSingle && !isDouble) return null;
+      return {
+        name: isSingle ? "mov.s" : "mov.d",
+        execute: (state: MachineState) => {
+          write(fd, state, read(fs, state));
+        },
+      };
     case 0x0e:
       if (!isSingle && !isDouble) return null;
       return {
@@ -584,6 +592,19 @@ const decodeCop1 = (instruction: number, pc: number): DecodedInstruction | null 
         };
       }
       return null;
+    case 0x11: {
+      if (!isSingle && !isDouble) return null;
+      const condition = ft >> 2;
+      const moveOnTrue = (ft & 0x1) === 1;
+      return {
+        name: isSingle ? (moveOnTrue ? "movt.s" : "movf.s") : moveOnTrue ? "movt.d" : "movf.d",
+        execute: (state: MachineState) => {
+          if (state.getFpuConditionFlag(condition) === moveOnTrue) {
+            write(fd, state, read(fs, state));
+          }
+        },
+      };
+    }
     case 0x21:
       if (isSingle) {
         return {
@@ -624,6 +645,16 @@ const decodeCop1 = (instruction: number, pc: number): DecodedInstruction | null 
         };
       }
       return null;
+    case 0x13:
+      if (!isSingle && !isDouble) return null;
+      return {
+        name: isSingle ? "movn.s" : "movn.d",
+        execute: (state: MachineState) => {
+          if (state.getRegister(ft) !== 0) {
+            write(fd, state, read(fs, state));
+          }
+        },
+      };
     case 0x32:
       if (!isSingle && !isDouble) return null;
       return {
@@ -671,6 +702,48 @@ export function decodeInstruction(instruction: number, pc: number): DecodedInstr
         return makeSyscall();
       case 0x0d:
         return makeBreak();
+      case 0x0b: {
+        const { rd, rs, rt } = decoded;
+        return {
+          name: "movn",
+          execute: (state: MachineState) => {
+            if (state.getRegister(rt) !== 0) {
+              state.setRegister(rd, state.getRegister(rs));
+            }
+          },
+        };
+      }
+      case 0x01: {
+        const { rd, rs, rt } = decoded;
+        const conditionCode = rt >> 2;
+        const moveOnTrue = (rt & 0x1) === 1;
+        return {
+          name: moveOnTrue ? "movt" : "movf",
+          execute: (state: MachineState) => {
+            if (state.getFpuConditionFlag(conditionCode) === moveOnTrue) {
+              state.setRegister(rd, state.getRegister(rs));
+            }
+          },
+        };
+      }
+      case 0x10: {
+        const { rd } = decoded;
+        return {
+          name: "mfhi",
+          execute: (state: MachineState) => {
+            state.setRegister(rd, state.getHi());
+          },
+        };
+      }
+      case 0x12: {
+        const { rd } = decoded;
+        return {
+          name: "mflo",
+          execute: (state: MachineState) => {
+            state.setRegister(rd, state.getLo());
+          },
+        };
+      }
       case 0x1a: {
         const { rs, rt } = decoded;
         return {
@@ -757,6 +830,19 @@ export function decodeInstruction(instruction: number, pc: number): DecodedInstr
   }
 
   if (opcode === 0x11) {
+    const copOpcode = (instruction >>> 21) & 0x1f;
+    const rt = (instruction >>> 16) & 0x1f;
+    const fs = (instruction >>> 11) & 0x1f;
+
+    if (copOpcode === 0x00) {
+      return {
+        name: "mfc1",
+        execute: (state: MachineState) => {
+          state.setRegister(rt, state.getFloatRegisterBits(fs));
+        },
+      };
+    }
+
     const copDecoded = decodeCop1(instruction, pc);
     if (copDecoded) {
       return copDecoded;
@@ -765,7 +851,17 @@ export function decodeInstruction(instruction: number, pc: number): DecodedInstr
 
   if (opcode === 0x10) {
     const copOpcode = (instruction >>> 21) & 0x1f;
+    const rt = (instruction >>> 16) & 0x1f;
+    const rd = (instruction >>> 11) & 0x1f;
     const funct = instruction & 0x3f;
+    if (copOpcode === 0x00) {
+      return {
+        name: "mfc0",
+        execute: (state: MachineState) => {
+          state.setRegister(rt, state.getCop0Register(rd));
+        },
+      };
+    }
     if (copOpcode === 0x10 && funct === 0x18) {
       return makeExceptionReturn();
     }

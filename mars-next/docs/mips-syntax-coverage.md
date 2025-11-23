@@ -1,6 +1,6 @@
 # MIPS syntax coverage in mars-next
 
-The legacy simulator defines 139 unique instruction mnemonics in `InstructionSet.java`, while `mars-next` currently decodes 59. The comparison below was produced by collecting mnemonic names from `legacy/mars/mips/instructions/InstructionSet.java` and `mars-next/src/core/cpu/Instructions/index.ts` and then diffing the two sets.
+The legacy simulator defines 139 unique instruction mnemonics in `InstructionSet.java`, while `mars-next` currently decodes 61. The comparison below was produced by collecting mnemonic names from `legacy/mars/mips/instructions/InstructionSet.java` and `mars-next/src/core/cpu/Instructions/index.ts` and then diffing the two sets.
 
 ## Fully implemented instruction mnemonics
 
@@ -15,25 +15,12 @@ The following instructions have been fully ported from the legacy simulator and 
 - System and no-ops: `syscall`, `break`, `eret`, and the implicit `nop` encoding
 - Integer division and bit counting: `div`, `divu`, `clo`, `clz`
 - Floating point arithmetic and comparisons: `abs.s`, `abs.d`, `add.s`, `add.d`, `c.eq.s`, `c.eq.d`, `c.le.s`, `c.le.d`, `c.lt.s`, `c.lt.d`, `div.s`, `div.d`
-- Floating point conversions and rounding to word: `ceil.w.s`, `ceil.w.d`, `cvt.d.s`, `cvt.d.w`, `cvt.s.d`, `cvt.s.w`, `cvt.w.d`, `cvt.w.s`, `floor.w.d`, `floor.w.s`
+- Floating point conversions, moves, and rounding to word: `ceil.w.s`, `ceil.w.d`, `cvt.d.s`, `cvt.d.w`, `cvt.s.d`, `cvt.s.w`, `cvt.w.d`, `cvt.w.s`, `floor.w.d`, `floor.w.s`, `mov.d`, `mov.s`
+- Floating point conditional moves: `movf.d`, `movf.s`, `movn.d`, `movn.s`, `movt.d`, `movt.s`
+- Register transfers and conditional moves: `mfc0`, `mfc1`, `mfhi`, `mflo`, `movf`, `movn`, `movt`
 
 ## Missing instruction mnemonics
 
-mfc0
-mfc1
-mfhi
-mflo  
-mov.d  
-mov.s  
-movf  
-movf.d  
-movf.s  
-movn  
-movn.d  
-movn.s  
-movt  
-movt.d  
-movt.s
 movz
 movz.d
 movz.s
