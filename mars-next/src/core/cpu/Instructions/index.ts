@@ -73,6 +73,23 @@ function clampFloatToWord(value: number): number {
   return toInt32(Math.trunc(value));
 }
 
+function roundFloatToNearestEvenWord(value: number): number {
+  if (!Number.isFinite(value) || value < -0x80000000 || value > 0x7fffffff) {
+    return 0x7fffffff;
+  }
+
+  const floorValue = Math.floor(value);
+  const ceilValue = Math.ceil(value);
+  const distanceToFloor = value - floorValue;
+  const distanceToCeil = ceilValue - value;
+
+  if (distanceToFloor === distanceToCeil) {
+    return toInt32(ceilValue % 2 === 0 ? ceilValue : floorValue);
+  }
+
+  return toInt32(distanceToFloor < distanceToCeil ? floorValue : ceilValue);
+}
+
 function ceilFloatToWord(value: number): number {
   if (!Number.isFinite(value) || value < -0x80000000 || value > 0x7fffffff) {
     return 0x7fffffff;
@@ -142,6 +159,59 @@ const makeSll = (decoded: RTypeFields): DecodedInstruction => {
     name: "sll",
     execute: (state: MachineState) => {
       state.setRegister(rd, toInt32(state.getRegister(rt) << shamt));
+    },
+  };
+};
+
+const makeSrl = (decoded: RTypeFields): DecodedInstruction => {
+  const { rd, rt, shamt } = decoded;
+  return {
+    name: "srl",
+    execute: (state: MachineState) => {
+      state.setRegister(rd, toInt32(state.getRegister(rt) >>> shamt));
+    },
+  };
+};
+
+const makeSra = (decoded: RTypeFields): DecodedInstruction => {
+  const { rd, rt, shamt } = decoded;
+  return {
+    name: "sra",
+    execute: (state: MachineState) => {
+      state.setRegister(rd, toInt32(state.getRegister(rt) >> shamt));
+    },
+  };
+};
+
+const makeSllv = (decoded: RTypeFields): DecodedInstruction => {
+  const { rd, rt, rs } = decoded;
+  return {
+    name: "sllv",
+    execute: (state: MachineState) => {
+      const shift = state.getRegister(rs) & 0x1f;
+      state.setRegister(rd, toInt32(state.getRegister(rt) << shift));
+    },
+  };
+};
+
+const makeSrlv = (decoded: RTypeFields): DecodedInstruction => {
+  const { rd, rt, rs } = decoded;
+  return {
+    name: "srlv",
+    execute: (state: MachineState) => {
+      const shift = state.getRegister(rs) & 0x1f;
+      state.setRegister(rd, toInt32(state.getRegister(rt) >>> shift));
+    },
+  };
+};
+
+const makeSrav = (decoded: RTypeFields): DecodedInstruction => {
+  const { rd, rt, rs } = decoded;
+  return {
+    name: "srav",
+    execute: (state: MachineState) => {
+      const shift = state.getRegister(rs) & 0x1f;
+      state.setRegister(rd, toInt32(state.getRegister(rt) >> shift));
     },
   };
 };
@@ -408,6 +478,38 @@ const makeStoreWord = (decoded: ITypeFields): DecodedInstruction => {
   };
 };
 
+const makeStoreConditional = (decoded: ITypeFields): DecodedInstruction => {
+  const { rt } = decoded;
+  return {
+    name: "sc",
+    execute: (state: MachineState, memory: InstructionMemory) => {
+      const address = computeAddress(decoded, state);
+      memory.writeWord(address, state.getRegister(rt));
+      state.setRegister(rt, 1);
+    },
+  };
+};
+
+const makeStoreDoubleCop1 = (decoded: ITypeFields): DecodedInstruction => {
+  const { rt } = decoded;
+  return {
+    name: "sdc1",
+    execute: (state: MachineState, memory: InstructionMemory) => {
+      const address = computeAddress(decoded, state);
+      if (rt % 2 !== 0) {
+        throw new RangeError("sdc1 source register must be even-numbered");
+      }
+      if ((address & 0x7) !== 0) {
+        throw new RangeError(`Unaligned doubleword address: 0x${address.toString(16)}`);
+      }
+      const low = state.getFloatRegisterBits(rt);
+      const high = state.getFloatRegisterBits(rt + 1);
+      memory.writeWord(address, high);
+      memory.writeWord(address + 4, low);
+    },
+  };
+};
+
 const makeMultiplyAccumulate = (
   name: string,
   decoded: RTypeFields,
@@ -563,6 +665,15 @@ const decodeCop1 = (instruction: number, pc: number): DecodedInstruction | null 
           write(fd, state, isSingle ? Math.fround(result) : result);
         },
       };
+    case 0x01:
+      if (!isSingle && !isDouble) return null;
+      return {
+        name: isSingle ? "sub.s" : "sub.d",
+        execute: (state: MachineState) => {
+          const result = read(fs, state) - read(ft, state);
+          write(fd, state, isSingle ? Math.fround(result) : result);
+        },
+      };
     case 0x02:
       if (!isSingle && !isDouble) return null;
       return {
@@ -578,6 +689,16 @@ const decodeCop1 = (instruction: number, pc: number): DecodedInstruction | null 
         name: isSingle ? "div.s" : "div.d",
         execute: (state: MachineState) => {
           const result = read(fs, state) / read(ft, state);
+          write(fd, state, isSingle ? Math.fround(result) : result);
+        },
+      };
+    case 0x04:
+      if (!isSingle && !isDouble) return null;
+      return {
+        name: isSingle ? "sqrt.s" : "sqrt.d",
+        execute: (state: MachineState) => {
+          const value = read(fs, state);
+          const result = Math.sqrt(value);
           write(fd, state, isSingle ? Math.fround(result) : result);
         },
       };
@@ -598,6 +719,29 @@ const decodeCop1 = (instruction: number, pc: number): DecodedInstruction | null 
           write(fd, state, read(fs, state));
         },
       };
+    case 0x07:
+      if (!isSingle && !isDouble) return null;
+      if (isSingle) {
+        return {
+          name: "neg.s",
+          execute: (state: MachineState) => {
+            const value = state.getFloatRegisterBits(fs);
+            state.setFloatRegisterBits(fd, value ^ 0x80000000);
+          },
+        };
+      }
+      return {
+        name: "neg.d",
+        execute: (state: MachineState) => {
+          if (fs % 2 !== 0 || fd % 2 !== 0) {
+            throw new RangeError("neg.d source and destination registers must be even-numbered");
+          }
+          const low = state.getFloatRegisterBits(fs);
+          const high = state.getFloatRegisterBits(fs + 1);
+          state.setFloatRegisterBits(fd, low);
+          state.setFloatRegisterBits(fd + 1, high ^ 0x80000000);
+        },
+      };
     case 0x0e:
       if (!isSingle && !isDouble) return null;
       return {
@@ -614,6 +758,15 @@ const decodeCop1 = (instruction: number, pc: number): DecodedInstruction | null 
         execute: (state: MachineState) => {
           const value = read(fs, state);
           state.setFloatRegisterBits(fd, floorFloatToWord(value));
+        },
+      };
+    case 0x0c:
+      if (!isSingle && !isDouble) return null;
+      return {
+        name: isSingle ? "round.w.s" : "round.w.d",
+        execute: (state: MachineState) => {
+          const value = read(fs, state);
+          state.setFloatRegisterBits(fd, roundFloatToNearestEvenWord(value));
         },
       };
     case 0x20:
@@ -748,6 +901,12 @@ export function decodeInstruction(instruction: number, pc: number): DecodedInstr
       case 0x00:
         if (instruction === 0) return makeNop();
         return makeSll(decoded);
+      case 0x02:
+        return makeSrl(decoded);
+      case 0x03:
+        return makeSra(decoded);
+      case 0x04:
+        return makeSllv(decoded);
       case 0x08:
         return makeJumpRegister(decoded);
       case 0x09:
@@ -863,12 +1022,22 @@ export function decodeInstruction(instruction: number, pc: number): DecodedInstr
         return createRegisterBinary("addu", decoded, (l, r) => l + r);
       case 0x22:
         return createRegisterBinary("sub", decoded, (l, r) => l - r);
+      case 0x23:
+        return createRegisterBinary("subu", decoded, (l, r) => l - r);
       case 0x24:
         return createRegisterBinary("and", decoded, (l, r) => l & r);
       case 0x25:
         return createRegisterBinary("or", decoded, (l, r) => l | r);
+      case 0x27:
+        return createRegisterBinary("nor", decoded, (l, r) => ~(l | r));
       case 0x2a:
         return createRegisterBinary("slt", decoded, (l, r) => (l < r ? 1 : 0));
+      case 0x2b:
+        return createRegisterBinary("sltu", decoded, (l, r) => ((l >>> 0) < (r >>> 0) ? 1 : 0));
+      case 0x06:
+        return makeSrlv(decoded);
+      case 0x07:
+        return makeSrav(decoded);
       default:
         return null;
     }
@@ -994,6 +1163,8 @@ export function decodeInstruction(instruction: number, pc: number): DecodedInstr
       return makeBranchNotEqual(decoded, pc);
     case 0x0a:
       return createImmediateBinary("slti", decoded, (l, imm) => (l < imm ? 1 : 0));
+    case 0x0b:
+      return createImmediateBinary("sltiu", decoded, (l, imm) => ((l >>> 0) < (imm >>> 0) ? 1 : 0));
     case 0x01:
       switch (decoded.rt) {
         case 0x00:
@@ -1041,6 +1212,10 @@ export function decodeInstruction(instruction: number, pc: number): DecodedInstr
       return makeStoreHalf(decoded);
     case 0x2b:
       return makeStoreWord(decoded);
+    case 0x38:
+      return makeStoreConditional(decoded);
+    case 0x3d:
+      return makeStoreDoubleCop1(decoded);
     default:
       return null;
   }
