@@ -376,6 +376,7 @@ const makeLoadLinked = (decoded: ITypeFields): DecodedInstruction => {
     execute: (state: MachineState, memory: InstructionMemory) => {
       const address = computeAddress(decoded, state);
       state.setRegister(rt, memory.readWord(address));
+      state.setLoadLinkedReservation(address);
     },
   };
 };
@@ -459,6 +460,7 @@ const makeStoreByte = (name: string, decoded: ITypeFields): DecodedInstruction =
     name,
     execute: (state: MachineState, memory: InstructionMemory) => {
       const address = computeAddress(decoded, state);
+      state.invalidateLoadLinkedReservation(address, 1);
       memory.writeByte(address, state.getRegister(rt));
     },
   };
@@ -470,6 +472,7 @@ const makeStoreHalf = (decoded: ITypeFields): DecodedInstruction => {
     name: "sh",
     execute: (state: MachineState, memory: InstructionMemory) => {
       const address = computeAddress(decoded, state);
+      state.invalidateLoadLinkedReservation(address, 2);
       writeHalfword(memory, address, state.getRegister(rt));
     },
   };
@@ -481,6 +484,7 @@ const makeStoreWord = (decoded: ITypeFields): DecodedInstruction => {
     name: "sw",
     execute: (state: MachineState, memory: InstructionMemory) => {
       const address = computeAddress(decoded, state);
+      state.invalidateLoadLinkedReservation(address, 4);
       memory.writeWord(address, state.getRegister(rt));
     },
   };
@@ -492,6 +496,7 @@ const makeStoreWordCop1 = (decoded: ITypeFields): DecodedInstruction => {
     name: "swc1",
     execute: (state: MachineState, memory: InstructionMemory) => {
       const address = computeAddress(decoded, state);
+      state.invalidateLoadLinkedReservation(address, 4);
       memory.writeWord(address, state.getFloatRegisterBits(rt));
     },
   };
@@ -505,6 +510,7 @@ const makeStoreWordLeft = (decoded: ITypeFields): DecodedInstruction => {
       const address = computeAddress(decoded, state);
       const value = state.getRegister(rt);
       const offset = address % 4;
+      state.invalidateLoadLinkedReservation(address - offset, offset + 1);
       for (let i = 0; i <= offset; i++) {
         const byteIndex = 3 - i;
         memory.writeByte(address - i, extractByteFromWord(value, byteIndex));
@@ -521,6 +527,7 @@ const makeStoreWordRight = (decoded: ITypeFields): DecodedInstruction => {
       const address = computeAddress(decoded, state);
       const value = state.getRegister(rt);
       const offset = address % 4;
+      state.invalidateLoadLinkedReservation(address, 4 - offset);
       for (let i = 0; i <= 3 - offset; i++) {
         memory.writeByte(address + i, extractByteFromWord(value, i));
       }
@@ -534,8 +541,16 @@ const makeStoreConditional = (decoded: ITypeFields): DecodedInstruction => {
     name: "sc",
     execute: (state: MachineState, memory: InstructionMemory) => {
       const address = computeAddress(decoded, state);
-      memory.writeWord(address, state.getRegister(rt));
-      state.setRegister(rt, 1);
+      const success = state.isLoadLinkedReservationValid(address);
+
+      if (success) {
+        memory.writeWord(address, state.getRegister(rt));
+        state.setRegister(rt, 1);
+      } else {
+        state.setRegister(rt, 0);
+      }
+
+      state.clearLoadLinkedReservation();
     },
   };
 };
@@ -554,6 +569,7 @@ const makeStoreDoubleCop1 = (decoded: ITypeFields): DecodedInstruction => {
       }
       const low = state.getFloatRegisterBits(rt);
       const high = state.getFloatRegisterBits(rt + 1);
+      state.invalidateLoadLinkedReservation(address, 8);
       memory.writeWord(address, high);
       memory.writeWord(address + 4, low);
     },
