@@ -25,6 +25,22 @@ class ProgramMemory implements InstructionMemory {
 
     return index;
   }
+
+  readWord(address: number): number {
+    return this.loadWord(address);
+  }
+
+  readByte(): number {
+    throw new Error("Byte reads are not supported in ProgramMemory");
+  }
+
+  writeWord(): void {
+    throw new Error("Word writes are not supported in ProgramMemory");
+  }
+
+  writeByte(): void {
+    throw new Error("Byte writes are not supported in ProgramMemory");
+  }
 }
 
 class SequenceDecoder implements InstructionDecoder {

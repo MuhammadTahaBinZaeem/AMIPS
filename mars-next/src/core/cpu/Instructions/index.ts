@@ -1,6 +1,5 @@
-import { Cpu, DecodedInstruction } from "../Cpu";
+import { Cpu, DecodedInstruction, InstructionMemory } from "../Cpu";
 import { MachineState } from "../../state/MachineState";
-import { InstructionMemory } from "../Cpu";
 
 interface RTypeFields {
   rs: number;
@@ -38,8 +37,31 @@ function signExtend16(value: number): number {
   return (value << 16) >> 16;
 }
 
+function signExtend8(value: number): number {
+  return (value << 24) >> 24;
+}
+
 function toInt32(value: number): number {
   return value | 0;
+}
+
+function validateHalfwordAddress(address: number): number {
+  const normalized = address >>> 0;
+  if (normalized % 2 !== 0) {
+    throw new RangeError(`Unaligned halfword address: 0x${address.toString(16)}`);
+  }
+  return normalized;
+}
+
+function readHalfword(memory: InstructionMemory, address: number): number {
+  const aligned = validateHalfwordAddress(address);
+  return ((memory.readByte(aligned) << 8) | memory.readByte(aligned + 1)) & 0xffff;
+}
+
+function writeHalfword(memory: InstructionMemory, address: number, value: number): void {
+  const aligned = validateHalfwordAddress(address);
+  memory.writeByte(aligned, (value >>> 8) & 0xff);
+  memory.writeByte(aligned + 1, value & 0xff);
 }
 
 function clampFloatToWord(value: number): number {
@@ -190,6 +212,79 @@ const makeNop = (): DecodedInstruction => ({
 
 const makeAndImmediate = (decoded: ITypeFields): DecodedInstruction =>
   createImmediateBinary("andi", decoded, (l, imm) => l & imm, (imm) => imm & 0xffff);
+
+const computeAddress = (decoded: ITypeFields, state: MachineState): number => {
+  const { rs, immediate } = decoded;
+  return toInt32(state.getRegister(rs) + signExtend16(immediate));
+};
+
+const makeLoadByte = (name: string, decoded: ITypeFields, signed: boolean): DecodedInstruction => {
+  const { rt } = decoded;
+  return {
+    name,
+    execute: (state: MachineState, memory: InstructionMemory) => {
+      const address = computeAddress(decoded, state);
+      const value = memory.readByte(address);
+      state.setRegister(rt, signed ? signExtend8(value) : value & 0xff);
+    },
+  };
+};
+
+const makeLoadHalf = (name: string, decoded: ITypeFields, signed: boolean): DecodedInstruction => {
+  const { rt } = decoded;
+  return {
+    name,
+    execute: (state: MachineState, memory: InstructionMemory) => {
+      const address = computeAddress(decoded, state);
+      const value = readHalfword(memory, address);
+      state.setRegister(rt, signed ? signExtend16(value) : value & 0xffff);
+    },
+  };
+};
+
+const makeLoadWord = (decoded: ITypeFields): DecodedInstruction => {
+  const { rt } = decoded;
+  return {
+    name: "lw",
+    execute: (state: MachineState, memory: InstructionMemory) => {
+      const address = computeAddress(decoded, state);
+      state.setRegister(rt, memory.readWord(address));
+    },
+  };
+};
+
+const makeStoreByte = (name: string, decoded: ITypeFields): DecodedInstruction => {
+  const { rt } = decoded;
+  return {
+    name,
+    execute: (state: MachineState, memory: InstructionMemory) => {
+      const address = computeAddress(decoded, state);
+      memory.writeByte(address, state.getRegister(rt));
+    },
+  };
+};
+
+const makeStoreHalf = (decoded: ITypeFields): DecodedInstruction => {
+  const { rt } = decoded;
+  return {
+    name: "sh",
+    execute: (state: MachineState, memory: InstructionMemory) => {
+      const address = computeAddress(decoded, state);
+      writeHalfword(memory, address, state.getRegister(rt));
+    },
+  };
+};
+
+const makeStoreWord = (decoded: ITypeFields): DecodedInstruction => {
+  const { rt } = decoded;
+  return {
+    name: "sw",
+    execute: (state: MachineState, memory: InstructionMemory) => {
+      const address = computeAddress(decoded, state);
+      memory.writeWord(address, state.getRegister(rt));
+    },
+  };
+};
 
 const makeBranchOnReg = (
   name: string,
@@ -540,6 +635,22 @@ export function decodeInstruction(instruction: number, pc: number): DecodedInstr
       return makeJump(instruction, pc);
     case 0x03:
       return makeJumpAndLink(instruction, pc);
+    case 0x20:
+      return makeLoadByte("lb", decoded, true);
+    case 0x24:
+      return makeLoadByte("lbu", decoded, false);
+    case 0x21:
+      return makeLoadHalf("lh", decoded, true);
+    case 0x25:
+      return makeLoadHalf("lhu", decoded, false);
+    case 0x23:
+      return makeLoadWord(decoded);
+    case 0x28:
+      return makeStoreByte("sb", decoded);
+    case 0x29:
+      return makeStoreHalf(decoded);
+    case 0x2b:
+      return makeStoreWord(decoded);
     default:
       return null;
   }

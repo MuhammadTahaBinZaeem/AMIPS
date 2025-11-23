@@ -2,6 +2,7 @@ import assert from "node:assert";
 import { describe, test } from "node:test";
 
 import { decodeInstruction } from "../../src/core/cpu/Instructions";
+import { Memory } from "../../src/core/memory/Memory";
 import { DEFAULT_TEXT_BASE, MachineState } from "../../src/core/state/MachineState";
 
 describe("Instruction decoding", () => {
@@ -119,6 +120,59 @@ describe("Instruction decoding", () => {
     assert.ok(cvtWdDecoded);
     cvtWdDecoded!.execute(state);
     assert.strictEqual(state.getFloatRegisterBits(4), -3);
+  });
+
+  test("decodes and executes memory load/store instructions", () => {
+    const state = new MachineState();
+    const memory = new Memory();
+    const base = 0x10010000;
+    const buildI = (opcode: number, rs: number, rt: number, immediate: number) =>
+      ((opcode << 26) | (rs << 21) | (rt << 16) | (immediate & 0xffff)) >>> 0;
+
+    state.setRegister(1, base); // $at
+    memory.writeWord(base, 0x11223344);
+    memory.writeByte(base + 4, 0x80);
+    memory.writeByte(base + 5, 0xfe);
+    memory.writeByte(base + 6, 0x12);
+    memory.writeByte(base + 7, 0x34);
+    memory.writeByte(base + 8, 0x80);
+    memory.writeByte(base + 9, 0x01);
+
+    const lw = decodeInstruction(buildI(0x23, 1, 2, 0), DEFAULT_TEXT_BASE);
+    lw?.execute(state, memory);
+    assert.strictEqual(state.getRegister(2), 0x11223344 | 0);
+
+    const lb = decodeInstruction(buildI(0x20, 1, 3, 4), DEFAULT_TEXT_BASE);
+    lb?.execute(state, memory);
+    assert.strictEqual(state.getRegister(3), -128);
+
+    const lbu = decodeInstruction(buildI(0x24, 1, 4, 5), DEFAULT_TEXT_BASE);
+    lbu?.execute(state, memory);
+    assert.strictEqual(state.getRegister(4), 0xfe);
+
+    const lh = decodeInstruction(buildI(0x21, 1, 5, 6), DEFAULT_TEXT_BASE);
+    lh?.execute(state, memory);
+    assert.strictEqual(state.getRegister(5), 0x1234);
+
+    const lhu = decodeInstruction(buildI(0x25, 1, 6, 8), DEFAULT_TEXT_BASE);
+    lhu?.execute(state, memory);
+    assert.strictEqual(state.getRegister(6), 0x8001);
+
+    state.setRegister(7, 0x55667788);
+    const sw = decodeInstruction(buildI(0x2b, 1, 7, 12), DEFAULT_TEXT_BASE);
+    sw?.execute(state, memory);
+    assert.strictEqual(memory.readWord(base + 12), 0x55667788 | 0);
+
+    state.setRegister(8, 0xaabbccdd);
+    const sh = decodeInstruction(buildI(0x29, 1, 8, 18), DEFAULT_TEXT_BASE);
+    sh?.execute(state, memory);
+    assert.strictEqual(memory.readByte(base + 18), 0xcc);
+    assert.strictEqual(memory.readByte(base + 19), 0xdd);
+
+    state.setRegister(9, 0x12345678);
+    const sb = decodeInstruction(buildI(0x28, 1, 9, 22), DEFAULT_TEXT_BASE);
+    sb?.execute(state, memory);
+    assert.strictEqual(memory.readByte(base + 22), 0x78);
   });
 
   test("decodes control flow helpers", () => {
