@@ -94,6 +94,7 @@ export class Assembler {
     const externSymbols = new Set<string>();
     const globalSymbols = new Set<string>();
     const eqvDefinitions = new Map<string, { value: Operand; line: number }>();
+    const resolvedEqvSymbols = new Set<string>();
     const resolvingEqv = new Set<string>();
 
     const resolveEqv = (name: string, line: number): number => {
@@ -114,6 +115,7 @@ export class Assembler {
       // Resolve and cache the .eqv value to make it visible during this pass.
       const resolved = this.resolveValue(eqv.value, symbols, eqv.line, resolveEqv);
       symbols.set(name, this.toInt32(resolved));
+      resolvedEqvSymbols.add(name);
       definedSymbols.add(name);
       resolvingEqv.delete(name);
       return resolved;
@@ -260,12 +262,16 @@ export class Assembler {
     }
 
     for (const [name, { value, line }] of eqvDefinitions) {
-      if (symbols.has(name)) continue;
+      if (symbols.has(name)) {
+        if (resolvedEqvSymbols.has(name)) continue;
+        throw new Error(`Duplicate symbol '${name}' at line ${line}`);
+      }
       if (definedSymbols.has(name)) {
         throw new Error(`Duplicate symbol '${name}' at line ${line}`);
       }
       const resolved = this.resolveValue(value, symbols, line, resolveEqv);
       symbols.set(name, this.toInt32(resolved));
+      resolvedEqvSymbols.add(name);
       definedSymbols.add(name);
     }
 
