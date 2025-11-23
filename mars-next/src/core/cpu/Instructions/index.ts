@@ -80,6 +80,30 @@ function ceilFloatToWord(value: number): number {
   return toInt32(Math.ceil(value));
 }
 
+function floorFloatToWord(value: number): number {
+  if (!Number.isFinite(value) || value < -0x80000000 || value > 0x7fffffff) {
+    return 0x7fffffff;
+  }
+  return toInt32(Math.floor(value));
+}
+
+function setByteInWord(word: number, byteIndex: number, byteValue: number): number {
+  const masked = byteValue & 0xff;
+  const shift = byteIndex << 3;
+  const cleared = word & ~(0xff << shift);
+  return toInt32(cleared | (masked << shift));
+}
+
+function composeHiLo(hi: number, lo: number): bigint {
+  return (BigInt(hi) << 32n) | (BigInt(lo) & 0xffffffffn);
+}
+
+function splitToHiLo(value: bigint): { hi: number; lo: number } {
+  const hi = Number((value >> 32n) & 0xffffffffn);
+  const lo = Number(value & 0xffffffffn);
+  return { hi, lo };
+}
+
 const createRegisterBinary = (
   name: string,
   decoded: RTypeFields,
@@ -176,6 +200,20 @@ const makeJumpAndLink = (instruction: number, pc: number): DecodedInstruction =>
   };
 };
 
+const makeJumpAndLinkRegister = (decoded: RTypeFields, pc: number): DecodedInstruction => {
+  const { rd, rs } = decoded;
+  const destination = rd === 0 ? 31 : rd;
+  const returnAddress = toInt32(pc + 8);
+
+  return {
+    name: "jalr",
+    execute: (state: MachineState) => {
+      state.setRegister(destination, returnAddress);
+      state.registerDelayedBranch(state.getRegister(rs));
+    },
+  };
+};
+
 const makeJumpRegister = (decoded: RTypeFields): DecodedInstruction => {
   const { rs } = decoded;
   return {
@@ -253,6 +291,78 @@ const makeLoadWord = (decoded: ITypeFields): DecodedInstruction => {
   };
 };
 
+const makeLoadLinked = (decoded: ITypeFields): DecodedInstruction => {
+  const { rt } = decoded;
+  return {
+    name: "ll",
+    execute: (state: MachineState, memory: InstructionMemory) => {
+      const address = computeAddress(decoded, state);
+      state.setRegister(rt, memory.readWord(address));
+    },
+  };
+};
+
+const makeLoadWordLeft = (decoded: ITypeFields): DecodedInstruction => {
+  const { rt } = decoded;
+  return {
+    name: "lwl",
+    execute: (state: MachineState, memory: InstructionMemory) => {
+      const address = computeAddress(decoded, state);
+      let result = state.getRegister(rt);
+      for (let i = 0; i <= address % 4; i++) {
+        result = setByteInWord(result, 3 - i, memory.readByte(address - i));
+      }
+      state.setRegister(rt, result);
+    },
+  };
+};
+
+const makeLoadWordRight = (decoded: ITypeFields): DecodedInstruction => {
+  const { rt } = decoded;
+  return {
+    name: "lwr",
+    execute: (state: MachineState, memory: InstructionMemory) => {
+      const address = computeAddress(decoded, state);
+      let result = state.getRegister(rt);
+      for (let i = 0; i <= 3 - (address % 4); i++) {
+        result = setByteInWord(result, i, memory.readByte(address + i));
+      }
+      state.setRegister(rt, result);
+    },
+  };
+};
+
+const makeLoadWordCop1 = (decoded: ITypeFields): DecodedInstruction => {
+  const { rt } = decoded;
+  return {
+    name: "lwc1",
+    execute: (state: MachineState, memory: InstructionMemory) => {
+      const address = computeAddress(decoded, state);
+      state.setFloatRegisterBits(rt, memory.readWord(address));
+    },
+  };
+};
+
+const makeLoadDoubleCop1 = (decoded: ITypeFields): DecodedInstruction => {
+  const { rt } = decoded;
+  return {
+    name: "ldc1",
+    execute: (state: MachineState, memory: InstructionMemory) => {
+      const address = computeAddress(decoded, state);
+      if (rt % 2 !== 0) {
+        throw new RangeError("ldc1 target register must be even-numbered");
+      }
+      if ((address & 0x7) !== 0) {
+        throw new RangeError(`Unaligned doubleword address: 0x${address.toString(16)}`);
+      }
+      const low = memory.readWord(address);
+      const high = memory.readWord(address + 4);
+      state.setFloatRegisterBits(rt, low);
+      state.setFloatRegisterBits(rt + 1, high);
+    },
+  };
+};
+
 const makeStoreByte = (name: string, decoded: ITypeFields): DecodedInstruction => {
   const { rt } = decoded;
   return {
@@ -282,6 +392,26 @@ const makeStoreWord = (decoded: ITypeFields): DecodedInstruction => {
     execute: (state: MachineState, memory: InstructionMemory) => {
       const address = computeAddress(decoded, state);
       memory.writeWord(address, state.getRegister(rt));
+    },
+  };
+};
+
+const makeMultiplyAccumulate = (
+  name: string,
+  decoded: RTypeFields,
+  unsigned: boolean,
+): DecodedInstruction => {
+  const { rs, rt } = decoded;
+  return {
+    name,
+    execute: (state: MachineState) => {
+      const left = unsigned ? BigInt(state.getRegister(rs) >>> 0) : BigInt(state.getRegister(rs));
+      const right = unsigned ? BigInt(state.getRegister(rt) >>> 0) : BigInt(state.getRegister(rt));
+      const product = left * right;
+      const sum = composeHiLo(state.getHi(), state.getLo()) + product;
+      const { hi, lo } = splitToHiLo(sum);
+      state.setHi(hi);
+      state.setLo(lo);
     },
   };
 };
@@ -337,6 +467,17 @@ const makeBreak = (): DecodedInstruction => ({
   name: "break",
   execute: () => {
     throw new Error("Encountered break instruction");
+  },
+});
+
+const makeExceptionReturn = (): DecodedInstruction => ({
+  name: "eret",
+  execute: (state: MachineState) => {
+    const status = state.getCop0Status();
+    const cleared = status & ~(1 << 1);
+    state.setCop0Status(cleared);
+    state.setProgramCounter(state.getCop0Epc());
+    state.clearDelayedBranch();
   },
 });
 
@@ -400,6 +541,15 @@ const decodeCop1 = (instruction: number, pc: number): DecodedInstruction | null 
         execute: (state: MachineState) => {
           const value = read(fs, state);
           state.setFloatRegisterBits(fd, ceilFloatToWord(value));
+        },
+      };
+    case 0x0f:
+      if (!isSingle && !isDouble) return null;
+      return {
+        name: isSingle ? "floor.w.s" : "floor.w.d",
+        execute: (state: MachineState) => {
+          const value = read(fs, state);
+          state.setFloatRegisterBits(fd, floorFloatToWord(value));
         },
       };
     case 0x20:
@@ -503,6 +653,8 @@ export function decodeInstruction(instruction: number, pc: number): DecodedInstr
         return makeSll(decoded);
       case 0x08:
         return makeJumpRegister(decoded);
+      case 0x09:
+        return makeJumpAndLinkRegister(decoded, pc);
       case 0x0c:
         return makeSyscall();
       case 0x0d:
@@ -555,6 +707,10 @@ export function decodeInstruction(instruction: number, pc: number): DecodedInstr
     switch (decoded.funct) {
       case 0x02:
         return createRegisterBinary("mul", decoded, (l, r) => l * r);
+      case 0x00:
+        return makeMultiplyAccumulate("madd", decoded, false);
+      case 0x01:
+        return makeMultiplyAccumulate("maddu", decoded, true);
       case 0x20: {
         const { rd, rs } = decoded;
         return {
@@ -592,6 +748,14 @@ export function decodeInstruction(instruction: number, pc: number): DecodedInstr
     const copDecoded = decodeCop1(instruction, pc);
     if (copDecoded) {
       return copDecoded;
+    }
+  }
+
+  if (opcode === 0x10) {
+    const copOpcode = (instruction >>> 21) & 0x1f;
+    const funct = instruction & 0x3f;
+    if (copOpcode === 0x10 && funct === 0x18) {
+      return makeExceptionReturn();
     }
   }
 
@@ -645,6 +809,16 @@ export function decodeInstruction(instruction: number, pc: number): DecodedInstr
       return makeLoadHalf("lhu", decoded, false);
     case 0x23:
       return makeLoadWord(decoded);
+    case 0x22:
+      return makeLoadWordLeft(decoded);
+    case 0x26:
+      return makeLoadWordRight(decoded);
+    case 0x30:
+      return makeLoadLinked(decoded);
+    case 0x31:
+      return makeLoadWordCop1(decoded);
+    case 0x35:
+      return makeLoadDoubleCop1(decoded);
     case 0x28:
       return makeStoreByte("sb", decoded);
     case 0x29:
