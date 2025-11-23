@@ -97,15 +97,12 @@ export class Assembler {
 
     for (let i = 0; i < ast.nodes.length; i++) {
       const node = ast.nodes[i];
-      const nextNode = ast.nodes[i + 1];
 
       if (
         (node.kind === "directive" || node.kind === "label") &&
         (segment === "data" || segment === "kdata")
       ) {
-        const alignment = this.directiveAlignment(
-          node.kind === "directive" ? node.name : nextNode?.kind === "directive" ? nextNode.name : null,
-        );
+        const alignment = this.pendingDataAlignment(ast.nodes, i, node.kind === "directive");
         if (alignment !== null) {
           const currentOffset = segment === "data" ? dataOffset : kdataOffset;
           const padding = this.calculatePadding(currentOffset, alignment);
@@ -263,15 +260,12 @@ export class Assembler {
 
     for (let i = 0; i < ast.nodes.length; i++) {
       const node = ast.nodes[i];
-      const nextNode = ast.nodes[i + 1];
 
       if (
         (node.kind === "directive" || node.kind === "label") &&
         (segment === "data" || segment === "kdata")
       ) {
-        const alignment = this.directiveAlignment(
-          node.kind === "directive" ? node.name : nextNode?.kind === "directive" ? nextNode.name : null,
-        );
+        const alignment = this.pendingDataAlignment(ast.nodes, i, node.kind === "directive");
         if (alignment !== null) {
           const target = segment === "data" ? data : kdata;
           const currentOffset = segment === "data" ? dataOffset : kdataOffset;
@@ -486,6 +480,31 @@ export class Assembler {
       default:
         return null;
     }
+  }
+
+  private pendingDataAlignment(nodes: ProgramAst["nodes"], index: number, includeCurrent: boolean): number | null {
+    const start = includeCurrent ? index : index + 1;
+
+    for (let i = start; i < nodes.length; i++) {
+      const candidate = nodes[i];
+
+      if (candidate.kind === "label") continue;
+
+      if (candidate.kind === "directive") {
+        const alignment = this.directiveAlignment(candidate.name);
+        if (alignment !== null) return alignment;
+        if (this.isNonEmittingDirective(candidate.name)) continue;
+        return null;
+      }
+
+      return null;
+    }
+
+    return null;
+  }
+
+  private isNonEmittingDirective(name: string): boolean {
+    return name === ".globl" || name === ".extern" || name === ".eqv" || name === ".set";
   }
 
   private calculatePadding(offset: number, alignment: number): number {
