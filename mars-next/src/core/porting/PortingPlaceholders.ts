@@ -47,7 +47,7 @@ export const LEGACY_PORTING_GAPS: LegacyPortingGap[] = [
     status: "partial",
     notes: [
       "Memory-mapped FileDevice read/write offsets are stubbed and no keyboard/display/MMIO interrupts are available",
-      "MemoryMap does not yet orchestrate simulated cache/TLB behavior from the legacy hardware layer",
+      "MemoryMap now performs TLB translation and cache-aware access via src/core/memory/Memory, but parity with legacy eviction policies and hazards remains",
     ],
   },
   {
