@@ -37,8 +37,8 @@ export const LEGACY_PORTING_GAPS: LegacyPortingGap[] = [
     legacyLocation: "legacy/mars/mips/instructions/syscalls",
     status: "partial",
     notes: [
-      "Only syscalls 1, 4, 5, and 10 are wired; the legacy set includes dozens of services (file I/O, random, time, etc.)",
-      "Exception signaling and argument validation parity are not yet present",
+      "Legacy syscall numbers 1-59 are registered in src/core/syscalls/legacy/LegacySyscalls with headless implementations for dialogs and MIDI",
+      "Exception signaling and full fidelity argument validation are not yet present",
     ],
   },
   {

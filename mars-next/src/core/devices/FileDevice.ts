@@ -5,6 +5,7 @@ type FileMode = "r" | "w" | "a";
 interface FileHandle {
   path: string;
   mode: FileMode;
+  position: number;
 }
 
 export class FileDevice implements Device {
@@ -36,7 +37,8 @@ export class FileDevice implements Device {
     }
 
     const descriptor = this.nextDescriptor++;
-    this.handles.set(descriptor, { path, mode });
+    const startPosition = mode === "a" ? (this.files.get(path)?.length ?? 0) : 0;
+    this.handles.set(descriptor, { path, mode, position: startPosition });
     return descriptor;
   }
 
@@ -47,7 +49,11 @@ export class FileDevice implements Device {
     }
 
     const existing = this.files.get(handle.path) ?? "";
-    this.files.set(handle.path, existing + content);
+    const before = existing.slice(0, handle.position);
+    const after = existing.slice(handle.position + content.length);
+    const next = before + content + after;
+    handle.position = before.length + content.length;
+    this.files.set(handle.path, next);
   }
 
   readFile(descriptor: number): string {
@@ -57,6 +63,14 @@ export class FileDevice implements Device {
       throw new Error(`File not found for descriptor ${descriptor}`);
     }
     return data;
+  }
+
+  readFileSegment(descriptor: number, length: number): string {
+    const handle = this.requireHandle(descriptor);
+    const data = this.files.get(handle.path) ?? "";
+    const chunk = data.slice(handle.position, handle.position + length);
+    handle.position += chunk.length;
+    return chunk;
   }
 
   close(descriptor: number): void {

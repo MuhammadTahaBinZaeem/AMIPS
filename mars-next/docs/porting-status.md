@@ -8,7 +8,7 @@ The following items come directly from the legacy Java tree and have not been fu
 
 - Instruction decoder/executor coverage beyond the minimal `add`, `addi`, `beq`, and `nop` handlers.
 - Full assembler directives, expressions, and pseudo-op handling from `PseudoOps.java`.
-- Comprehensive syscall catalog (only 1, 4, 5, 10 are wired today).
+- Comprehensive syscall catalog (legacy syscalls 1-59 now wired; dialog and MIDI behaviors are stubbed).
 - Broader MMIO devices (keyboard/display), file-backed memory mapping, and cache/TLB simulation.
 - Simulator pipeline hazards, exceptions, and profiling hooks.
 - Rich debugger affordances such as disassembly, symbol lookup, and source mapping.
@@ -32,7 +32,7 @@ The following items come directly from the legacy Java tree and have not been fu
 
 - **Instruction set**: `src/core/cpu/Instructions` only decodes `add`, `addi`, `beq`, and `nop`; no load/store, shifts, jumps, coprocessors, or exceptions.
 - **Assembler directives**: `src/core/assembler/Assembler.ts` recognizes `.text`, `.data`, `.word`, `.asciiz` plus `li`/`move`/`nop` expansions; other directives and expression evaluation remain unimplemented.
-- **Syscalls**: `src/core/syscalls/SyscallTable.ts` registers only numbers 1, 4, 5, and 10; the legacy syscall set is largely absent.
+- **Syscalls**: `src/core/syscalls/legacy/LegacySyscalls.ts` wires the legacy 1-59 catalog, with dialogs and MIDI modeled as headless no-ops.
 - **Devices/MMIO**: `src/core/devices/FileDevice.ts` throws for memory-mapped reads/writes, and no keyboard/display/timer interrupts are surfaced through `MemoryMap`.
 - **Pipeline depth**: `src/core/cpu/Pipeline.ts` provides single-step execution without hazard detection, exceptions, or performance counters found in the legacy simulator.
 - **Loader formats**: `src/core/loader/ProgramLoader.ts` consumes an in-memory BinaryImage only; there is no ELF or object file parsing yet.
