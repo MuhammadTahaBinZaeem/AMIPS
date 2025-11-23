@@ -6,6 +6,10 @@ import { MachineState } from "../state/MachineState";
 
 export interface InstructionMemory {
   loadWord(address: number): number;
+  readWord(address: number): number;
+  readByte(address: number): number;
+  writeWord(address: number, value: number): void;
+  writeByte(address: number, value: number): void;
 }
 
 export interface DecodedInstruction {

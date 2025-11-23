@@ -15,14 +15,17 @@ export interface PipelineOptions {
 
 export class ProgramMemory implements InstructionMemory {
   private readonly words: Map<number, number>;
+  private readonly bytes: Map<number, number>;
   private readonly baseAddress: number;
 
   constructor(program: number[], baseAddress = DEFAULT_TEXT_BASE) {
     this.words = new Map();
+    this.bytes = new Map();
     this.baseAddress = baseAddress | 0;
 
     program.forEach((word, index) => {
       const address = (this.baseAddress + index * 4) | 0;
+      this.writeWord(address, word);
       this.words.set(address, word | 0);
     });
   }
@@ -33,11 +36,53 @@ export class ProgramMemory implements InstructionMemory {
       throw new Error(`Unaligned instruction fetch at 0x${alignedAddress.toString(16)}`);
     }
 
-    const word = this.words.get(alignedAddress);
-    if (word === undefined) {
+    if (!this.words.has(alignedAddress)) {
       throw new Error(`No instruction at 0x${alignedAddress.toString(16)}`);
     }
-    return word;
+    return this.readWord(alignedAddress);
+  }
+
+  readWord(address: number): number {
+    const aligned = this.validateWordAddress(address);
+    let value = 0;
+    for (let i = 0; i < 4; i++) {
+      value = (value << 8) | this.readByte(aligned + i);
+    }
+    return value | 0;
+  }
+
+  writeWord(address: number, value: number): void {
+    const aligned = this.validateWordAddress(address);
+    for (let i = 0; i < 4; i++) {
+      const shift = 24 - 8 * i;
+      this.writeByte(aligned + i, (value >>> shift) & 0xff);
+    }
+    this.words.set(aligned, value | 0);
+  }
+
+  readByte(address: number): number {
+    const normalized = this.validateAddress(address);
+    return this.bytes.get(normalized) ?? 0;
+  }
+
+  writeByte(address: number, value: number): void {
+    const normalized = this.validateAddress(address);
+    this.bytes.set(normalized, value & 0xff);
+  }
+
+  private validateAddress(address: number): number {
+    if (!Number.isInteger(address)) {
+      throw new Error(`Invalid address: 0x${address.toString(16)}`);
+    }
+    return address >>> 0;
+  }
+
+  private validateWordAddress(address: number): number {
+    const normalized = this.validateAddress(address);
+    if (normalized % 4 !== 0) {
+      throw new Error(`Invalid address: 0x${address.toString(16)}`);
+    }
+    return normalized;
   }
 }
 

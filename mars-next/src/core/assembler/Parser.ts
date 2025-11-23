@@ -2,13 +2,16 @@ import { LexedLine, Token } from "./Lexer";
 
 export type Segment = "text" | "data" | "ktext" | "kdata";
 
-export type Operand =
-  | { kind: "register"; name: string; register: number }
+export type MemoryOffset =
   | { kind: "immediate"; value: number }
   | { kind: "label"; name: string }
-  | { kind: "string"; value: string }
-  | { kind: "memory"; base: number; offset: number }
   | { kind: "expression"; expression: ExpressionNode };
+
+export type Operand =
+  | { kind: "register"; name: string; register: number }
+  | MemoryOffset
+  | { kind: "string"; value: string }
+  | { kind: "memory"; base: number; offset: MemoryOffset };
 
 export type ExpressionNode =
   | { type: "number"; value: number }
@@ -289,35 +292,33 @@ export class Parser {
   }
 
   private parseMemoryOperand(tokens: Token[], line: number): Operand {
-    let offset = 0;
-    let registerToken: Token | null = null;
-    let sawLParen = false;
+    const lparenIndex = tokens.findIndex((token) => token.type === "lparen");
+    const rparenIndex = tokens.findIndex((token) => token.type === "rparen");
 
-    for (const token of tokens) {
-      if (token.type === "number" && !sawLParen) {
-        offset = Number(token.value);
-        continue;
-      }
-
-      if (token.type === "lparen") {
-        sawLParen = true;
-        continue;
-      }
-
-      if (token.type === "register") {
-        registerToken = token;
-        continue;
-      }
+    if (lparenIndex === -1 || rparenIndex === -1 || rparenIndex < lparenIndex) {
+      throw new Error(`Malformed memory operand at line ${line}`);
     }
+
+    const offsetTokens = tokens.slice(0, lparenIndex);
+    const registerToken = tokens.slice(lparenIndex + 1, rparenIndex).find((token) => token.type === "register");
 
     if (!registerToken) {
       throw new Error(`Malformed memory operand at line ${line}`);
     }
 
+    const offsetOperand =
+      offsetTokens.length === 0
+        ? ({ kind: "immediate", value: 0 } as const)
+        : this.parseOperand(offsetTokens, line, false, true);
+
+    if (offsetOperand.kind !== "immediate" && offsetOperand.kind !== "label" && offsetOperand.kind !== "expression") {
+      throw new Error(`Unsupported offset in memory operand (line ${line})`);
+    }
+
     return {
       kind: "memory",
       base: this.parseRegister(String(registerToken.value), line),
-      offset,
+      offset: offsetOperand,
     };
   }
 

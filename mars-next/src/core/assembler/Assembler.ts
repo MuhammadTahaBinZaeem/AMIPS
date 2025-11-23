@@ -706,17 +706,27 @@ export class Assembler {
       case "slti":
         this.expectOperands(name, operands, ["register", "register", "immediate|label"], line);
         return this.encodeI(0x0a, operands[1], operands[0], operands[2], line, symbols);
-      case "lw": {
-        this.expectOperands(name, operands, ["register", "memory"], line);
-        const memory = operands[1] as Operand & { kind: "memory"; base: number; offset: number };
-        const baseRegister: Operand = { kind: "register", name: `$${memory.base}`, register: memory.base };
-        return this.encodeI(0x23, baseRegister, operands[0], { kind: "immediate", value: memory.offset }, line, symbols);
-      }
+      case "lb":
+      case "lbu":
+      case "lh":
+      case "lhu":
+      case "lw":
+      case "sb":
+      case "sh":
       case "sw": {
         this.expectOperands(name, operands, ["register", "memory"], line);
-        const memory = operands[1] as Operand & { kind: "memory"; base: number; offset: number };
-        const baseRegister: Operand = { kind: "register", name: `$${memory.base}`, register: memory.base };
-        return this.encodeI(0x2b, baseRegister, operands[0], { kind: "immediate", value: memory.offset }, line, symbols);
+        const memory = operands[1] as Operand & { kind: "memory" };
+        const opcodeMap: Record<string, number> = {
+          lb: 0x20,
+          lbu: 0x24,
+          lh: 0x21,
+          lhu: 0x25,
+          lw: 0x23,
+          sb: 0x28,
+          sh: 0x29,
+          sw: 0x2b,
+        };
+        return this.encodeMemoryInstruction(opcodeMap[name], operands[0], memory, line, symbols);
       }
       case "beq":
         this.expectOperands(name, operands, ["register", "register", "label|immediate"], line);
@@ -753,6 +763,17 @@ export class Assembler {
     const rtNum = this.requireRegister(rt, line);
     const rdNum = this.requireRegister(rd, line);
     return (0x1c << 26) | (rsNum << 21) | (rtNum << 16) | (rdNum << 11) | 0x02;
+  }
+
+  private encodeMemoryInstruction(
+    opcode: number,
+    rt: Operand,
+    memory: Operand & { kind: "memory" },
+    line: number,
+    symbols: SymbolTable,
+  ): number {
+    const baseRegister: Operand = { kind: "register", name: `$${memory.base}`, register: memory.base };
+    return this.encodeI(opcode, baseRegister, rt, memory.offset, line, symbols);
   }
 
   private encodeI(
@@ -817,7 +838,7 @@ export class Assembler {
     operands.forEach((operand, index) => {
       const expected = kinds[index];
       if (expected.includes("register") && operand.kind === "register") return;
-      if (expected.includes("immediate") && operand.kind === "immediate") return;
+      if (expected.includes("immediate") && (operand.kind === "immediate" || operand.kind === "expression")) return;
       if (expected.includes("label") && operand.kind === "label") return;
       if (expected.includes("memory") && operand.kind === "memory") return;
       throw new Error(`Unexpected operand for ${name} at position ${index + 1} (line ${line})`);
@@ -825,7 +846,7 @@ export class Assembler {
   }
 
   private resolveImmediate(operand: Operand, symbols: SymbolTable, line: number, signed: boolean): number {
-    const value = this.resolveLabelOrImmediate(operand, symbols, line);
+    const value = this.resolveValue(operand, symbols, line);
     if (signed && (value < -32768 || value > 32767)) {
       throw new Error(`Immediate out of range at line ${line}`);
     }
@@ -836,13 +857,8 @@ export class Assembler {
   }
 
   private resolveLabelOrImmediate(operand: Operand, symbols: SymbolTable, line: number): number {
-    if (operand.kind === "immediate") return operand.value;
-    if (operand.kind === "label") {
-      const value = symbols.get(operand.name);
-      if (value === undefined) {
-        throw new Error(`Undefined label '${operand.name}' (line ${line})`);
-      }
-      return value;
+    if (operand.kind === "immediate" || operand.kind === "label" || operand.kind === "expression") {
+      return this.resolveValue(operand, symbols, line);
     }
     throw new Error(`Expected immediate or label at line ${line}`);
   }

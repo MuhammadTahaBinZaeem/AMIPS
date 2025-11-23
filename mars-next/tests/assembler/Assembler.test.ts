@@ -66,6 +66,24 @@ describe("Assembler pipeline", () => {
     assert.strictEqual(image.symbols["target"], image.textBase + 8);
   });
 
+  test("supports symbolic memory operands for load and store", () => {
+    const source = [
+      ".eqv load_offset, 12",
+      ".eqv store_offset, 0x10 + 2",
+      "lb $t0, load_offset($t1)",
+      "sh $t2, store_offset($t3)",
+    ].join("\n");
+
+    const image = new Assembler().assemble(source);
+
+    const expectedLb = (0x20 << 26) | (9 << 21) | (8 << 16) | 12;
+    const expectedSh = (0x29 << 26) | (11 << 21) | (10 << 16) | 0x0012;
+
+    assert.deepStrictEqual(image.text, [expectedLb, expectedSh]);
+    assert.strictEqual(image.symbols["load_offset"], 12);
+    assert.strictEqual(image.symbols["store_offset"], 0x12);
+  });
+
   test("expands muli pseudo-instruction using mul", () => {
     const source = "muli $t0, $t1, 5";
 

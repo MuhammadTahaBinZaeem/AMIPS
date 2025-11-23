@@ -13,6 +13,22 @@ class FakeMemory implements InstructionMemory {
     }
     return this.words[address];
   }
+
+  readWord(address: number): number {
+    return this.loadWord(address);
+  }
+
+  readByte(): number {
+    throw new Error("Byte reads are not supported in FakeMemory");
+  }
+
+  writeWord(address: number, value: number): void {
+    this.words[address] = value;
+  }
+
+  writeByte(): void {
+    throw new Error("Byte writes are not supported in FakeMemory");
+  }
 }
 
 class FakeDecoder implements InstructionDecoder {
