@@ -191,10 +191,10 @@ const makeBranchOnReg = (
     name,
     execute: (state: MachineState) => {
       const value = state.getRegister(rs);
-      if (withLink) {
-        state.setRegister(31, returnAddress);
-      }
       if (predicate(value)) {
+        if (withLink) {
+          state.setRegister(31, returnAddress);
+        }
         state.registerDelayedBranch(branchTarget);
       }
     },
