@@ -86,4 +86,66 @@ describe("Assembler pipeline", () => {
     assert.throws(() => assembler.assemble(".text\n.word 1"), /.word is only allowed in .data/);
     assert.throws(() => assembler.assemble("addi $t0 $t1 5"), /Unable to parse operand/);
   });
+
+  test("handles additional data layout directives", () => {
+    const floatBytes = (value: number) => {
+      const view = new DataView(new ArrayBuffer(4));
+      view.setFloat32(0, value, false);
+      return [view.getUint8(0), view.getUint8(1), view.getUint8(2), view.getUint8(3)];
+    };
+
+    const doubleBytes = (value: number) => {
+      const view = new DataView(new ArrayBuffer(8));
+      view.setFloat64(0, value, false);
+      return [
+        view.getUint8(0),
+        view.getUint8(1),
+        view.getUint8(2),
+        view.getUint8(3),
+        view.getUint8(4),
+        view.getUint8(5),
+        view.getUint8(6),
+        view.getUint8(7),
+      ];
+    };
+
+    const source = [
+      ".data",
+      ".byte 1, -1",
+      ".half 0x1234, label",
+      ".align 2",
+      "label: .float 1.5",
+      ".double -2.5",
+      ".space 3",
+      ".ascii \"hi\"",
+      ".asciiz \"z\"",
+    ].join("\n");
+
+    const image = new Assembler().assemble(source);
+
+    assert.strictEqual(image.symbols["label"], image.dataBase + 8);
+    assert.deepStrictEqual(image.dataWords, []);
+    assert.deepStrictEqual(
+      image.data,
+      [
+        0x01,
+        0xff,
+        0x12,
+        0x34,
+        0x00,
+        0x08,
+        0x00,
+        0x00,
+        ...floatBytes(1.5),
+        ...doubleBytes(-2.5),
+        0x00,
+        0x00,
+        0x00,
+        0x68,
+        0x69,
+        0x7a,
+        0x00,
+      ],
+    );
+  });
 });

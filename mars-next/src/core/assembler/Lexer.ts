@@ -196,17 +196,15 @@ export class Lexer {
 
   private readNumber(text: string, start: number, line: number, column: number): { token: Token; length: number } {
     let i = start;
-    let hasX = false;
     if (text[i] === "-") i++;
-    while (i < text.length && /[0-9A-Fa-fx]/.test(text[i])) {
-      if (text[i] === "x" || text[i] === "X") hasX = true;
+
+    while (i < text.length && /[0-9A-Fa-fxX.+eE-]/.test(text[i])) {
       i++;
     }
 
     const raw = text.slice(start, i);
-    const radix = hasX ? 16 : 10;
-    const numeric = parseInt(raw, radix);
-    if (Number.isNaN(numeric)) {
+    const numeric = Number(raw);
+    if (!Number.isFinite(numeric)) {
       throw new Error(`Invalid number '${raw}' at line ${line}, column ${column}`);
     }
 
