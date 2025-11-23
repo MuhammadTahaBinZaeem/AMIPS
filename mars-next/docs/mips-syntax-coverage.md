@@ -105,4 +105,11 @@ xori
 
 ## Assembler directive and macro coverage
 
-The assembler now recognizes a broader directive subset: `.text`, `.data`, `.ktext`, `.kdata`, `.word`, `.byte`, `.half`, `.float`, `.double`, `.ascii`, `.asciiz`, `.space`, `.align`, `.globl`, `.extern`, `.eqv`, and `.set`. Macro tooling (`.macro`/`.end_macro`), file inclusion via `.include`, and legacy behaviors like macro expansion, directive-driven alignment beyond explicit `.align`, or expression evaluation are still not supported in `mars-next`.
+The assembler now recognizes a broader directive subset: `.text`, `.data`, `.ktext`, `.kdata`, `.word`, `.byte`, `.half`, `.float`, `.double`, `.ascii`, `.asciiz`, `.space`, `.align`, `.globl`, `.extern`, `.eqv`, and `.set`.
+
+The following legacy features are still not supported in `mars-next`:
+
+- Macro tooling (`.macro`/`.end_macro`) and associated macro expansion
+- File inclusion via `.include`
+- Directive-driven alignment beyond explicit `.align`
+- Expression evaluation within directives
