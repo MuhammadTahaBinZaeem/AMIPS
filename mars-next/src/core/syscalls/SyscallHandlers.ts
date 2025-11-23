@@ -16,9 +16,22 @@ export function createDefaultSyscallHandlers(devices: SyscallDevices = {}): Reco
 
   return {
     print_int: (value: unknown) => requireDevice(terminal, "TerminalDevice").printInt(Number(value)),
+    print_int_hex: (value: unknown) => requireDevice(terminal, "TerminalDevice").printString(Number(value >>> 0).toString(16)),
+    print_int_binary: (value: unknown) =>
+      requireDevice(terminal, "TerminalDevice").printString((Number(value) >>> 0).toString(2)),
+    print_int_unsigned: (value: unknown) => requireDevice(terminal, "TerminalDevice").printString((Number(value) >>> 0).toString()),
+    print_float: (value: unknown) => requireDevice(terminal, "TerminalDevice").printString(String(value)),
+    print_double: (value: unknown) => requireDevice(terminal, "TerminalDevice").printString(String(value)),
     print_string: (value: unknown) => requireDevice(terminal, "TerminalDevice").printString(String(value)),
+    print_char: (value: unknown) => requireDevice(terminal, "TerminalDevice").printString(String.fromCharCode(Number(value))),
     read_string: () => requireDevice(terminal, "TerminalDevice").readString(),
     read_int: () => requireDevice(input, "InputDevice").readInt(),
+    read_float: () => parseFloat(requireDevice(terminal, "TerminalDevice").readString()),
+    read_double: () => parseFloat(requireDevice(terminal, "TerminalDevice").readString()),
+    read_char: () => {
+      const value = requireDevice(terminal, "TerminalDevice").readString();
+      return value.length > 0 ? value.charCodeAt(0) : -1;
+    },
     file_open: (path: unknown, mode: unknown) => requireDevice(file, "FileDevice").open(String(path), normalizeFileMode(mode)),
     file_read: (descriptor: unknown) => requireDevice(file, "FileDevice").readFile(Number(descriptor)),
     file_write: (descriptor: unknown, content: unknown) =>
