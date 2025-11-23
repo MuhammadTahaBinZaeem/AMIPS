@@ -27,7 +27,8 @@ export const LEGACY_PORTING_GAPS: LegacyPortingGap[] = [
     status: "partial",
     notes: [
       "Assembler only accepts .text, .data, .word, .asciiz plus li/move/nop expansions",
-      "Macro expansion, alignment, and expression handling from the legacy assembler are unimplemented",
+      "Legacy directives like .byte, .half, .float, .double, .space, .align, .ascii/.asciiz, .globl/.extern, .eqv, .macro/.end_macro, and .include remain unrecognized",
+      "Macro expansion, directive-driven alignment, .include substitution, and expression handling from the legacy assembler are unimplemented",
     ],
   },
   {

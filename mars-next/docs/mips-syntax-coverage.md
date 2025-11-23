@@ -111,6 +111,10 @@ tltu
 tne  
 tnei  
 trunc.w.d  
-trunc.w.s  
-xor  
+trunc.w.s
+xor
 xori
+
+## Assembler directive and macro coverage
+
+The new assembler only recognizes a minimal directive subset today: `.text`, `.data`, `.word`, and `.asciiz`. Legacy MARS ships a broader directive catalog that includes data layout helpers like `.byte`, `.half`, `.float`, `.double`, `.space`, `.align`, `.ascii`, and segment selectors such as `.kdata`/`.ktext`. It also exposes symbol utilities (`.globl`, `.extern`, `.eqv`, `.set`), macro tooling (`.macro`/`.end_macro`), and file inclusion via `.include`. None of those constructs are currently parsed or executed in `mars-next`, nor are legacy behaviors like macro expansion, directive-driven alignment, or expression evaluation supported.
