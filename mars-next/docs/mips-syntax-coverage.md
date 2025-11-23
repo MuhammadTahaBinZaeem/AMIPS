@@ -109,5 +109,4 @@ The assembler now recognizes a broader directive subset: `.text`, `.data`, `.kte
 
 The following legacy features are still not supported in `mars-next`:
 
-- Directive-driven alignment beyond explicit `.align`
 - Expression evaluation within directives
