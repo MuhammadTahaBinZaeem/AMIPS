@@ -2,7 +2,7 @@ import { DEFAULT_TEXT_BASE } from "../state/MachineState";
 import { IncludeProcessor, type IncludeProcessOptions, type IncludeResolver } from "./IncludeProcessor";
 import { Lexer } from "./Lexer";
 import { MacroExpander } from "./MacroExpander";
-import { InstructionNode, Operand, Parser, ProgramAst, Segment } from "./Parser";
+import { ExpressionNode, InstructionNode, Operand, Parser, ProgramAst, Segment } from "./Parser";
 
 export interface BinaryImage {
   textBase: number;
@@ -164,18 +164,24 @@ export class Assembler {
                 if (segment === "data")
                   dataOffset += this.encodeString((node.args[0] as Operand & { kind: "string" }).value).length + 1;
                 else kdataOffset += this.encodeString((node.args[0] as Operand & { kind: "string" }).value).length + 1;
-                break;
-              case ".space":
-                if (segment === "data")
-                  dataOffset += (node.args[0] as Operand & { kind: "immediate" }).value;
-                else kdataOffset += (node.args[0] as Operand & { kind: "immediate" }).value;
-                break;
-              case ".align": {
-                const power = (node.args[0] as Operand & { kind: "immediate" }).value as number;
-                const alignment = Math.pow(2, power);
-                if (!Number.isFinite(alignment) || alignment <= 0) {
-                  throw new Error(`Invalid alignment at line ${node.line}`);
-                }
+            break;
+          case ".space":
+            const spaceSize = this.resolveValue(node.args[0], symbols, node.line);
+            if (!Number.isInteger(spaceSize) || spaceSize < 0) {
+              throw new Error(`.space size must be a non-negative integer (line ${node.line})`);
+            }
+            if (segment === "data") dataOffset += spaceSize;
+            else kdataOffset += spaceSize;
+            break;
+          case ".align": {
+            const power = this.resolveValue(node.args[0], symbols, node.line) as number;
+            if (!Number.isInteger(power) || power < 0) {
+              throw new Error(`.align expects a non-negative integer (line ${node.line})`);
+            }
+            const alignment = Math.pow(2, power);
+            if (!Number.isFinite(alignment) || alignment <= 0) {
+              throw new Error(`Invalid alignment at line ${node.line}`);
+            }
                 const currentOffset = segment === "data" ? dataOffset : kdataOffset;
                 const padding = this.calculatePadding(currentOffset, alignment);
                 if (segment === "data") dataOffset += padding;
@@ -299,7 +305,7 @@ export class Assembler {
             const targetWords = segment === "data" ? dataWords : kdataWords;
             const targetBytes = segment === "data" ? data : kdata;
             for (const arg of node.args) {
-              if (arg.kind !== "immediate" && arg.kind !== "label") {
+              if (arg.kind !== "immediate" && arg.kind !== "label" && arg.kind !== "expression") {
                 throw new Error(`.word expects numeric arguments (line ${node.line})`);
               }
               const value = this.resolveValue(arg, symbols, node.line);
@@ -316,7 +322,7 @@ export class Assembler {
             }
             const target = segment === "data" ? data : kdata;
             for (const arg of node.args) {
-              if (arg.kind !== "immediate" && arg.kind !== "label") {
+              if (arg.kind !== "immediate" && arg.kind !== "label" && arg.kind !== "expression") {
                 throw new Error(`.byte expects numeric arguments (line ${node.line})`);
               }
               const value = this.resolveValue(arg, symbols, node.line);
@@ -332,7 +338,7 @@ export class Assembler {
             }
             const target = segment === "data" ? data : kdata;
             for (const arg of node.args) {
-              if (arg.kind !== "immediate" && arg.kind !== "label") {
+              if (arg.kind !== "immediate" && arg.kind !== "label" && arg.kind !== "expression") {
                 throw new Error(`.half expects numeric arguments (line ${node.line})`);
               }
               const value = this.resolveValue(arg, symbols, node.line);
@@ -348,10 +354,11 @@ export class Assembler {
             }
             const target = segment === "data" ? data : kdata;
             for (const arg of node.args) {
-              if (arg.kind !== "immediate") {
+              if (arg.kind !== "immediate" && arg.kind !== "expression") {
                 throw new Error(`.float expects numeric arguments (line ${node.line})`);
               }
-              this.pushFloatBytes(arg.value, target);
+              const value = this.resolveValue(arg, symbols, node.line);
+              this.pushFloatBytes(value, target);
               if (segment === "data") dataOffset += 4;
               else kdataOffset += 4;
             }
@@ -363,10 +370,11 @@ export class Assembler {
             }
             const target = segment === "data" ? data : kdata;
             for (const arg of node.args) {
-              if (arg.kind !== "immediate") {
+              if (arg.kind !== "immediate" && arg.kind !== "expression") {
                 throw new Error(`.double expects numeric arguments (line ${node.line})`);
               }
-              this.pushDoubleBytes(arg.value, target);
+              const value = this.resolveValue(arg, symbols, node.line);
+              this.pushDoubleBytes(value, target);
               if (segment === "data") dataOffset += 8;
               else kdataOffset += 8;
             }
@@ -400,7 +408,10 @@ export class Assembler {
             if (segment !== "data" && segment !== "kdata") {
               throw new Error(`.space directive encountered outside .data/.kdata at line ${node.line}`);
             }
-            const count = (node.args[0] as Operand & { kind: "immediate" }).value;
+            const count = this.resolveValue(node.args[0], symbols, node.line);
+            if (!Number.isInteger(count) || count < 0) {
+              throw new Error(`.space size must be a non-negative integer (line ${node.line})`);
+            }
             const target = segment === "data" ? data : kdata;
             for (let i = 0; i < count; i++) target.push(0);
             if (segment === "data") dataOffset += count;
@@ -411,7 +422,10 @@ export class Assembler {
             if (segment !== "data" && segment !== "kdata") {
               throw new Error(`.align directive encountered outside .data/.kdata at line ${node.line}`);
             }
-            const power = (node.args[0] as Operand & { kind: "immediate" }).value;
+            const power = this.resolveValue(node.args[0], symbols, node.line);
+            if (!Number.isInteger(power) || power < 0) {
+              throw new Error(`.align expects a non-negative integer (line ${node.line})`);
+            }
             const alignment = Math.pow(2, power);
             if (!Number.isFinite(alignment) || alignment <= 0) {
               throw new Error(`Invalid alignment at line ${node.line}`);
@@ -513,6 +527,7 @@ export class Assembler {
 
   private resolveValue(operand: Operand, symbols: SymbolTable, line: number): number {
     if (operand.kind === "immediate") return operand.value;
+    if (operand.kind === "expression") return this.evaluateExpression(operand.expression, symbols, line);
     if (operand.kind === "label") {
       const value = symbols.get(operand.name);
       if (value === undefined) {
@@ -521,6 +536,61 @@ export class Assembler {
       return value;
     }
     throw new Error(`Unsupported operand for immediate value at line ${line}`);
+  }
+
+  private evaluateExpression(node: ExpressionNode, symbols: SymbolTable, line: number): number {
+    switch (node.type) {
+      case "number":
+        return node.value;
+      case "symbol":
+        return this.resolveValue({ kind: "label", name: node.name }, symbols, line);
+      case "unary": {
+        const value = this.evaluateExpression(node.argument, symbols, line);
+        switch (node.op) {
+          case "plus":
+            return value;
+          case "minus":
+            return -value;
+          case "bitnot":
+            return ~this.toInt32(value);
+        }
+        break;
+      }
+      case "binary": {
+        const left = this.evaluateExpression(node.left, symbols, line);
+        const right = this.evaluateExpression(node.right, symbols, line);
+        switch (node.op) {
+          case "add":
+            return left + right;
+          case "sub":
+            return left - right;
+          case "mul":
+            return left * right;
+          case "div":
+            if (right === 0) {
+              throw new Error(`Division by zero in expression (line ${line})`);
+            }
+            return left / right;
+          case "mod":
+            if (right === 0) {
+              throw new Error(`Division by zero in expression (line ${line})`);
+            }
+            return left % right;
+          case "lshift":
+            return this.toInt32(left) << (this.toInt32(right) & 0x1f);
+          case "rshift":
+            return this.toInt32(left) >> (this.toInt32(right) & 0x1f);
+          case "and":
+            return this.toInt32(left) & this.toInt32(right);
+          case "xor":
+            return this.toInt32(left) ^ this.toInt32(right);
+          case "or":
+            return this.toInt32(left) | this.toInt32(right);
+        }
+        break;
+      }
+    }
+    throw new Error(`Unsupported expression at line ${line}`);
   }
 
   private expandLoadImmediate(

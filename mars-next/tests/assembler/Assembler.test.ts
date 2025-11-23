@@ -212,6 +212,44 @@ describe("Assembler pipeline", () => {
     );
   });
 
+  test("evaluates expressions within directives", () => {
+    const source = [
+      ".data",
+      ".eqv four, 2 + 2",
+      "base: .word 1 + 2 * 3, four << 1",
+      ".byte four - 1, ~0xff & 0xff",
+      ".space 1 << 2",
+      ".align 1 + 1",
+      "aligned: .half (base >> 1) + 3",
+    ].join("\n");
+
+    const image = new Assembler().assemble(source);
+
+    assert.strictEqual(image.symbols["base"], image.dataBase);
+    assert.strictEqual(image.symbols["aligned"], image.dataBase + 16);
+    assert.deepStrictEqual(image.dataWords, [7, 8]);
+    assert.deepStrictEqual(image.data, [
+      0x00,
+      0x00,
+      0x00,
+      0x07,
+      0x00,
+      0x00,
+      0x00,
+      0x08,
+      0x03,
+      0x00,
+      0x00,
+      0x00,
+      0x00,
+      0x00,
+      0x00,
+      0x00,
+      0x80,
+      0x03,
+    ]);
+  });
+
   test("expands simple macros with parameters", () => {
     const source = [
       ".macro inc reg",
