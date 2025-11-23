@@ -30,6 +30,7 @@ export class MachineState {
 
   private delayedBranchTarget: number | null;
   private delayedBranchState: DelayedBranchState;
+  private loadLinkedAddress: number | null;
 
   constructor() {
     this.registers = new Int32Array(MachineState.REGISTER_COUNT);
@@ -44,6 +45,7 @@ export class MachineState {
     this.fpuConditionFlags = Array.from({ length: MachineState.FPU_FLAG_COUNT }, () => false);
     this.delayedBranchTarget = null;
     this.delayedBranchState = "cleared";
+    this.loadLinkedAddress = null;
     this.reset();
   }
 
@@ -61,6 +63,7 @@ export class MachineState {
     this.terminated = false;
     this.fpuConditionFlags.fill(false);
     this.clearDelayedBranch();
+    this.clearLoadLinkedReservation();
   }
 
   getRegister(index: number): number {
@@ -189,6 +192,28 @@ export class MachineState {
   getFloatRegisterBits(index: number): number {
     this.validateFpuRegisterIndex(index);
     return this.floatRegisters[index];
+  }
+
+  setLoadLinkedReservation(address: number): void {
+    this.loadLinkedAddress = this.toUint32(address);
+  }
+
+  isLoadLinkedReservationValid(address: number): boolean {
+    return this.loadLinkedAddress !== null && this.loadLinkedAddress === this.toUint32(address);
+  }
+
+  invalidateLoadLinkedReservation(address: number, size: number): void {
+    if (this.loadLinkedAddress === null) return;
+
+    const start = this.toUint32(address);
+    const end = this.toUint32(start + size - 1);
+    if (this.loadLinkedAddress >= start && this.loadLinkedAddress <= end) {
+      this.clearLoadLinkedReservation();
+    }
+  }
+
+  clearLoadLinkedReservation(): void {
+    this.loadLinkedAddress = null;
   }
 
   setFloatRegisterBits(index: number, value: number): void {
