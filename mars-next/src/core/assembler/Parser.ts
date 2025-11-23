@@ -1,6 +1,6 @@
 import { LexedLine, Token } from "./Lexer";
 
-export type Segment = "text" | "data";
+export type Segment = "text" | "data" | "ktext" | "kdata";
 
 export type Operand =
   | { kind: "register"; name: string; register: number }
@@ -97,15 +97,15 @@ export class Parser {
       const first = tokens[index];
       if (first.type === "directive") {
         const directive = this.parseDirective(tokens.slice(index), segment, line.line);
-        if (directive.name === ".text") segment = "text";
-        if (directive.name === ".data") segment = "data";
+        if (directive.name === ".text" || directive.name === ".ktext") segment = directive.name.slice(1) as Segment;
+        if (directive.name === ".data" || directive.name === ".kdata") segment = directive.name.slice(1) as Segment;
         nodes.push(directive);
         continue;
       }
 
       if (first.type === "identifier") {
-        if (segment !== "text") {
-          throw new Error(`Instruction '${first.value}' is only valid in the .text segment (line ${line.line})`);
+        if (segment !== "text" && segment !== "ktext") {
+          throw new Error(`Instruction '${first.value}' is only valid in a text segment (line ${line.line})`);
         }
         const instruction = this.parseInstruction(tokens.slice(index), segment, line.line);
         nodes.push(instruction);
@@ -125,7 +125,9 @@ export class Parser {
     const args = this.collectArguments(tokens.slice(1), line);
     switch (name) {
       case ".text":
+      case ".ktext":
       case ".data":
+      case ".kdata":
         if (args.length !== 0) {
           throw new Error(`Directive ${name} does not take arguments (line ${line})`);
         }
@@ -133,8 +135,8 @@ export class Parser {
       case ".word":
       case ".byte":
       case ".half":
-        if (segment !== "data") {
-          throw new Error(`Directive ${name} is only allowed in .data (line ${line})`);
+        if (segment !== "data" && segment !== "kdata") {
+          throw new Error(`Directive ${name} is only allowed in .data/.kdata (line ${line})`);
         }
         args.forEach((arg) => {
           if (arg.kind !== "immediate" && arg.kind !== "label") {
@@ -144,8 +146,8 @@ export class Parser {
         break;
       case ".float":
       case ".double":
-        if (segment !== "data") {
-          throw new Error(`Directive ${name} is only allowed in .data (line ${line})`);
+        if (segment !== "data" && segment !== "kdata") {
+          throw new Error(`Directive ${name} is only allowed in .data/.kdata (line ${line})`);
         }
         args.forEach((arg) => {
           if (arg.kind !== "immediate") {
@@ -155,16 +157,16 @@ export class Parser {
         break;
       case ".ascii":
       case ".asciiz":
-        if (segment !== "data") {
-          throw new Error(`Directive ${name} is only allowed in .data (line ${line})`);
+        if (segment !== "data" && segment !== "kdata") {
+          throw new Error(`Directive ${name} is only allowed in .data/.kdata (line ${line})`);
         }
         if (args.length !== 1 || args[0].kind !== "string") {
           throw new Error(`${name} expects a single string argument (line ${line})`);
         }
         break;
       case ".space":
-        if (segment !== "data") {
-          throw new Error(`Directive .space is only allowed in .data (line ${line})`);
+        if (segment !== "data" && segment !== "kdata") {
+          throw new Error(`Directive .space is only allowed in .data/.kdata (line ${line})`);
         }
         if (args.length !== 1 || args[0].kind !== "immediate") {
           throw new Error(`.space expects a single size argument (line ${line})`);
@@ -174,14 +176,39 @@ export class Parser {
         }
         break;
       case ".align":
-        if (segment !== "data") {
-          throw new Error(`Directive .align is only allowed in .data (line ${line})`);
+        if (segment !== "data" && segment !== "kdata") {
+          throw new Error(`Directive .align is only allowed in .data/.kdata (line ${line})`);
         }
         if (args.length !== 1 || args[0].kind !== "immediate") {
           throw new Error(`.align expects a single power-of-two argument (line ${line})`);
         }
         if (!Number.isInteger(args[0].value) || args[0].value < 0) {
           throw new Error(`.align expects a non-negative integer (line ${line})`);
+        }
+        break;
+      case ".globl":
+      case ".extern":
+        if (args.length < 1) {
+          throw new Error(`${name} expects at least one symbol name (line ${line})`);
+        }
+        args.forEach((arg) => {
+          if (arg.kind !== "label") {
+            throw new Error(`${name} expects symbol operands (line ${line})`);
+          }
+        });
+        break;
+      case ".eqv":
+        if (
+          args.length !== 2 ||
+          args[0].kind !== "label" ||
+          (args[1].kind !== "immediate" && args[1].kind !== "label")
+        ) {
+          throw new Error(`${name} expects a symbol name followed by a value (line ${line})`);
+        }
+        break;
+      case ".set":
+        if (args.length < 1) {
+          throw new Error(`${name} expects at least one option name (line ${line})`);
         }
         break;
       default:

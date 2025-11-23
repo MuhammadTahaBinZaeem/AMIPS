@@ -11,6 +11,10 @@ export interface ProgramLoadOptions {
   textBase?: number;
   /** Override the data segment base address. */
   dataBase?: number;
+  /** Override the kernel text segment base address. */
+  ktextBase?: number;
+  /** Override the kernel data segment base address. */
+  kdataBase?: number;
   /** Optional relocation offset applied to both segments. */
   relocationOffset?: number;
   /** Override the initial stack pointer value. */
@@ -22,6 +26,8 @@ export interface ProgramLoadOptions {
 export interface ProgramLayout {
   textBase: number;
   dataBase: number;
+  ktextBase: number;
+  kdataBase: number;
   entryPoint: number;
 }
 
@@ -36,6 +42,8 @@ export class ProgramLoader {
     const relocationOffset = options.relocationOffset ?? 0;
     const textBase = (options.textBase ?? binary.textBase) + relocationOffset;
     const dataBase = (options.dataBase ?? binary.dataBase) + relocationOffset;
+    const ktextBase = (options.ktextBase ?? binary.ktextBase) + relocationOffset;
+    const kdataBase = (options.kdataBase ?? binary.kdataBase) + relocationOffset;
 
     if (options.clearMemory ?? true) {
       this.memory.reset();
@@ -50,11 +58,20 @@ export class ProgramLoader {
 
     this.memory.writeBytes(dataBase, binary.data);
 
+    binary.ktext.forEach((word, index) => {
+      const address = ktextBase + index * 4;
+      this.memory.writeWord(address, word);
+    });
+
+    if (binary.kdata.length > 0) {
+      this.memory.writeBytes(kdataBase, binary.kdata);
+    }
+
     const stackPointer = options.stackPointer ?? (DEFAULT_STACK_POINTER + relocationOffset);
     state.setRegister(28, (DEFAULT_GLOBAL_POINTER + relocationOffset) | 0);
     state.setRegister(29, stackPointer | 0);
     state.setProgramCounter(textBase);
 
-    return { textBase, dataBase, entryPoint: textBase };
+    return { textBase, dataBase, ktextBase, kdataBase, entryPoint: textBase };
   }
 }
