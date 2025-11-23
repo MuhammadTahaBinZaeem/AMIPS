@@ -309,8 +309,14 @@ const makeLoadWordLeft = (decoded: ITypeFields): DecodedInstruction => {
     execute: (state: MachineState, memory: InstructionMemory) => {
       const address = computeAddress(decoded, state);
       let result = state.getRegister(rt);
-      for (let i = 0; i <= address % 4; i++) {
-        result = setByteInWord(result, 3 - i, memory.readByte(address - i));
+      const offset = address % 4;
+      const alignedAddress = address - offset;
+      for (let i = 0; i < 4 - offset; i++) {
+        result = setByteInWord(
+          result,
+          3 - i,
+          memory.readByte(alignedAddress + i)
+        );
       }
       state.setRegister(rt, result);
     },
@@ -324,8 +330,14 @@ const makeLoadWordRight = (decoded: ITypeFields): DecodedInstruction => {
     execute: (state: MachineState, memory: InstructionMemory) => {
       const address = computeAddress(decoded, state);
       let result = state.getRegister(rt);
-      for (let i = 0; i <= 3 - (address % 4); i++) {
-        result = setByteInWord(result, i, memory.readByte(address + i));
+      const offset = address % 4;
+      const alignedAddress = address - offset;
+      for (let i = 0; i <= offset; i++) {
+        result = setByteInWord(
+          result,
+          offset - i,
+          memory.readByte(alignedAddress + (3 - offset) + i)
+        );
       }
       state.setRegister(rt, result);
     },
@@ -355,8 +367,8 @@ const makeLoadDoubleCop1 = (decoded: ITypeFields): DecodedInstruction => {
       if ((address & 0x7) !== 0) {
         throw new RangeError(`Unaligned doubleword address: 0x${address.toString(16)}`);
       }
-      const low = memory.readWord(address);
-      const high = memory.readWord(address + 4);
+      const high = memory.readWord(address);
+      const low = memory.readWord(address + 4);
       state.setFloatRegisterBits(rt, low);
       state.setFloatRegisterBits(rt + 1, high);
     },
