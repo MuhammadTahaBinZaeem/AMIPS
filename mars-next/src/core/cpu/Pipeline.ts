@@ -479,7 +479,7 @@ export class Pipeline {
       // Evaluate breakpoints for the next fetch address after branch resolution.
       const fetchPc = state.getProgramCounter();
       const instructionIndex = ((fetchPc - this.textBase) / 4) | 0;
-      const breakpointHit = this.breakpoints?.checkForHit(fetchPc, instructionIndex) ?? false;
+        const breakpointHit = this.breakpoints?.checkForHit(fetchPc, instructionIndex, state) ?? false;
 
       // IF/ID stage fetches the next instruction unless halted or terminated.
       const canFetch =

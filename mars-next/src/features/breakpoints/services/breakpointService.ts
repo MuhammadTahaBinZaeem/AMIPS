@@ -4,7 +4,7 @@ export function normalizeLineNumber(line: number): number {
   return Math.max(1, Math.floor(line));
 }
 
-function resolveInstructionIndex(line: number, sourceMap?: SourceMapEntry[], file?: string): number | null {
+export function resolveInstructionIndex(line: number, sourceMap?: SourceMapEntry[], file?: string): number | null {
   if (!sourceMap || sourceMap.length === 0) return line - 1;
 
   const targetFile = file ?? (sourceMap.some((entry) => entry.file === "<input>") ? "<input>" : sourceMap[0]?.file);
