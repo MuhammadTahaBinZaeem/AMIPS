@@ -82,4 +82,70 @@ describe("Pipeline", () => {
     assert.strictEqual(state.getRegister(4), 7);
     assert.strictEqual(state.getProgramCounter(), (DEFAULT_TEXT_BASE + 24) | 0);
   });
+
+  test("stalls on load-use hazard to preserve dependent fetch", () => {
+    const { pipeline, state } = buildPipeline(
+      [
+        ".text",
+        "lw $t0, 0($zero)",
+        "add $t1, $t0, $t0",
+        "addi $t2, $zero, 1",
+      ].join("\n"),
+    );
+
+    pipeline.step();
+    pipeline.step();
+    const pcBeforeHazard = state.getProgramCounter();
+
+    // The load in EX should stall fetch/decode for the dependent add.
+    pipeline.step();
+    assert.strictEqual(state.getProgramCounter(), pcBeforeHazard);
+
+    pipeline.run(10);
+    assert.strictEqual(state.getRegister(8), 0);
+    assert.strictEqual(state.getRegister(9), 0);
+    assert.strictEqual(state.getRegister(10), 1);
+  });
+
+  test("suppresses fetch when memory stage uses shared memory", () => {
+    const { pipeline, state } = buildPipeline(
+      [
+        ".text",
+        "lw $t0, 0($zero)",
+        "addi $t1, $zero, 5",
+        "addi $t2, $zero, 6",
+      ].join("\n"),
+    );
+
+    pipeline.step();
+    pipeline.step();
+    pipeline.step();
+    const pcBeforeStructuralStall = state.getProgramCounter();
+
+    pipeline.step();
+    assert.strictEqual(state.getProgramCounter(), pcBeforeStructuralStall);
+  });
+
+  test("forwards arithmetic results without bubbles", () => {
+    const { pipeline, state } = buildPipeline(
+      [
+        ".text",
+        "addi $t0, $zero, 3",
+        "add $t1, $t0, $t0",
+        "add $t2, $t1, $t0",
+      ].join("\n"),
+    );
+
+    pipeline.step();
+    pipeline.step();
+    pipeline.step();
+
+    // No stalls introduced, so PC should advance one word per cycle.
+    assert.strictEqual(state.getProgramCounter(), (DEFAULT_TEXT_BASE + 12) | 0);
+
+    pipeline.run(10);
+    assert.strictEqual(state.getRegister(8), 3);
+    assert.strictEqual(state.getRegister(9), 6);
+    assert.strictEqual(state.getRegister(10), 9);
+  });
 });
