@@ -5,6 +5,12 @@ export type IncludeResolver = (absolutePath: string) => string;
 export interface IncludeProcessOptions {
   baseDir?: string;
   resolver?: IncludeResolver | null;
+  sourceName?: string;
+}
+
+export interface ProcessedSource {
+  source: string;
+  map: Array<{ file: string; line: number }>;
 }
 
 const createDefaultResolver = (): IncludeResolver | null => {
@@ -46,11 +52,13 @@ export class IncludeProcessor {
     this.defaultResolver = resolver ?? createDefaultResolver();
   }
 
-  process(source: string, options: IncludeProcessOptions = {}, seen: Set<string> = new Set()): string {
+  process(source: string, options: IncludeProcessOptions = {}, seen: Set<string> = new Set()): ProcessedSource {
     const { baseDir, resolver = this.defaultResolver } = options;
+    const origin = options.sourceName ?? "<input>";
     const lines = source.split(/\r?\n/);
     const lexed = this.lexer.tokenize(source);
     const output: string[] = [];
+    const map: Array<{ file: string; line: number }> = [];
 
     for (let index = 0; index < lexed.length; index++) {
       const line = lexed[index];
@@ -74,15 +82,21 @@ export class IncludeProcessor {
         seen.add(resolvedPath);
         const includedSource = resolver(resolvedPath);
         const nestedBase = parentDirectory(resolvedPath) || baseDir;
-        const expanded = this.process(includedSource, { baseDir: nestedBase, resolver }, seen);
-        output.push(...expanded.split(/\r?\n/));
+        const expanded = this.process(
+          includedSource,
+          { baseDir: nestedBase, resolver, sourceName: resolvedPath },
+          seen,
+        );
+        output.push(...expanded.source.split(/\r?\n/));
+        map.push(...expanded.map);
         seen.delete(resolvedPath);
         continue;
       }
 
       output.push(lines[index] ?? "");
+      map.push({ file: origin, line: line.line });
     }
 
-    return output.join("\n");
+    return { source: output.join("\n"), map };
   }
 }

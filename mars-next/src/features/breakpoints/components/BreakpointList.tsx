@@ -25,13 +25,23 @@ export function BreakpointList({ breakpoints, program, onRemove }: BreakpointLis
   }
 
   const entries = breakpoints.map((lineNumber) => {
-    const instructionIndex = lineNumber - 1;
+    const location = program?.sourceMap.find(
+      (entry) => entry.segment === "text" && entry.line === lineNumber,
+    );
+    const instructionIndex = location?.segmentIndex ?? lineNumber - 1;
     const machineWord = program?.text?.[instructionIndex];
-    const programCounter = (program?.textBase ?? DEFAULT_TEXT_BASE) + instructionIndex * 4;
+    const programCounter = location?.address ?? (program?.textBase ?? DEFAULT_TEXT_BASE) + instructionIndex * 4;
     const disassembled =
       machineWord !== undefined ? disassembleInstruction(machineWord, programCounter) : null;
 
-    return { lineNumber, instructionIndex, machineWord, programCounter, disassembled };
+    return {
+      lineNumber,
+      instructionIndex,
+      machineWord,
+      programCounter,
+      disassembled,
+      file: location?.file ?? "<input>",
+    };
   });
 
   return (
@@ -42,7 +52,7 @@ export function BreakpointList({ breakpoints, program, onRemove }: BreakpointLis
         gap: "0.5rem",
       }}
     >
-      {entries.map(({ lineNumber, machineWord, programCounter, disassembled }) => (
+      {entries.map(({ lineNumber, machineWord, programCounter, disassembled, file }) => (
         <div
           key={lineNumber}
           style={{
@@ -56,7 +66,10 @@ export function BreakpointList({ breakpoints, program, onRemove }: BreakpointLis
           }}
         >
           <div>
-            <div style={{ fontWeight: 600, color: "#e5e7eb" }}>Line {lineNumber}</div>
+            <div style={{ fontWeight: 600, color: "#e5e7eb" }}>
+              Line {lineNumber}
+              <span style={{ color: "#94a3b8", marginLeft: "0.5rem", fontWeight: 500 }}>({file})</span>
+            </div>
             {machineWord !== undefined ? (
               <div style={{ color: "#9ca3af", marginTop: "0.25rem" }}>
                 <code style={{ color: "#c084fc" }}>0x{programCounter.toString(16).padStart(8, "0")}</code>

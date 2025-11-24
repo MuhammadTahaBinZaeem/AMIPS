@@ -1,5 +1,10 @@
 import { DEFAULT_TEXT_BASE } from "../state/MachineState";
-import { IncludeProcessor, type IncludeProcessOptions, type IncludeResolver } from "./IncludeProcessor";
+import {
+  IncludeProcessor,
+  type IncludeProcessOptions,
+  type IncludeResolver,
+  type ProcessedSource,
+} from "./IncludeProcessor";
 import { Lexer } from "./Lexer";
 import { MacroExpander } from "./MacroExpander";
 import { ExpressionNode, InstructionNode, Operand, Parser, ProgramAst, Segment } from "./Parser";
@@ -16,6 +21,7 @@ export interface BinaryImage {
   kdata: number[]; // kernel data bytes
   kdataWords: number[]; // kernel data values aligned to 4 bytes
   symbols: Record<string, number>;
+  sourceMap?: SourceMapEntry[];
 }
 
 const DEFAULT_DATA_BASE = 0x10010000;
@@ -28,6 +34,19 @@ interface NormalizedInstruction {
   name: string;
   operands: Operand[];
   line: number;
+}
+
+export interface SourceLocation {
+  file: string;
+  line: number;
+}
+
+export interface SourceMapEntry {
+  address: number;
+  line: number;
+  file: string;
+  segment: Segment;
+  segmentIndex: number;
 }
 
 export interface AssemblerOptions extends IncludeProcessOptions {
@@ -47,6 +66,7 @@ export class Assembler {
     this.includeProcessor = new IncludeProcessor(this.lexer, includeResolver);
     this.defaultIncludeOptions = {
       baseDir: options.baseDir,
+      sourceName: options.sourceName,
       ...(includeResolver !== null && includeResolver !== undefined ? { resolver: includeResolver } : {}),
     };
   }
@@ -54,6 +74,7 @@ export class Assembler {
   assemble(source: string, options: AssemblerOptions = {}): BinaryImage {
     const includeOptions: IncludeProcessOptions = {
       baseDir: options.baseDir ?? this.defaultIncludeOptions.baseDir,
+      sourceName: options.sourceName ?? this.defaultIncludeOptions.sourceName,
     };
 
     const resolver = options.includeResolver ?? options.resolver ?? this.defaultIncludeOptions.resolver;
@@ -62,11 +83,12 @@ export class Assembler {
     }
 
     const withIncludes = this.includeProcessor.process(source, includeOptions);
-    const expanded = this.macroExpander.expand(withIncludes);
+    const expanded = this.macroExpander.expand(withIncludes.source);
     const lexed = this.lexer.tokenize(expanded);
     const ast = this.parser.parse(lexed);
     const symbols = this.buildSymbolTable(ast);
-    const { text, data, dataWords, ktext, kdata, kdataWords } = this.emit(ast, symbols);
+    const resolveLocation = this.createLocationResolver(withIncludes, expanded, includeOptions.sourceName);
+    const { text, data, dataWords, ktext, kdata, kdataWords, sourceMap } = this.emit(ast, symbols, resolveLocation);
 
     return {
       textBase: DEFAULT_TEXT_BASE,
@@ -80,7 +102,19 @@ export class Assembler {
       dataWords,
       kdataWords,
       symbols: Object.fromEntries(symbols),
+      sourceMap,
     };
+  }
+
+  private createLocationResolver(
+    processed: ProcessedSource,
+    expanded: string,
+    sourceName?: string,
+  ): (line: number) => SourceLocation {
+    const fallbackFile = sourceName ?? "<input>";
+    const expandedLines = expanded.split(/\r?\n/);
+    const locations = expandedLines.map((_, index) => processed.map[index] ?? { file: fallbackFile, line: index + 1 });
+    return (line: number) => locations[line - 1] ?? { file: fallbackFile, line };
   }
 
   private buildSymbolTable(ast: ProgramAst): SymbolTable {
@@ -287,7 +321,16 @@ export class Assembler {
   private emit(
     ast: ProgramAst,
     symbols: SymbolTable,
-  ): { text: number[]; data: number[]; dataWords: number[]; ktext: number[]; kdata: number[]; kdataWords: number[] } {
+    resolveLocation: (line: number) => SourceLocation,
+  ): {
+    text: number[];
+    data: number[];
+    dataWords: number[];
+    ktext: number[];
+    kdata: number[];
+    kdataWords: number[];
+    sourceMap: SourceMapEntry[];
+  } {
     let segment: Segment = "text";
     let pc = DEFAULT_TEXT_BASE;
     const text: number[] = [];
@@ -300,6 +343,7 @@ export class Assembler {
     let kdataOffset = 0;
     let textOffset = 0;
     let ktextOffset = 0;
+    const sourceMap: SourceMapEntry[] = [];
 
     for (let i = 0; i < ast.nodes.length; i++) {
       const node = ast.nodes[i];
@@ -498,7 +542,16 @@ export class Assembler {
         const targetText = segment === "ktext" ? ktext : text;
         for (const inst of normalized) {
           const encoded = this.encodeInstruction(inst, pc, symbols);
+          const segmentIndex = targetText.length;
           targetText.push(encoded);
+          const location = resolveLocation(inst.line);
+          sourceMap.push({
+            address: pc,
+            segment,
+            segmentIndex,
+            line: location.line,
+            file: location.file,
+          });
           if (segment === "text") {
             textOffset += 4;
           } else {
@@ -516,6 +569,7 @@ export class Assembler {
       ktext: ktext.map((w) => this.toInt32(w)),
       kdata,
       kdataWords: kdataWords.map((w) => this.toInt32(w)),
+      sourceMap,
     };
   }
 
