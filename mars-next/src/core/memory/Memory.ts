@@ -1,186 +1,9 @@
+import { Cache, CacheConfig } from "./Caches";
 import { AccessType, MemoryMap } from "./MemoryMap";
 
-export interface CacheConfig {
-  size: number;
-  lineSize: number;
-  associativity: number;
-  writePolicy?: "write-back" | "write-through";
-}
-
-interface CacheLine {
-  tag: number;
-  valid: boolean;
-  dirty: boolean;
-  lastUsed: number;
-  data: Uint8Array;
-}
-
-interface CacheStats {
-  hits: number;
-  misses: number;
-  evictions: number;
-}
-
-class Cache {
-  private readonly writePolicy: "write-back" | "write-through";
-  private readonly setCount: number;
-  private readonly sets: CacheLine[][];
-  private usageCounter = 0;
-  private stats: CacheStats = { hits: 0, misses: 0, evictions: 0 };
-
-  constructor(private readonly config: CacheConfig) {
-    if (config.lineSize <= 0 || config.size <= 0 || config.associativity <= 0) {
-      throw new RangeError("Cache configuration values must be positive");
-    }
-
-    if ((config.lineSize & (config.lineSize - 1)) !== 0) {
-      throw new RangeError("Cache line size must be a power of two");
-    }
-
-    this.writePolicy = config.writePolicy ?? "write-back";
-
-    const totalLines = Math.floor(config.size / config.lineSize);
-    this.setCount = Math.floor(totalLines / config.associativity);
-
-    if (this.setCount <= 0 || !Number.isFinite(this.setCount)) {
-      throw new RangeError("Cache size must fit at least one full set");
-    }
-
-    this.sets = Array.from({ length: this.setCount }, () => []);
-  }
-
-  reset(): void {
-    this.sets.forEach((set) => set.splice(0, set.length));
-    this.usageCounter = 0;
-    this.stats = { hits: 0, misses: 0, evictions: 0 };
-  }
-
-  flush(writeBack: (address: number, data: Uint8Array) => void): void {
-    for (let setIndex = 0; setIndex < this.sets.length; setIndex++) {
-      for (const line of this.sets[setIndex]) {
-        if (line.valid && line.dirty) {
-          writeBack(this.computeLineBase(line.tag, setIndex), line.data);
-          line.dirty = false;
-        }
-      }
-    }
-  }
-
-  readByte(
-    address: number,
-    loadLine: (address: number, size: number) => Uint8Array,
-    writeBack: (address: number, data: Uint8Array) => void,
-  ): number {
-    const { setIndex, tag, offset } = this.indexAddress(address);
-    const set = this.sets[setIndex];
-    const line = this.findLine(set, tag);
-
-    if (line) {
-      this.touch(line);
-      this.stats.hits += 1;
-      return line.data[offset];
-    }
-
-    this.stats.misses += 1;
-    const filledLine = this.fillLine(setIndex, tag, loadLine, writeBack);
-    return filledLine.data[offset];
-  }
-
-  writeByte(
-    address: number,
-    value: number,
-    loadLine: (address: number, size: number) => Uint8Array,
-    writeBack: (address: number, data: Uint8Array) => void,
-  ): void {
-    const { setIndex, tag, offset } = this.indexAddress(address);
-    const set = this.sets[setIndex];
-    let line = this.findLine(set, tag);
-
-    if (!line) {
-      this.stats.misses += 1;
-      line = this.fillLine(setIndex, tag, loadLine, writeBack);
-    } else {
-      this.stats.hits += 1;
-    }
-
-    line.data[offset] = value & 0xff;
-    if (this.writePolicy === "write-back") {
-      line.dirty = true;
-    } else {
-      writeBack(this.computeLineBase(tag, setIndex), line.data);
-    }
-    this.touch(line);
-  }
-
-  getLineSize(): number {
-    return this.config.lineSize;
-  }
-
-  getStats(): CacheStats {
-    return { ...this.stats };
-  }
-
-  private fillLine(
-    setIndex: number,
-    tag: number,
-    loadLine: (address: number, size: number) => Uint8Array,
-    writeBack: (address: number, data: Uint8Array) => void,
-  ): CacheLine {
-    const set = this.sets[setIndex];
-    const lineBase = this.computeLineBase(tag, setIndex);
-    let targetLine: CacheLine | null = null;
-
-    if (set.length < this.config.associativity) {
-      targetLine = this.createLine();
-      set.push(targetLine);
-    } else {
-      targetLine = this.selectVictim(set);
-      if (targetLine.valid) {
-        this.stats.evictions += 1;
-        if (targetLine.dirty && this.writePolicy === "write-back") {
-          writeBack(this.computeLineBase(targetLine.tag, setIndex), targetLine.data);
-        }
-      }
-    }
-
-    targetLine.tag = tag;
-    targetLine.valid = true;
-    targetLine.dirty = false;
-    targetLine.data = loadLine(lineBase, this.config.lineSize);
-    this.touch(targetLine);
-    return targetLine;
-  }
-
-  private createLine(): CacheLine {
-    return { tag: 0, valid: false, dirty: false, lastUsed: 0, data: new Uint8Array(this.config.lineSize) };
-  }
-
-  private selectVictim(set: CacheLine[]): CacheLine {
-    return set.reduce((oldest, candidate) => (candidate.lastUsed < oldest.lastUsed ? candidate : oldest));
-  }
-
-  private computeLineBase(tag: number, setIndex: number): number {
-    const blockNumber = tag * this.setCount + setIndex;
-    return (blockNumber * this.config.lineSize) >>> 0;
-  }
-
-  private findLine(set: CacheLine[], tag: number): CacheLine | undefined {
-    return set.find((line) => line.valid && line.tag === tag);
-  }
-
-  private indexAddress(address: number): { setIndex: number; tag: number; offset: number } {
-    const blockNumber = Math.floor(address / this.config.lineSize);
-    const setIndex = blockNumber % this.setCount;
-    const tag = Math.floor(blockNumber / this.setCount);
-    const offset = address % this.config.lineSize;
-    return { setIndex, tag, offset };
-  }
-
-  private touch(line: CacheLine): void {
-    this.usageCounter += 1;
-    line.lastUsed = this.usageCounter;
-  }
-}
+const BLOCK_SIZE = 4096;
+const BLOCK_MASK = BLOCK_SIZE - 1;
+const BLOCK_SHIFT = 12;
 
 export interface MemoryOptions {
   map?: MemoryMap;
@@ -189,7 +12,8 @@ export interface MemoryOptions {
 }
 
 export class Memory {
-  private readonly bytes = new Map<number, number>();
+  private readonly blocks = new Map<number, Uint8Array>();
+  private readonly writtenAddresses = new Set<number>();
   private readonly memoryMap: MemoryMap;
   private readonly dataCache: Cache | null;
   private readonly instructionCache: Cache | null;
@@ -201,7 +25,8 @@ export class Memory {
   }
 
   reset(): void {
-    this.bytes.clear();
+    this.blocks.clear();
+    this.writtenAddresses.clear();
     this.dataCache?.reset();
     this.instructionCache?.reset();
   }
@@ -289,7 +114,7 @@ export class Memory {
   }
 
   writeBytes(baseAddress: number, values: number[]): void {
-    values.forEach((value, index) => this.writeByte(baseAddress + index, value));
+    values.forEach((byte, index) => this.writeByte(baseAddress + index, byte));
   }
 
   /**
@@ -297,9 +122,9 @@ export class Memory {
    * scenarios where a read-only view of memory contents is needed.
    */
   entries(): Array<{ address: number; value: number }> {
-    return [...this.bytes.entries()]
-      .sort(([a], [b]) => a - b)
-      .map(([address, value]) => ({ address, value }));
+    return [...this.writtenAddresses]
+      .sort((a, b) => a - b)
+      .map((address) => ({ address, value: this.readByteFromBacking(address) }));
   }
 
   private selectCache(access: AccessType): Cache | null {
@@ -326,12 +151,31 @@ export class Memory {
 
   private readByteFromBacking(address: number): number {
     const normalizedAddress = this.validateAddress(address);
-    return this.bytes.get(normalizedAddress) ?? 0;
+    const block = this.blocks.get(normalizedAddress >>> BLOCK_SHIFT);
+    if (!block) {
+      return 0;
+    }
+
+    const offset = normalizedAddress & BLOCK_MASK;
+    return block[offset] ?? 0;
   }
 
   private writeByteToBacking(address: number, value: number): void {
     const normalizedAddress = this.validateAddress(address);
-    this.bytes.set(normalizedAddress, value & 0xff);
+    const blockIndex = normalizedAddress >>> BLOCK_SHIFT;
+    const block = this.getOrCreateBlock(blockIndex);
+
+    block[normalizedAddress & BLOCK_MASK] = value & 0xff;
+    this.writtenAddresses.add(normalizedAddress);
+  }
+
+  private getOrCreateBlock(index: number): Uint8Array {
+    let block = this.blocks.get(index);
+    if (!block) {
+      block = new Uint8Array(BLOCK_SIZE);
+      this.blocks.set(index, block);
+    }
+    return block;
   }
 
   private validateAddress(address: number): number {
