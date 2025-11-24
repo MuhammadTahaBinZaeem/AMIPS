@@ -4,9 +4,15 @@ export function normalizeLineNumber(line: number): number {
   return Math.max(1, Math.floor(line));
 }
 
-function resolveInstructionIndex(line: number, sourceMap?: SourceMapEntry[]): number | null {
+function resolveInstructionIndex(line: number, sourceMap?: SourceMapEntry[], file?: string): number | null {
   if (!sourceMap || sourceMap.length === 0) return line - 1;
-  const location = sourceMap.find((entry) => entry.segment === "text" && entry.line === line);
+
+  const targetFile = file ?? (sourceMap.some((entry) => entry.file === "<input>") ? "<input>" : sourceMap[0]?.file);
+
+  const location = sourceMap.find(
+    (entry) => entry.segment === "text" && entry.line === line && (targetFile === undefined || entry.file === targetFile),
+  );
+
   return location ? location.segmentIndex : null;
 }
 
@@ -15,10 +21,11 @@ export function toggleBreakpoint(
   existing: number[],
   engine?: BreakpointEngine,
   sourceMap?: SourceMapEntry[],
+  file?: string,
 ): number[] {
   const normalized = normalizeLineNumber(line);
   const hasBreakpoint = existing.includes(normalized);
-  const instructionIndex = resolveInstructionIndex(normalized, sourceMap);
+  const instructionIndex = resolveInstructionIndex(normalized, sourceMap, file);
 
   if (instructionIndex === null) return existing;
 
@@ -35,11 +42,16 @@ export function clearBreakpoints(engine?: BreakpointEngine): void {
   engine?.clearAll();
 }
 
-export function seedBreakpoints(points: number[], engine?: BreakpointEngine, sourceMap?: SourceMapEntry[]): void {
+export function seedBreakpoints(
+  points: number[],
+  engine?: BreakpointEngine,
+  sourceMap?: SourceMapEntry[],
+  file?: string,
+): void {
   if (!engine) return;
   engine.clearAll();
   points.forEach((point) => {
-    const index = resolveInstructionIndex(point, sourceMap);
+    const index = resolveInstructionIndex(point, sourceMap, file);
     if (index !== null) {
       engine.setInstructionBreakpoint(index);
     }
