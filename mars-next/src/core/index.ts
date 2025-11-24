@@ -92,6 +92,7 @@ export class CoreEngine {
   private readonly interrupts: InterruptController;
   private readonly pipeline: Pipeline;
   private lastLayout: ProgramLayout | null = null;
+  private symbolTable: Record<string, number> = {};
 
   constructor(options: CoreEngineOptions = {}) {
     this.memory = options.memory ?? new Memory();
@@ -139,13 +140,26 @@ export class CoreEngine {
 
   load(binary: BinaryImage, options?: ProgramLoadOptions): ProgramLayout {
     this.lastLayout = this.loader.loadProgram(this.state, binary, options);
+    this.symbolTable = this.lastLayout.symbols;
     this.pipeline.resetPerformanceCounters();
     this.resume();
+
+    if (this.breakpoints) {
+      this.breakpoints.setSymbolTable(this.symbolTable);
+    }
+    if (this.watchEngine && typeof this.watchEngine.setSymbolTable === "function") {
+      this.watchEngine.setSymbolTable(this.symbolTable);
+    }
+
     return this.lastLayout;
   }
 
   getProgramLayout(): ProgramLayout | null {
     return this.lastLayout;
+  }
+
+  getSymbolTable(): Record<string, number> {
+    return this.symbolTable;
   }
 
   getState(): MachineState {
@@ -183,11 +197,23 @@ export class CoreEngine {
     this.breakpoints.setBreakpoint(address);
   }
 
+  addBreakpointByLabel(label: string): number {
+    if (!this.breakpoints) {
+      throw new Error("Breakpoints are not enabled for this engine");
+    }
+    return this.breakpoints.setBreakpointByLabel(label);
+  }
+
   removeBreakpoint(address: number): void {
     if (!this.breakpoints) {
       return;
     }
     this.breakpoints.removeBreakpoint(address);
+  }
+
+  removeBreakpointByLabel(label: string): void {
+    if (!this.breakpoints) return;
+    this.breakpoints.removeBreakpointByLabel(label);
   }
 
   clearBreakpoints(): void {

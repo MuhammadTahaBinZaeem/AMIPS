@@ -56,14 +56,28 @@ export function App(): React.JSX.Element {
       const { engine, image } = assembleAndLoad(source, { breakpointEngine });
       setProgram(image);
       setStatus("Running...");
-      engine.run(2_000);
+      loadedEngine.run(2_000);
 
-      const state = engine.getState();
+      const state = loadedEngine.getState();
       setRegisters(Array.from({ length: MachineState.REGISTER_COUNT }, (_, index) => state.getRegister(index)));
       setHi(state.getHi());
       setLo(state.getLo());
       setPc(state.getProgramCounter());
-      setMemoryEntries(engine.getMemory().entries());
+      setMemoryEntries(loadedEngine.getMemory().entries());
+
+      const { breakpoints: engineBreakpoints, watchEngine } = loadedEngine.getDebuggerEngines();
+      if (watchEngine) {
+        const snapshot: Record<string, number | undefined> = {};
+        watchEngine.getWatchValues().forEach((entry) => {
+          snapshot[entry.key] = entry.value;
+        });
+        setWatchValues(snapshot);
+      }
+
+      if (engineBreakpoints?.getHitBreakpoint() !== null) {
+        setStatus("Paused on breakpoint");
+        return;
+      }
 
       const breakpointHit = breakpointEngine.getHitBreakpoint();
       if (breakpointHit !== null) {
@@ -112,6 +126,34 @@ export function App(): React.JSX.Element {
         )}
 
         {editor}
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: "1rem" }}>
+          <BreakpointManagerPanel
+            breakpoints={breakpoints}
+            symbols={symbolTable}
+            onAdd={(spec) =>
+              setBreakpoints((previous) => (previous.includes(spec) ? previous : [...previous, spec]))
+            }
+            onRemove={(spec) => setBreakpoints((previous) => previous.filter((entry) => entry !== spec))}
+          />
+          <WatchManagerPanel
+            watches={watches}
+            symbols={symbolTable}
+            values={watchValues}
+            onAdd={(spec) =>
+              setWatches((previous) =>
+                previous.find((entry) => entry.kind === spec.kind && entry.identifier === spec.identifier)
+                  ? previous
+                  : [...previous, spec],
+              )
+            }
+            onRemove={(spec) =>
+              setWatches((previous) =>
+                previous.filter((entry) => !(entry.kind === spec.kind && entry.identifier === spec.identifier)),
+              )
+            }
+          />
+        </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "1rem" }}>
           <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
