@@ -1,9 +1,10 @@
 import { decodeInstruction } from "./Instructions";
 import { Cpu, DecodedInstruction, InstructionDecoder, InstructionMemory } from "./Cpu";
-import { InvalidInstruction, normalizeCpuException } from "../exceptions/ExecutionExceptions";
+import { InvalidInstruction, SyscallException, normalizeCpuException } from "../exceptions/ExecutionExceptions";
 import { MachineState, DEFAULT_TEXT_BASE } from "../state/MachineState";
 import { BreakpointEngine } from "../debugger/BreakpointEngine";
 import { WatchEngine } from "../debugger/WatchEngine";
+import { InterruptController } from "../interrupts/InterruptController";
 
 export interface PipelineOptions {
   memory?: InstructionMemory;
@@ -12,6 +13,7 @@ export interface PipelineOptions {
   cpu?: Cpu;
   breakpoints?: BreakpointEngine;
   watchEngine?: WatchEngine;
+  interrupts?: InterruptController;
 }
 
 export class ProgramMemory implements InstructionMemory {
@@ -319,6 +321,7 @@ const decodeHazardInfo = (instruction: number): HazardInfo => {
 
 export class Pipeline {
   private readonly cpu: Cpu;
+  private readonly interrupts: InterruptController;
   private readonly breakpoints: BreakpointEngine | null;
   private readonly watchEngine: WatchEngine | null;
   private readonly ifId: PipelineRegister;
@@ -337,6 +340,7 @@ export class Pipeline {
     }
 
     this.cpu = options.cpu ?? new Cpu({ memory: options.memory!, decoder, state: options.state });
+    this.interrupts = options.interrupts ?? new InterruptController();
     this.breakpoints = options.breakpoints ?? null;
     this.watchEngine = options.watchEngine ?? null;
     this.ifId = new PipelineRegister();
@@ -388,6 +392,16 @@ export class Pipeline {
 
     try {
       this.watchEngine?.beginStep();
+
+      if (this.servicePendingInterrupts(state, memory, contextPc)) {
+        this.watchEngine?.completeStep();
+        this.clearPipeline();
+        if (state.isTerminated()) {
+          this.halted = true;
+          return "terminated";
+        }
+        return "running";
+      }
 
       const decoding = this.ifId.getCurrent();
       const decodingHazard = decoding ? decodeHazardInfo(decoding.instruction) : EMPTY_HAZARD;
@@ -447,6 +461,15 @@ export class Pipeline {
 
       this.watchEngine?.completeStep();
 
+      if (this.servicePendingInterrupts(state, memory, contextPc)) {
+        this.clearPipeline();
+        if (state.isTerminated()) {
+          this.halted = true;
+          return "terminated";
+        }
+        return "running";
+      }
+
       if (state.isTerminated()) {
         this.halted = true;
         this.clearPipeline();
@@ -465,6 +488,29 @@ export class Pipeline {
 
       return "running";
     } catch (error) {
+      if (error instanceof SyscallException) {
+        this.interrupts.requestSyscallInterrupt(error.code, contextPc);
+        this.servicePendingInterrupts(state, memory, contextPc);
+        this.watchEngine?.completeStep();
+        this.clearPipeline();
+        if (state.isTerminated()) {
+          this.halted = true;
+          return "terminated";
+        }
+        return "running";
+      }
+
+      this.interrupts.requestException(error, contextPc);
+      if (this.servicePendingInterrupts(state, memory, contextPc)) {
+        this.watchEngine?.completeStep();
+        this.clearPipeline();
+        if (state.isTerminated()) {
+          this.halted = true;
+          return "terminated";
+        }
+        return "running";
+      }
+
       throw normalizeCpuException(error, contextPc);
     }
   }
@@ -519,5 +565,18 @@ export class Pipeline {
     this.idEx.clear();
     this.exMem.clear();
     this.memWb.clear();
+  }
+
+  private servicePendingInterrupts(
+    state: MachineState,
+    memory: InstructionMemory,
+    contextPc: number,
+  ): boolean {
+    let handled = false;
+    while (this.interrupts.hasPendingInterrupt()) {
+      this.interrupts.handleNextInterrupt(state, memory, contextPc);
+      handled = true;
+    }
+    return handled;
   }
 }

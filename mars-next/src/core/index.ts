@@ -11,6 +11,7 @@ import { MachineState } from "./state/MachineState";
 import { createDefaultSyscallHandlers, type SyscallDevices, type SyscallHandler } from "./syscalls/SyscallHandlers";
 import { SyscallTable } from "./syscalls/SyscallTable";
 import { SyscallException } from "./exceptions/ExecutionExceptions";
+import { InterruptController, InterruptControllerOptions } from "./interrupts/InterruptController";
 
 export * from "./cpu/Cpu";
 export * from "./cpu/Pipeline";
@@ -33,6 +34,7 @@ export * from "./debugger/WatchEngine";
 export * from "./state/MachineState";
 export * from "./exceptions/AccessExceptions";
 export * from "./exceptions/ExecutionExceptions";
+export * from "./interrupts/InterruptController";
 
 export interface CoreEngineOptions {
   decoder?: InstructionDecoder;
@@ -44,14 +46,26 @@ export interface CoreEngineOptions {
   enableWatchEngine?: boolean;
   breakpointEngine?: BreakpointEngine;
   watchEngine?: WatchEngine;
+  interruptController?: InterruptController;
+  interruptHandlers?: InterruptControllerOptions;
 }
 
 export type EngineStepResult = ReturnType<Pipeline["step"]>;
 
-function createDefaultDecoder(syscalls?: SyscallTable): InstructionDecoder {
+function createDefaultDecoder(syscalls: SyscallTable | null, interrupts?: InterruptController): InstructionDecoder {
   return {
     decode: (instruction, pc) => {
       if (instruction === 0x0000000c) {
+        if (interrupts) {
+          return {
+            name: "syscall",
+            execute: (state, memory) => {
+              interrupts.requestSyscallInterrupt(state.getRegister(2), pc);
+              interrupts.handleNextInterrupt(state, memory, pc);
+            },
+          };
+        }
+
         if (!syscalls) {
           throw new SyscallException(null, pc, "Encountered syscall instruction but no SyscallTable is wired");
         }
@@ -74,6 +88,7 @@ export class CoreEngine {
   private readonly breakpoints: BreakpointEngine | null;
   private readonly watchEngine: WatchEngine | null;
   private readonly syscalls: SyscallTable | null;
+  private readonly interrupts: InterruptController;
   private readonly pipeline: Pipeline;
   private lastLayout: ProgramLayout | null = null;
 
@@ -89,8 +104,23 @@ export class CoreEngine {
     const devices: SyscallDevices = options.devices ?? { terminal: new TerminalDevice() };
     const handlerOverrides = options.syscallHandlers ?? createDefaultSyscallHandlers(devices);
     this.syscalls = new SyscallTable(this.memory, devices, handlerOverrides);
+    this.interrupts =
+      options.interruptController ??
+      new InterruptController({
+        ...options.interruptHandlers,
+        syscallHandler: (state, memory, request) => {
+          const code = request.code ?? state.getRegister(2);
+          if (!this.syscalls) {
+            throw new SyscallException(code, request.pc, "Encountered syscall instruction but no SyscallTable is wired");
+          }
+          this.syscalls.handle(code, state);
+          return options.interruptHandlers?.syscallHandler?.(state, memory, request);
+        },
+      });
 
-    const decoder = options.decoder ?? createDefaultDecoder(this.syscalls);
+    this.memory.onInterrupt((device) => this.interrupts.requestDeviceInterrupt(device));
+
+    const decoder = options.decoder ?? createDefaultDecoder(this.syscalls, this.interrupts);
 
     this.pipeline = new Pipeline({
       memory: this.memory,
@@ -98,6 +128,7 @@ export class CoreEngine {
       decoder,
       breakpoints: this.breakpoints ?? undefined,
       watchEngine: this.watchEngine ?? undefined,
+      interrupts: this.interrupts,
     });
   }
 

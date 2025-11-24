@@ -4,7 +4,7 @@ export class TimerDevice implements Device {
   private nowMs = 0;
   private intervalMs: number | null = null;
   private nextDeadline: number | null = null;
-  private interruptHandler: (() => void) | null = null;
+  private interruptHandler: ((device?: TimerDevice) => void) | null = null;
 
   read(offset: number): DeviceData {
     switch (offset) {
@@ -41,7 +41,7 @@ export class TimerDevice implements Device {
     this.nextDeadline = this.nowMs + interval;
   }
 
-  onInterrupt(handler: () => void): void {
+  onInterrupt(handler: (device?: TimerDevice) => void): void {
     this.interruptHandler = handler;
   }
 
@@ -55,7 +55,7 @@ export class TimerDevice implements Device {
     if (this.intervalMs === null || this.nextDeadline === null) return;
 
     while (this.nowMs >= this.nextDeadline) {
-      this.interruptHandler?.();
+      this.interruptHandler?.(this);
       this.nextDeadline += this.intervalMs;
     }
   }

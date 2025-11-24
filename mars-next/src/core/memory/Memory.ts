@@ -1,6 +1,7 @@
 import { AddressError } from "../exceptions/AccessExceptions";
 import { Cache, CacheConfig } from "./Caches";
 import { AccessType, MemoryMap } from "./MemoryMap";
+import { InterruptHandler } from "../devices/Device";
 
 const BLOCK_SIZE = 4096;
 const BLOCK_MASK = BLOCK_SIZE - 1;
@@ -25,6 +26,10 @@ export class Memory {
     this.dataCache = options.dataCache ? new Cache(options.dataCache) : null;
     this.instructionCache = options.instructionCache ? new Cache(options.instructionCache) : null;
     this.memoryMap.setKernelMode(this.kernelMode);
+  }
+
+  onInterrupt(handler: InterruptHandler): void {
+    this.memoryMap.onInterrupt(handler);
   }
 
   reset(): void {

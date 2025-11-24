@@ -326,7 +326,7 @@ export class MemoryMap {
 
   private attachInterruptHandler(device: MemoryMappedDevice): void {
     if (this.interruptHandler) {
-      device.onInterrupt?.(this.interruptHandler);
+      device.onInterrupt?.(() => this.interruptHandler?.(device));
     }
   }
 }
