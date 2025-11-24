@@ -10,6 +10,7 @@ export interface InstructionMemory {
   readByte(address: number): number;
   writeWord(address: number, value: number): void;
   writeByte(address: number, value: number): void;
+  setKernelMode?(enabled: boolean): void;
 }
 
 export interface DecodedInstruction {
@@ -43,6 +44,7 @@ export class Cpu {
   }
 
   step(): void {
+    this.memory.setKernelMode?.(this.state.isKernelMode());
     const pc = this.state.getProgramCounter();
     const rawInstruction = this.memory.loadWord(pc);
     const decoded = this.decoder.decode(rawInstruction, pc);
