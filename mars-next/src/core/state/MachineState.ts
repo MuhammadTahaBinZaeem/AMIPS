@@ -25,6 +25,7 @@ export class MachineState {
   private cop0Status: number;
   private cop0Epc: number;
   private terminated: boolean;
+  private kernelMode: boolean;
 
   private readonly fpuConditionFlags: boolean[];
 
@@ -42,6 +43,7 @@ export class MachineState {
     this.cop0Status = 0;
     this.cop0Epc = 0;
     this.terminated = false;
+    this.kernelMode = false;
     this.fpuConditionFlags = Array.from({ length: MachineState.FPU_FLAG_COUNT }, () => false);
     this.delayedBranchTarget = null;
     this.delayedBranchState = "cleared";
@@ -57,7 +59,7 @@ export class MachineState {
     this.registers[29] = this.toInt32(DEFAULT_STACK_POINTER);
     this.hi = 0;
     this.lo = 0;
-    this.setCop0Status(0);
+    this.setCop0Status(0x1); // Start in user mode by default.
     this.setCop0Epc(0);
     this.programCounter = this.toUint32(DEFAULT_TEXT_BASE);
     this.terminated = false;
@@ -101,6 +103,7 @@ export class MachineState {
     const normalized = this.toUint32(value);
     this.cop0Status = normalized;
     this.cop0Registers[12] = normalized;
+    this.kernelMode = (normalized & 0x1) === 0;
   }
 
   getCop0Epc(): number {
@@ -111,6 +114,15 @@ export class MachineState {
     const normalized = this.toUint32(value);
     this.cop0Epc = normalized;
     this.cop0Registers[14] = normalized;
+  }
+
+  isKernelMode(): boolean {
+    return this.kernelMode;
+  }
+
+  setKernelMode(enabled: boolean): void {
+    const statusWithMode = enabled ? this.cop0Status & ~0x1 : this.cop0Status | 0x1;
+    this.setCop0Status(statusWithMode);
   }
 
   getCop0Register(index: number): number {

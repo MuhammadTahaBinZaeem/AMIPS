@@ -1,4 +1,5 @@
 import { Device, DeviceData, InterruptHandler } from "../devices/Device";
+import { PrivilegeViolation } from "../exceptions/AccessExceptions";
 
 export type MemorySegmentName = "text" | "data" | "heap" | "stack" | "mmio" | "ktext" | "kdata";
 
@@ -78,6 +79,7 @@ export class MemoryMap {
   private readonly devices: DeviceRange[];
   private readonly tlb: TlbEntry[];
   private interruptHandler: InterruptHandler | null = null;
+  private kernelMode = true;
 
   readonly textBase: number;
   readonly textSize: number;
@@ -181,6 +183,10 @@ export class MemoryMap {
     this.devices.forEach(({ device }) => this.attachInterruptHandler(device));
   }
 
+  setKernelMode(enabled: boolean): void {
+    this.kernelMode = enabled;
+  }
+
   addTlbEntry(entry: TlbEntry): void {
     this.validateTlbEntry(entry);
     this.tlb.push(this.normalizeTlbEntry(entry));
@@ -230,6 +236,7 @@ export class MemoryMap {
           ? (physicalAddress - deviceRange.start) | 0
           : this.computeOffset(normalizedAddress, segment);
         const device = deviceRange?.device;
+        this.enforceSegmentPrivileges(segment, access, normalizedAddress, rights);
         return { segment, offset, device, physicalAddress, rights };
       }
     }
@@ -269,8 +276,22 @@ export class MemoryMap {
       (access === "execute" && rights.execute);
 
     if (!allowed) {
-      throw new RangeError(`Access violation for 0x${address.toString(16)} (${access})`);
+      throw new PrivilegeViolation(address, access, `Access violation for 0x${address.toString(16)} (${access})`);
     }
+  }
+
+  private enforceSegmentPrivileges(
+    segment: MemorySegment,
+    access: AccessType,
+    address: number,
+    rights: AccessRights,
+  ): void {
+    const kernelOnly = segment.name === "ktext" || segment.name === "kdata" || segment.name === "mmio";
+    if (kernelOnly && !this.kernelMode) {
+      throw new PrivilegeViolation(address, access, `Kernel segment ${segment.name} is not accessible in user mode`);
+    }
+
+    this.enforceRights(access, rights, address);
   }
 
   private normalizeTlbEntry(entry: TlbEntry): TlbEntry {

@@ -30,6 +30,7 @@ export * from "./syscalls/SyscallHandlers";
 export * from "./debugger/BreakpointEngine";
 export * from "./debugger/WatchEngine";
 export * from "./state/MachineState";
+export * from "./exceptions/AccessExceptions";
 
 export interface CoreEngineOptions {
   decoder?: InstructionDecoder;

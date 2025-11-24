@@ -1,5 +1,7 @@
-import { Cpu, DecodedInstruction, InstructionMemory } from "../Cpu";
+import { AddressError } from "../../exceptions/AccessExceptions";
 import { MachineState } from "../../state/MachineState";
+import { Cpu, DecodedInstruction, InstructionMemory } from "../Cpu";
+import { AccessType } from "../../memory/MemoryMap";
 
 interface RTypeFields {
   rs: number;
@@ -45,21 +47,21 @@ function toInt32(value: number): number {
   return value | 0;
 }
 
-function validateHalfwordAddress(address: number): number {
+function validateHalfwordAddress(address: number, access: AccessType): number {
   const normalized = address >>> 0;
   if (normalized % 2 !== 0) {
-    throw new RangeError(`Unaligned halfword address: 0x${address.toString(16)}`);
+    throw new AddressError(address, access, `Unaligned halfword address: 0x${address.toString(16)}`);
   }
   return normalized;
 }
 
 function readHalfword(memory: InstructionMemory, address: number): number {
-  const aligned = validateHalfwordAddress(address);
+  const aligned = validateHalfwordAddress(address, "read");
   return ((memory.readByte(aligned) << 8) | memory.readByte(aligned + 1)) & 0xffff;
 }
 
 function writeHalfword(memory: InstructionMemory, address: number, value: number): void {
-  const aligned = validateHalfwordAddress(address);
+  const aligned = validateHalfwordAddress(address, "write");
   memory.writeByte(aligned, (value >>> 8) & 0xff);
   memory.writeByte(aligned + 1, value & 0xff);
 }
@@ -444,7 +446,7 @@ const makeLoadDoubleCop1 = (decoded: ITypeFields): DecodedInstruction => {
         throw new RangeError("ldc1 target register must be even-numbered");
       }
       if ((address & 0x7) !== 0) {
-        throw new RangeError(`Unaligned doubleword address: 0x${address.toString(16)}`);
+        throw new AddressError(address, "read", `Unaligned doubleword address: 0x${address.toString(16)}`);
       }
       const high = memory.readWord(address);
       const low = memory.readWord(address + 4);
@@ -565,7 +567,7 @@ const makeStoreDoubleCop1 = (decoded: ITypeFields): DecodedInstruction => {
         throw new RangeError("sdc1 source register must be even-numbered");
       }
       if ((address & 0x7) !== 0) {
-        throw new RangeError(`Unaligned doubleword address: 0x${address.toString(16)}`);
+        throw new AddressError(address, "write", `Unaligned doubleword address: 0x${address.toString(16)}`);
       }
       const low = state.getFloatRegisterBits(rt);
       const high = state.getFloatRegisterBits(rt + 1);

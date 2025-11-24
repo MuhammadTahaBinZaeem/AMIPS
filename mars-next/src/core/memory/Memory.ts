@@ -1,3 +1,4 @@
+import { AddressError } from "../exceptions/AccessExceptions";
 import { Cache, CacheConfig } from "./Caches";
 import { AccessType, MemoryMap } from "./MemoryMap";
 
@@ -17,11 +18,13 @@ export class Memory {
   private readonly memoryMap: MemoryMap;
   private readonly dataCache: Cache | null;
   private readonly instructionCache: Cache | null;
+  private kernelMode = true;
 
   constructor(options: MemoryOptions = {}) {
     this.memoryMap = options.map ?? new MemoryMap();
     this.dataCache = options.dataCache ? new Cache(options.dataCache) : null;
     this.instructionCache = options.instructionCache ? new Cache(options.instructionCache) : null;
+    this.memoryMap.setKernelMode(this.kernelMode);
   }
 
   reset(): void {
@@ -29,6 +32,11 @@ export class Memory {
     this.writtenAddresses.clear();
     this.dataCache?.reset();
     this.instructionCache?.reset();
+  }
+
+  setKernelMode(enabled: boolean): void {
+    this.kernelMode = enabled;
+    this.memoryMap.setKernelMode(enabled);
   }
 
   flushCaches(): void {
@@ -41,7 +49,7 @@ export class Memory {
   }
 
   readWord(address: number, access: AccessType = "read"): number {
-    const normalizedAddress = this.validateWordAddress(address);
+    const normalizedAddress = this.validateWordAddress(address, access);
 
     let value = 0;
     for (let i = 0; i < 4; i++) {
@@ -62,7 +70,7 @@ export class Memory {
   }
 
   writeWord(address: number, value: number): void {
-    const normalizedAddress = this.validateWordAddress(address);
+    const normalizedAddress = this.validateWordAddress(address, "write");
 
     for (let i = 0; i < 4; i++) {
       const shift = 24 - 8 * i;
@@ -186,10 +194,10 @@ export class Memory {
     return address >>> 0;
   }
 
-  private validateWordAddress(address: number): number {
+  private validateWordAddress(address: number, access: AccessType): number {
     const normalizedAddress = this.validateAddress(address);
     if (normalizedAddress % 4 !== 0) {
-      throw new RangeError(`Unaligned word address: ${address}`);
+      throw new AddressError(address, access, `Unaligned word address: 0x${address.toString(16)}`);
     }
     return normalizedAddress;
   }
