@@ -3,6 +3,7 @@
 // decoded handler, then applies delayed branch semantics.
 
 import { MachineState } from "../state/MachineState";
+import { InvalidInstruction, normalizeCpuException } from "../exceptions/ExecutionExceptions";
 
 export interface InstructionMemory {
   loadWord(address: number): number;
@@ -55,16 +56,21 @@ export class Cpu {
   step(): void {
     this.memory.setKernelMode?.(this.state.isKernelMode());
     const pc = this.state.getProgramCounter();
-    const rawInstruction = this.memory.loadWord(pc);
-    const decoded = this.decoder.decode(rawInstruction, pc);
 
-    if (!decoded) {
-      throw new Error(`Unknown instruction 0x${rawInstruction.toString(16)} at PC 0x${pc.toString(16)}`);
+    try {
+      const rawInstruction = this.memory.loadWord(pc);
+      const decoded = this.decoder.decode(rawInstruction, pc);
+
+      if (!decoded) {
+        throw new InvalidInstruction(rawInstruction);
+      }
+
+      // The legacy simulator increments the PC before running the instruction.
+      this.state.incrementProgramCounter();
+      decoded.execute(this.state, this.memory, this);
+      this.state.finalizeDelayedBranch();
+    } catch (error) {
+      throw normalizeCpuException(error, pc);
     }
-
-    // The legacy simulator increments the PC before running the instruction.
-    this.state.incrementProgramCounter();
-    decoded.execute(this.state, this.memory, this);
-    this.state.finalizeDelayedBranch();
   }
 }

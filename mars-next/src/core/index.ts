@@ -10,6 +10,7 @@ import { Memory } from "./memory/Memory";
 import { MachineState } from "./state/MachineState";
 import { createDefaultSyscallHandlers, type SyscallDevices, type SyscallHandler } from "./syscalls/SyscallHandlers";
 import { SyscallTable } from "./syscalls/SyscallTable";
+import { SyscallException } from "./exceptions/ExecutionExceptions";
 
 export * from "./cpu/Cpu";
 export * from "./cpu/Pipeline";
@@ -31,6 +32,7 @@ export * from "./debugger/BreakpointEngine";
 export * from "./debugger/WatchEngine";
 export * from "./state/MachineState";
 export * from "./exceptions/AccessExceptions";
+export * from "./exceptions/ExecutionExceptions";
 
 export interface CoreEngineOptions {
   decoder?: InstructionDecoder;
@@ -51,7 +53,7 @@ function createDefaultDecoder(syscalls?: SyscallTable): InstructionDecoder {
     decode: (instruction, pc) => {
       if (instruction === 0x0000000c) {
         if (!syscalls) {
-          throw new Error("Encountered syscall instruction but no SyscallTable is wired");
+          throw new SyscallException(null, pc, "Encountered syscall instruction but no SyscallTable is wired");
         }
 
         return {

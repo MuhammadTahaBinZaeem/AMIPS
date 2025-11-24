@@ -1,5 +1,6 @@
 import { decodeInstruction } from "./Instructions";
 import { Cpu, DecodedInstruction, InstructionDecoder, InstructionMemory } from "./Cpu";
+import { InvalidInstruction, normalizeCpuException } from "../exceptions/ExecutionExceptions";
 import { MachineState, DEFAULT_TEXT_BASE } from "../state/MachineState";
 import { BreakpointEngine } from "../debugger/BreakpointEngine";
 import { WatchEngine } from "../debugger/WatchEngine";
@@ -383,80 +384,89 @@ export class Pipeline {
     const memory = this.cpu.getMemory();
     const decoder = this.cpu.getDecoder();
 
-    this.watchEngine?.beginStep();
+    let contextPc = state.getProgramCounter();
 
-    const decoding = this.ifId.getCurrent();
-    const decodingHazard = decoding ? decodeHazardInfo(decoding.instruction) : EMPTY_HAZARD;
-    const { loadUseHazard, structuralHazard } = this.detectHazards(decodingHazard);
+    try {
+      this.watchEngine?.beginStep();
 
-    // MEM/WB stage simply tracks the instruction retiring from EX/MEM.
-    this.memWb.setNext(this.exMem.getCurrent());
+      const decoding = this.ifId.getCurrent();
+      const decodingHazard = decoding ? decodeHazardInfo(decoding.instruction) : EMPTY_HAZARD;
+      const { loadUseHazard, structuralHazard } = this.detectHazards(decodingHazard);
 
-    // EX/MEM stage executes the decoded instruction.
-    const executing = this.idEx.getCurrent();
-    let branchRegistered = false;
-    if (executing?.decoded) {
-      executing.decoded.execute(state, memory, this.cpu);
-      branchRegistered = state.isBranchRegistered();
-    }
-    this.exMem.setNext(executing);
+      // MEM/WB stage simply tracks the instruction retiring from EX/MEM.
+      this.memWb.setNext(this.exMem.getCurrent());
 
-    // Finalize delayed branches before fetching the next instruction.
-    state.finalizeDelayedBranch();
-
-    // ID/EX stage decodes the fetched instruction unless stalled by a data hazard.
-    if (loadUseHazard) {
-      this.idEx.setNext(null);
-    } else if (decoding) {
-      const decoded = decoder.decode(decoding.instruction, decoding.pc);
-      if (!decoded) {
-        throw new Error(`Unknown instruction 0x${decoding.instruction.toString(16)} at PC 0x${decoding.pc.toString(16)}`);
+      // EX/MEM stage executes the decoded instruction.
+      const executing = this.idEx.getCurrent();
+      let branchRegistered = false;
+      if (executing?.decoded) {
+        contextPc = executing.pc;
+        executing.decoded.execute(state, memory, this.cpu);
+        branchRegistered = state.isBranchRegistered();
       }
-      this.idEx.setNext({ ...decoding, decoded });
-    } else {
-      this.idEx.setNext(null);
+      this.exMem.setNext(executing);
+
+      // Finalize delayed branches before fetching the next instruction.
+      state.finalizeDelayedBranch();
+
+      // ID/EX stage decodes the fetched instruction unless stalled by a data hazard.
+      if (loadUseHazard) {
+        this.idEx.setNext(null);
+      } else if (decoding) {
+        contextPc = decoding.pc;
+        const decoded = decoder.decode(decoding.instruction, decoding.pc);
+        if (!decoded) {
+          throw new InvalidInstruction(decoding.instruction);
+        }
+        this.idEx.setNext({ ...decoding, decoded });
+      } else {
+        this.idEx.setNext(null);
+      }
+
+      // Evaluate breakpoints for the next fetch address after branch resolution.
+      const fetchPc = state.getProgramCounter();
+      const instructionIndex = ((fetchPc - DEFAULT_TEXT_BASE) / 4) | 0;
+      const breakpointHit = this.breakpoints?.checkForHit(fetchPc, instructionIndex) ?? false;
+
+      // IF/ID stage fetches the next instruction unless halted or terminated.
+      const canFetch =
+        !breakpointHit && !state.isTerminated() && !branchRegistered && !structuralHazard && this.canFetchInstruction(fetchPc);
+
+      if (loadUseHazard) {
+        this.ifId.setNext(decoding);
+      } else if (canFetch) {
+        contextPc = fetchPc;
+        const rawInstruction = memory.loadWord(fetchPc);
+        state.incrementProgramCounter();
+        this.ifId.setNext({ pc: fetchPc, instruction: rawInstruction });
+      } else {
+        this.ifId.setNext(null);
+      }
+
+      this.advancePipeline();
+
+      this.watchEngine?.completeStep();
+
+      if (state.isTerminated()) {
+        this.halted = true;
+        this.clearPipeline();
+        return "terminated";
+      }
+
+      if (breakpointHit) {
+        this.halted = true;
+        return "breakpoint";
+      }
+
+      if (this.isPipelineEmpty() && !this.canFetchInstruction(state.getProgramCounter())) {
+        this.halted = true;
+        return "halted";
+      }
+
+      return "running";
+    } catch (error) {
+      throw normalizeCpuException(error, contextPc);
     }
-
-    // Evaluate breakpoints for the next fetch address after branch resolution.
-    const fetchPc = state.getProgramCounter();
-    const instructionIndex = ((fetchPc - DEFAULT_TEXT_BASE) / 4) | 0;
-    const breakpointHit = this.breakpoints?.checkForHit(fetchPc, instructionIndex) ?? false;
-
-    // IF/ID stage fetches the next instruction unless halted or terminated.
-    const canFetch =
-      !breakpointHit && !state.isTerminated() && !branchRegistered && !structuralHazard && this.canFetchInstruction(fetchPc);
-
-    if (loadUseHazard) {
-      this.ifId.setNext(decoding);
-    } else if (canFetch) {
-      const rawInstruction = memory.loadWord(fetchPc);
-      state.incrementProgramCounter();
-      this.ifId.setNext({ pc: fetchPc, instruction: rawInstruction });
-    } else {
-      this.ifId.setNext(null);
-    }
-
-    this.advancePipeline();
-
-    this.watchEngine?.completeStep();
-
-    if (state.isTerminated()) {
-      this.halted = true;
-      this.clearPipeline();
-      return "terminated";
-    }
-
-    if (breakpointHit) {
-      this.halted = true;
-      return "breakpoint";
-    }
-
-    if (this.isPipelineEmpty() && !this.canFetchInstruction(state.getProgramCounter())) {
-      this.halted = true;
-      return "halted";
-    }
-
-    return "running";
   }
 
   private detectHazards(decodingHazard: HazardInfo): { loadUseHazard: boolean; structuralHazard: boolean } {
