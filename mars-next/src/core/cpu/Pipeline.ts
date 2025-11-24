@@ -6,6 +6,12 @@ import { BreakpointEngine } from "../debugger/BreakpointEngine";
 import { WatchEngine } from "../debugger/WatchEngine";
 import { InterruptController } from "../interrupts/InterruptController";
 
+export interface PerformanceCounters {
+  cycleCount: number;
+  instructionCount: number;
+  stallCount: number;
+}
+
 export interface PipelineOptions {
   memory?: InstructionMemory;
   state?: MachineState;
@@ -330,6 +336,10 @@ export class Pipeline {
   private readonly memWb: PipelineRegister;
   private halted = false;
 
+  private cycleCount = 0;
+  private instructionCount = 0;
+  private stallCount = 0;
+
   constructor(options: PipelineOptions) {
     const decoder = options.decoder ?? ({
       decode: (instruction: number, pc: number): DecodedInstruction | null => decodeInstruction(instruction, pc),
@@ -351,6 +361,20 @@ export class Pipeline {
 
   getState(): MachineState {
     return this.cpu.getState();
+  }
+
+  getPerformanceCounters(): PerformanceCounters {
+    return {
+      cycleCount: this.cycleCount,
+      instructionCount: this.instructionCount,
+      stallCount: this.stallCount,
+    };
+  }
+
+  resetPerformanceCounters(): void {
+    this.cycleCount = 0;
+    this.instructionCount = 0;
+    this.stallCount = 0;
   }
 
   isHalted(): boolean {
@@ -390,6 +414,12 @@ export class Pipeline {
 
     let contextPc = state.getProgramCounter();
 
+    this.cycleCount += 1;
+
+    if (this.memWb.getCurrent()) {
+      this.instructionCount += 1;
+    }
+
     try {
       this.watchEngine?.beginStep();
 
@@ -406,6 +436,10 @@ export class Pipeline {
       const decoding = this.ifId.getCurrent();
       const decodingHazard = decoding ? decodeHazardInfo(decoding.instruction) : EMPTY_HAZARD;
       const { loadUseHazard, structuralHazard } = this.detectHazards(decodingHazard);
+
+      if (loadUseHazard || structuralHazard) {
+        this.stallCount += 1;
+      }
 
       // MEM/WB stage simply tracks the instruction retiring from EX/MEM.
       this.memWb.setNext(this.exMem.getCurrent());

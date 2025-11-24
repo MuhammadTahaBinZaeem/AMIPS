@@ -1,7 +1,7 @@
 import { Assembler, BinaryImage } from "./assembler/Assembler";
 import { InstructionDecoder } from "./cpu/Cpu";
 import { decodeInstruction } from "./cpu/Instructions";
-import { Pipeline } from "./cpu/Pipeline";
+import { Pipeline, type PerformanceCounters } from "./cpu/Pipeline";
 import { TerminalDevice } from "./devices/TerminalDevice";
 import { BreakpointEngine } from "./debugger/BreakpointEngine";
 import { WatchEngine } from "./debugger/WatchEngine";
@@ -138,6 +138,7 @@ export class CoreEngine {
 
   load(binary: BinaryImage, options?: ProgramLoadOptions): ProgramLayout {
     this.lastLayout = this.loader.loadProgram(this.state, binary, options);
+    this.pipeline.resetPerformanceCounters();
     this.resume();
     return this.lastLayout;
   }
@@ -194,6 +195,14 @@ export class CoreEngine {
 
   getDebuggerEngines(): { breakpoints: BreakpointEngine | null; watchEngine: WatchEngine | null } {
     return { breakpoints: this.breakpoints, watchEngine: this.watchEngine };
+  }
+
+  getPerformanceCounters(): PerformanceCounters {
+    return this.pipeline.getPerformanceCounters();
+  }
+
+  resetPerformanceCounters(): void {
+    this.pipeline.resetPerformanceCounters();
   }
 }
 
