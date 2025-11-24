@@ -51,11 +51,13 @@ export class Cache {
       throw new RangeError("Cache size must fit at least one full set");
     }
 
-    this.sets = Array.from({ length: this.setCount }, () => []);
+    this.sets = Array.from({ length: this.setCount }, () => this.createEmptySet());
   }
 
   reset(): void {
-    this.sets.forEach((set) => set.splice(0, set.length));
+    for (let i = 0; i < this.sets.length; i++) {
+      this.sets[i] = this.createEmptySet();
+    }
     this.usageCounter = 0;
     this.stats = { hits: 0, misses: 0, evictions: 0 };
   }
@@ -135,6 +137,10 @@ export class Cache {
     const set = this.sets[setIndex];
 
     let targetLine = set.find((line) => !line.valid);
+    if (!targetLine && set.length < this.config.associativity) {
+      targetLine = this.createLine();
+      set.push(targetLine);
+    }
     if (!targetLine) {
       targetLine = this.selectVictim(set);
       if (targetLine.valid) {
@@ -157,9 +163,15 @@ export class Cache {
     return { tag: 0, valid: false, dirty: false, lastUsed: 0, data: new Uint8Array(this.config.lineSize) };
   }
 
+  private createEmptySet(): CacheLine[] {
+    return Array.from({ length: this.config.associativity }, () => this.createLine());
+  }
+
   private selectVictim(set: CacheLine[]): CacheLine {
-    const oldest = set.reduce((candidate, line) => (line.lastUsed < candidate.lastUsed ? line : candidate));
-    return oldest ?? this.createLine();
+    if (set.length === 0) {
+      return this.createLine();
+    }
+    return set.reduce((candidate, line) => (line.lastUsed < candidate.lastUsed ? line : candidate));
   }
 
   private computeLineBase(tag: number, setIndex: number): number {
@@ -176,15 +188,6 @@ export class Cache {
     const setIndex = blockNumber % this.setCount;
     const tag = Math.floor(blockNumber / this.setCount);
     const offset = address % this.config.lineSize;
-
-    if (!this.sets[setIndex]) {
-      this.sets[setIndex] = [this.createLine()];
-    }
-
-    if (this.sets[setIndex].length === 0) {
-      this.sets[setIndex].push(this.createLine());
-    }
-
     return { setIndex, tag, offset };
   }
 
