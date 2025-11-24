@@ -10,6 +10,7 @@ export interface InstructionMemory {
   readByte(address: number): number;
   writeWord(address: number, value: number): void;
   writeByte(address: number, value: number): void;
+  hasInstruction?(address: number): boolean;
   setKernelMode?(enabled: boolean): void;
 }
 
@@ -41,6 +42,14 @@ export class Cpu {
 
   getState(): MachineState {
     return this.state;
+  }
+
+  getMemory(): InstructionMemory {
+    return this.memory;
+  }
+
+  getDecoder(): InstructionDecoder {
+    return this.decoder;
   }
 
   step(): void {
