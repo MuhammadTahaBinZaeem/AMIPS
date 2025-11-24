@@ -70,6 +70,37 @@ describe("Memory", () => {
     assert.throws(() => memory.writeByte(0x10000010, 0xaa), /Access violation/i);
   });
 
+  it("passes physical offsets to MMIO devices when a TLB remaps pages", () => {
+    const map = new MemoryMap();
+    const accessedOffsets: { read?: number; write?: number } = {};
+    const device = {
+      read(offset: number) {
+        accessedOffsets.read = offset;
+        return 0xbb;
+      },
+      write(offset: number) {
+        accessedOffsets.write = offset;
+      },
+    };
+
+    map.registerDevice(0x1f000000, 0x200, device);
+    map.addTlbEntry({
+      virtualPage: map.mmioBase,
+      physicalPage: 0x1f000100,
+      pageSize: 0x200,
+      rights: { read: true, write: true, execute: false },
+    });
+
+    const memory = new Memory({ map });
+    const virtualBase = map.mmioBase;
+
+    memory.readByte(virtualBase);
+    memory.writeByte(virtualBase + 3, 0xaa);
+
+    assert.equal(accessedOffsets.read, 0x100);
+    assert.equal(accessedOffsets.write, 0x103);
+  });
+
   it("simulates data cache eviction and write-back", () => {
     const map = new MemoryMap();
     const memory = new Memory({
