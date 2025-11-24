@@ -1,9 +1,10 @@
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { MemoryTable } from "../features/memory-view";
 import { RegisterTable } from "../features/register-view";
 import { RunToolbar } from "../features/run-control";
 import { EditorView } from "../features/editor";
-import { MachineState, assembleAndLoad } from "../core";
+import { BreakpointList, toggleBreakpoint } from "../features/breakpoints";
+import { BreakpointEngine, MachineState, type BinaryImage, assembleAndLoad } from "../core";
 
 const SAMPLE_PROGRAM = `# Simple hello-style program
 .data
@@ -27,17 +28,33 @@ export function App(): React.JSX.Element {
   const [lo, setLo] = useState(0);
   const [pc, setPc] = useState(0);
   const [memoryEntries, setMemoryEntries] = useState<Array<{ address: number; value: number }>>([]);
+  const [breakpoints, setBreakpoints] = useState<number[]>([]);
+  const [program, setProgram] = useState<BinaryImage | null>(null);
+
+  const breakpointEngine = useMemo(() => new BreakpointEngine(), []);
 
   const editor = useMemo(
-    () => <EditorView value={source} onChange={setSource} />,
-    [source],
+    () => <EditorView value={source} onChange={setSource} breakpoints={breakpoints} onToggleBreakpoint={
+      (line) => setBreakpoints((current) => toggleBreakpoint(line, current, breakpointEngine))
+    } />,
+    [source, breakpoints, breakpointEngine],
   );
+
+  const handleRemoveBreakpoint = useCallback((line: number) => {
+    setBreakpoints((current) => current.filter((point) => point !== line));
+    breakpointEngine.removeInstructionBreakpoint(line - 1);
+  }, [breakpointEngine]);
 
   const handleRun = (): void => {
     setError(null);
     try {
       setStatus("Assembling...");
-      const { engine } = assembleAndLoad(source);
+      breakpointEngine.clearHit();
+      breakpointEngine.clearAll();
+      breakpoints.forEach((line) => breakpointEngine.setInstructionBreakpoint(line - 1));
+
+      const { engine, image } = assembleAndLoad(source, { breakpointEngine });
+      setProgram(image);
       setStatus("Running...");
       engine.run(2_000);
 
@@ -48,7 +65,14 @@ export function App(): React.JSX.Element {
       setPc(state.getProgramCounter());
       setMemoryEntries(engine.getMemory().entries());
 
-      setStatus(state.isTerminated() ? "Program terminated" : "Execution halted");
+      const breakpointHit = breakpointEngine.getHitBreakpoint();
+      if (breakpointHit !== null) {
+        setStatus(`Hit breakpoint at instruction #${breakpointHit + 1}`);
+      } else if (state.isTerminated()) {
+        setStatus("Program terminated");
+      } else {
+        setStatus("Execution halted");
+      }
     } catch (runError) {
       const message = runError instanceof Error ? runError.message : String(runError);
       setError(message);
@@ -90,6 +114,10 @@ export function App(): React.JSX.Element {
         {editor}
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "1rem" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+            <h2 style={{ margin: 0, color: "#e5e7eb", fontSize: "1rem" }}>Breakpoints</h2>
+            <BreakpointList breakpoints={breakpoints} program={program} onRemove={handleRemoveBreakpoint} />
+          </div>
           <RegisterTable registers={registers} hi={hi} lo={lo} pc={pc} />
           <MemoryTable entries={memoryEntries} />
         </div>
