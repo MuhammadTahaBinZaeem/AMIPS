@@ -27,11 +27,13 @@ class RandomStream {
   }
 
   nextFloat(): number {
-    return this.nextInt() / 0xffffffff;
+    const value = this.nextInt() >>> 0;
+    return value / 0xffffffff;
   }
 
   nextDouble(): number {
-    return this.nextInt() / 0xffffffff;
+    const value = this.nextInt() >>> 0;
+    return value / 0xffffffff;
   }
 }
 
@@ -135,6 +137,10 @@ export function registerLegacySyscalls(
     const buffer = state.getRegister(5);
     const length = state.getRegister(6);
     const bytes = readFromFile(devices.file, descriptor, length);
+    if (bytes === -1) {
+      state.setRegister(2, -1);
+      return;
+    }
     writeBytes(memory, buffer, bytes);
     state.setRegister(2, bytes.length);
   });
@@ -359,13 +365,13 @@ function openFile(device: FileDevice | undefined, path: string, mode: "r" | "w" 
   }
 }
 
-function readFromFile(device: FileDevice | undefined, descriptor: number, length: number): number[] {
-  if (!device) return [];
+function readFromFile(device: FileDevice | undefined, descriptor: number, length: number): number[] | -1 {
+  if (!device) return -1;
   try {
     const content = device.readFileSegment(descriptor, length);
     return [...new TextEncoder().encode(content)];
   } catch {
-    return [];
+    return -1;
   }
 }
 
