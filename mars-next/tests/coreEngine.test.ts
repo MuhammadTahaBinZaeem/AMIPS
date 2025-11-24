@@ -72,4 +72,35 @@ describe("CoreEngine public API", () => {
     assert.ok(outcomes.includes("running"));
     assert.strictEqual(engine.getState().getRegister(8), 3); // $t0
   });
+
+  test("exposes performance counters for debugging", () => {
+    const source = [
+      "addi $t0, $zero, 1",
+      "addi $t1, $zero, 2",
+    ].join("\n");
+
+    const engine = createEngine();
+    engine.load(assemble(source));
+
+    assert.deepStrictEqual(engine.getPerformanceCounters(), {
+      cycleCount: 0,
+      instructionCount: 0,
+      stallCount: 0,
+    });
+
+    engine.step();
+    engine.step();
+
+    const counters = engine.getPerformanceCounters();
+    assert.strictEqual(counters.cycleCount, 2);
+    assert.strictEqual(counters.stallCount, 0);
+    assert.ok(counters.instructionCount <= counters.cycleCount);
+
+    engine.resetPerformanceCounters();
+    assert.deepStrictEqual(engine.getPerformanceCounters(), {
+      cycleCount: 0,
+      instructionCount: 0,
+      stallCount: 0,
+    });
+  });
 });

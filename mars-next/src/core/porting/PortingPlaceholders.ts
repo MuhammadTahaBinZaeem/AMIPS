@@ -56,7 +56,7 @@ export const LEGACY_PORTING_GAPS: LegacyPortingGap[] = [
     status: "partial",
     notes: [
       "Pipeline only supports single-step with minimal hazard/exception handling",
-      "No instruction-level debugging metadata, delayed-load hazards, or instruction count profiling from the legacy simulator",
+      "Instruction-level performance counters exist, but debugging metadata and delayed-load hazards from the legacy simulator remain",
     ],
   },
   {

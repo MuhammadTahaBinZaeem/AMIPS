@@ -148,4 +148,48 @@ describe("Pipeline", () => {
     assert.strictEqual(state.getRegister(9), 6);
     assert.strictEqual(state.getRegister(10), 9);
   });
+
+  test("tracks cycles, retired instructions, and stalls", () => {
+    const { pipeline, state } = buildPipeline(
+      [
+        ".text",
+        "lw $t0, 0($zero)",
+        "add $t1, $t0, $t0",
+        "addi $t2, $zero, 1",
+      ].join("\n"),
+    );
+
+    assert.deepStrictEqual(pipeline.getPerformanceCounters(), {
+      cycleCount: 0,
+      instructionCount: 0,
+      stallCount: 0,
+    });
+
+    pipeline.step();
+    pipeline.step();
+    pipeline.step();
+
+    const duringHazard = pipeline.getPerformanceCounters();
+    assert.strictEqual(duringHazard.cycleCount, 3);
+    assert.strictEqual(duringHazard.instructionCount, 0);
+    assert.strictEqual(duringHazard.stallCount, 1);
+
+    pipeline.run(10);
+    const finalCounters = pipeline.getPerformanceCounters();
+    assert.strictEqual(finalCounters.instructionCount, 3);
+    assert.ok(finalCounters.cycleCount >= finalCounters.instructionCount);
+    assert.ok(finalCounters.stallCount >= 1);
+
+    pipeline.resetPerformanceCounters();
+    assert.deepStrictEqual(pipeline.getPerformanceCounters(), {
+      cycleCount: 0,
+      instructionCount: 0,
+      stallCount: 0,
+    });
+
+    // Ensure resetting counters does not disturb machine state.
+    assert.strictEqual(state.getRegister(8), 0);
+    assert.strictEqual(state.getRegister(9), 0);
+    assert.strictEqual(state.getRegister(10), 1);
+  });
 });
