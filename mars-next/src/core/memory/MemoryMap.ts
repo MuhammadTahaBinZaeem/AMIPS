@@ -218,8 +218,11 @@ export class MemoryMap {
 
     for (const segment of this.segments) {
       if (this.inSegmentRange(normalizedAddress, segment)) {
-        const offset = this.computeOffset(normalizedAddress, segment);
-        const device = segment.name === "mmio" ? this.findDeviceRange(physicalAddress)?.device : undefined;
+        const deviceRange = segment.name === "mmio" ? this.findDeviceRange(physicalAddress) : undefined;
+        const offset = deviceRange
+          ? (physicalAddress - deviceRange.start) | 0
+          : this.computeOffset(normalizedAddress, segment);
+        const device = deviceRange?.device;
         return { segment, offset, device, physicalAddress, rights };
       }
     }
