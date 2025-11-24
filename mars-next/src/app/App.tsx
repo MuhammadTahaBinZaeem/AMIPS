@@ -105,6 +105,8 @@ export function App(): React.JSX.Element {
 
   const handleRun = (): void => {
     setError(null);
+    setActiveLine(null);
+    setActiveFile(null);
     try {
       setStatus("Assembling...");
       const { engine: loadedEngine, layout } = assembleAndLoad(source);
@@ -115,16 +117,20 @@ export function App(): React.JSX.Element {
       applyWatches(loadedEngine, watches, layout.symbols);
 
       setStatus("Running...");
-      loadedEngine.run(2_000);
+      engine.run(2_000);
 
-      const state = loadedEngine.getState();
+      const state = engine.getState();
       setRegisters(Array.from({ length: MachineState.REGISTER_COUNT }, (_, index) => state.getRegister(index)));
       setHi(state.getHi());
       setLo(state.getLo());
       setPc(state.getProgramCounter());
-      setMemoryEntries(loadedEngine.getMemory().entries());
+      setMemoryEntries(engine.getMemory().entries());
 
-      const { breakpoints: engineBreakpoints, watchEngine } = loadedEngine.getDebuggerEngines();
+      const currentLocation = assembledLayout.sourceMap.find((entry) => entry.address === state.getProgramCounter());
+      setActiveLine(currentLocation?.line ?? null);
+      setActiveFile(currentLocation?.file ?? null);
+
+      const { breakpoints: engineBreakpoints, watchEngine } = engine.getDebuggerEngines();
       if (watchEngine) {
         const snapshot: Record<string, number | undefined> = {};
         watchEngine.getWatchValues().forEach((entry) => {
@@ -134,7 +140,11 @@ export function App(): React.JSX.Element {
       }
 
       if (engineBreakpoints?.getHitBreakpoint() !== null) {
-        setStatus("Paused on breakpoint");
+        const hitIndex = engineBreakpoints.getHitBreakpoint();
+        const location = assembledLayout.sourceMap.find(
+          (entry) => entry.segment === "text" && entry.segmentIndex === hitIndex,
+        );
+        setStatus(location ? `Paused at ${location.file}:${location.line}` : "Paused on breakpoint");
         return;
       }
 
@@ -163,6 +173,11 @@ export function App(): React.JSX.Element {
 
       <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
         <RunToolbar onRun={handleRun} status={status} />
+        {activeLine !== null && (
+          <div style={{ color: "#a5b4fc", fontWeight: 600 }}>
+            Current instruction: {activeFile ?? "<input>"}:{activeLine}
+          </div>
+        )}
         {error && (
           <div
             style={{

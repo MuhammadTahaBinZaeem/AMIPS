@@ -5,9 +5,10 @@ export interface GutterProps {
   lineCount: number;
   breakpoints?: number[];
   onToggleBreakpoint?: (line: number) => void;
+  activeLine?: number | null;
 }
 
-export function Gutter({ lineCount, breakpoints, onToggleBreakpoint }: GutterProps): React.JSX.Element {
+export function Gutter({ lineCount, breakpoints, onToggleBreakpoint, activeLine }: GutterProps): React.JSX.Element {
   const breakpointSet = useMemo(() => new Set(breakpoints ?? []), [breakpoints]);
 
   return (
@@ -26,6 +27,7 @@ export function Gutter({ lineCount, breakpoints, onToggleBreakpoint }: GutterPro
       {Array.from({ length: lineCount }, (_, index) => {
         const lineNumber = index + 1;
         const hasBreakpoint = breakpointSet.has(lineNumber);
+        const isActive = activeLine === lineNumber;
         return (
           <div
             key={lineNumber}
@@ -35,6 +37,9 @@ export function Gutter({ lineCount, breakpoints, onToggleBreakpoint }: GutterPro
               alignItems: "center",
               gap: "0.25rem",
               lineHeight: 1.5,
+              backgroundColor: isActive ? "#111827" : "transparent",
+              borderRadius: "0.25rem",
+              padding: "0.05rem 0.25rem",
             }}
           >
             <BreakpointMarker

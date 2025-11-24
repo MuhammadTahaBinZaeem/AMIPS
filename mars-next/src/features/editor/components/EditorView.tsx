@@ -6,9 +6,10 @@ export interface EditorViewProps {
   onChange: (value: string) => void;
   breakpoints?: number[];
   onToggleBreakpoint?: (line: number) => void;
+  activeLine?: number | null;
 }
 
-export function EditorView({ value, onChange, breakpoints, onToggleBreakpoint }: EditorViewProps): React.JSX.Element {
+export function EditorView({ value, onChange, breakpoints, onToggleBreakpoint, activeLine }: EditorViewProps): React.JSX.Element {
   const lines = useMemo(() => value.split(/\r?\n/), [value]);
 
   return (
@@ -22,7 +23,12 @@ export function EditorView({ value, onChange, breakpoints, onToggleBreakpoint }:
           alignItems: "stretch",
         }}
       >
-        <Gutter lineCount={lines.length} breakpoints={breakpoints} onToggleBreakpoint={onToggleBreakpoint} />
+        <Gutter
+          lineCount={lines.length}
+          breakpoints={breakpoints}
+          onToggleBreakpoint={onToggleBreakpoint}
+          activeLine={activeLine}
+        />
         <textarea
           value={value}
           onChange={(event) => onChange(event.target.value)}

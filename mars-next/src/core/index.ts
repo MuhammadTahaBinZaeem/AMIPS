@@ -140,6 +140,7 @@ export class CoreEngine {
 
   load(binary: BinaryImage, options?: ProgramLoadOptions): ProgramLayout {
     this.lastLayout = this.loader.loadProgram(this.state, binary, options);
+    this.pipeline.setTextBase(this.lastLayout.textBase);
     this.symbolTable = this.lastLayout.symbols;
     this.pipeline.resetPerformanceCounters();
     this.resume();

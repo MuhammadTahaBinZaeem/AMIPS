@@ -5,6 +5,7 @@ import {
   DEFAULT_STACK_POINTER,
   MachineState,
 } from "../state/MachineState";
+import { SourceMapEntry } from "../assembler/Assembler";
 
 export interface ProgramLoadOptions {
   /** Override the text segment base address. */
@@ -30,6 +31,7 @@ export interface ProgramLayout {
   kdataBase: number;
   entryPoint: number;
   symbols: Record<string, number>;
+  sourceMap: SourceMapEntry[];
 }
 
 export class ProgramLoader {
@@ -80,6 +82,7 @@ export class ProgramLoader {
       kdataBase,
       entryPoint: textBase,
       symbols: this.relocateSymbols(binary, { textBase, dataBase, ktextBase, kdataBase }),
+      sourceMap: this.relocateSourceMap(binary, { textBase, dataBase, ktextBase, kdataBase }),
     };
   }
 
@@ -116,5 +119,25 @@ export class ProgramLoader {
     }
 
     return relocated;
+  }
+
+  private relocateSourceMap(
+    binary: BinaryImage,
+    layout: Pick<ProgramLayout, "textBase" | "ktextBase" | "dataBase" | "kdataBase">,
+  ): SourceMapEntry[] {
+    const map = binary.sourceMap ?? [];
+    const textDelta = layout.textBase - binary.textBase;
+    const ktextDelta = layout.ktextBase - binary.ktextBase;
+
+    return map.map((entry) => {
+      let address = entry.address;
+      if (entry.segment === "text") {
+        address = (address + textDelta) | 0;
+      } else if (entry.segment === "ktext") {
+        address = (address + ktextDelta) | 0;
+      }
+
+      return { ...entry, address };
+    });
   }
 }

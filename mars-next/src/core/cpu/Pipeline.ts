@@ -335,6 +335,7 @@ export class Pipeline {
   private readonly exMem: PipelineRegister;
   private readonly memWb: PipelineRegister;
   private halted = false;
+  private textBase = DEFAULT_TEXT_BASE;
 
   private cycleCount = 0;
   private instructionCount = 0;
@@ -357,6 +358,10 @@ export class Pipeline {
     this.idEx = new PipelineRegister();
     this.exMem = new PipelineRegister();
     this.memWb = new PipelineRegister();
+  }
+
+  setTextBase(address: number): void {
+    this.textBase = address | 0;
   }
 
   getState(): MachineState {
@@ -473,7 +478,7 @@ export class Pipeline {
 
       // Evaluate breakpoints for the next fetch address after branch resolution.
       const fetchPc = state.getProgramCounter();
-      const instructionIndex = ((fetchPc - DEFAULT_TEXT_BASE) / 4) | 0;
+      const instructionIndex = ((fetchPc - this.textBase) / 4) | 0;
       const breakpointHit = this.breakpoints?.checkForHit(fetchPc, instructionIndex) ?? false;
 
       // IF/ID stage fetches the next instruction unless halted or terminated.

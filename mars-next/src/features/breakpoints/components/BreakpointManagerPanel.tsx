@@ -1,14 +1,19 @@
 import React, { useMemo, useState } from "react";
 
 export interface BreakpointManagerPanelProps {
-  breakpoints: string[];
+  breakpoints: Array<string | number>;
   symbols?: Record<string, number>;
   onAdd: (spec: string) => void;
-  onRemove: (spec: string) => void;
+  onRemove: (spec: string | number) => void;
 }
 
-function resolveAddress(spec: string, symbols?: Record<string, number>): number | null {
-  const trimmed = spec.trim();
+function normalizeSpec(spec: string | number): string {
+  return typeof spec === "number" ? spec.toString() : spec;
+}
+
+function resolveAddress(spec: string | number, symbols?: Record<string, number>): number | null {
+  const normalized = normalizeSpec(spec);
+  const trimmed = normalized.trim();
   if (!trimmed) return null;
 
   if (/^0x[0-9a-f]+$/i.test(trimmed)) return Number.parseInt(trimmed, 16) | 0;
@@ -25,7 +30,7 @@ export function BreakpointManagerPanel({ breakpoints, symbols, onAdd, onRemove }
   const resolvedBreakpoints = useMemo(
     () =>
       breakpoints.map((spec) => ({
-        spec,
+        spec: normalizeSpec(spec),
         address: resolveAddress(spec, symbols),
       })),
     [breakpoints, symbols],
