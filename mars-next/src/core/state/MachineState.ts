@@ -135,13 +135,15 @@ export class MachineState {
   setCop0Register(index: number, value: number): void {
     this.validateCop0RegisterIndex(index);
     const normalized = this.toUint32(value);
-    this.cop0Registers[index] = normalized;
     if (index === 12) {
-      this.cop0Status = normalized;
+      this.setCop0Status(normalized);
+      return;
     }
     if (index === 14) {
-      this.cop0Epc = normalized;
+      this.setCop0Epc(normalized);
+      return;
     }
+    this.cop0Registers[index] = normalized;
   }
 
   getProgramCounter(): number {
