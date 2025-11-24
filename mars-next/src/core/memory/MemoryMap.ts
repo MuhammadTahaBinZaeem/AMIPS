@@ -1,4 +1,4 @@
-import { Device, DeviceData } from "../devices/Device";
+import { Device, DeviceData, InterruptHandler } from "../devices/Device";
 
 export type MemorySegmentName = "text" | "data" | "heap" | "stack" | "mmio" | "ktext" | "kdata";
 
@@ -77,6 +77,7 @@ export class MemoryMap {
   private readonly segments: MemorySegment[];
   private readonly devices: DeviceRange[];
   private readonly tlb: TlbEntry[];
+  private interruptHandler: InterruptHandler | null = null;
 
   readonly textBase: number;
   readonly textSize: number;
@@ -175,6 +176,11 @@ export class MemoryMap {
     (options.tlbEntries ?? []).forEach((entry) => this.addTlbEntry(entry));
   }
 
+  onInterrupt(handler: InterruptHandler): void {
+    this.interruptHandler = handler;
+    this.devices.forEach(({ device }) => this.attachInterruptHandler(device));
+  }
+
   addTlbEntry(entry: TlbEntry): void {
     this.validateTlbEntry(entry);
     this.tlb.push(this.normalizeTlbEntry(entry));
@@ -188,6 +194,7 @@ export class MemoryMap {
     const normalizedStart = start >>> 0;
     const normalizedEnd = (normalizedStart + size - 1) >>> 0;
     this.devices.push({ start: normalizedStart, end: normalizedEnd, device });
+    this.attachInterruptHandler(device);
   }
 
   read(address: number): DeviceData {
@@ -294,5 +301,11 @@ export class MemoryMap {
 
   private findDeviceRange(address: number): DeviceRange | undefined {
     return this.devices.find(({ start, end }) => address >= start && address <= end);
+  }
+
+  private attachInterruptHandler(device: MemoryMappedDevice): void {
+    if (this.interruptHandler) {
+      device.onInterrupt?.(this.interruptHandler);
+    }
   }
 }

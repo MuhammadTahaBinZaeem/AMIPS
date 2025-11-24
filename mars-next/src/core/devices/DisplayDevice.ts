@@ -1,6 +1,7 @@
-import { Device, DeviceData } from "./Device";
+import { Device, DeviceData, InterruptHandler } from "./Device";
 
 const READY_MASK = 0x1;
+const INTERRUPT_ENABLE_MASK = 0x2;
 
 export class DisplayDevice implements Device {
   private control = READY_MASK;
@@ -8,6 +9,7 @@ export class DisplayDevice implements Device {
   private transmitDelayMs = 0;
   private readonly sink: (char: string) => void;
   private readonly output: string[] = [];
+  private interruptHandler: InterruptHandler | null = null;
 
   constructor(sink: (char: string) => void = (char) => process.stdout.write(char)) {
     this.sink = sink;
@@ -26,7 +28,8 @@ export class DisplayDevice implements Device {
 
   write(offset: number, value: number | string | Uint8Array): void {
     if (offset === 0) {
-      this.control = Number(value) | 0;
+      this.control = this.preserveReadyBits(Number(value));
+      this.maybeInterrupt();
       return;
     }
 
@@ -44,12 +47,21 @@ export class DisplayDevice implements Device {
     this.emitCharacter(this.data);
   }
 
+  onInterrupt(handler: InterruptHandler): void {
+    this.interruptHandler = handler;
+    this.maybeInterrupt();
+  }
+
   setTransmitDelayMs(delay: number): void {
     this.transmitDelayMs = Math.max(0, delay);
   }
 
   isReady(): boolean {
     return (this.control & READY_MASK) !== 0;
+  }
+
+  private isInterruptEnabled(): boolean {
+    return (this.control & INTERRUPT_ENABLE_MASK) !== 0;
   }
 
   getOutput(): string[] {
@@ -70,5 +82,17 @@ export class DisplayDevice implements Device {
 
   private markReady(): void {
     this.control |= READY_MASK;
+    this.maybeInterrupt();
+  }
+
+  private maybeInterrupt(): void {
+    if (this.isReady() && this.isInterruptEnabled()) {
+      this.interruptHandler?.();
+    }
+  }
+
+  private preserveReadyBits(value: number): number {
+    const preservedReady = this.control & READY_MASK;
+    return (value & ~READY_MASK) | preservedReady;
   }
 }

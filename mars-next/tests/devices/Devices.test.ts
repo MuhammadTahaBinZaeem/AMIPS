@@ -5,7 +5,9 @@ import { Assembler } from "../../src/core/assembler/Assembler";
 import { Pipeline, ProgramMemory } from "../../src/core/cpu/Pipeline";
 import { decodeInstruction } from "../../src/core/cpu/Instructions";
 import { InstructionDecoder } from "../../src/core/cpu/Cpu";
+import { DisplayDevice } from "../../src/core/devices/DisplayDevice";
 import { FileDevice } from "../../src/core/devices/FileDevice";
+import { KeyboardDevice } from "../../src/core/devices/KeyboardDevice";
 import { TerminalDevice } from "../../src/core/devices/TerminalDevice";
 import { TimerDevice } from "../../src/core/devices/TimerDevice";
 import { MemoryMap } from "../../src/core/memory/MemoryMap";
@@ -124,5 +126,44 @@ describe("TimerDevice", () => {
   test("reports unsupported syscall when no timer is wired", () => {
     const syscalls = createDefaultSyscallHandlers();
     assert.throws(() => syscalls.timer_now(), /TimerDevice is not available/);
+  });
+});
+
+describe("MMIO device interrupts", () => {
+  test("KeyboardDevice triggers interrupts when ready and enabled", () => {
+    const map = new MemoryMap();
+    const keyboard = new KeyboardDevice();
+    map.registerDevice(map.mmioBase, 8, keyboard);
+
+    let interrupts = 0;
+    map.onInterrupt(() => interrupts++);
+
+    const memory = new Memory({ map });
+    memory.writeByte(map.mmioBase, 0x2); // enable interrupt bit while leaving ready cleared
+
+    keyboard.queueInput("A");
+    assert.strictEqual(interrupts, 1);
+
+    memory.readByte(map.mmioBase + 4); // clears ready bit
+    keyboard.queueInput("B");
+    assert.strictEqual(interrupts, 2);
+  });
+
+  test("DisplayDevice fires interrupts when re-enabled and after transmissions", () => {
+    const map = new MemoryMap();
+    const keyboard = new KeyboardDevice();
+    const display = new DisplayDevice(() => {});
+    map.registerDevice(map.mmioBase, 8, keyboard);
+    map.registerDevice(map.mmioBase + 8, 8, display);
+
+    let interrupts = 0;
+    map.onInterrupt(() => interrupts++);
+
+    const memory = new Memory({ map });
+    memory.writeByte(map.mmioBase + 8, 0x2); // enable interrupts while already ready
+    assert.strictEqual(interrupts, 1);
+
+    memory.writeByte(map.mmioBase + 12, 0x41);
+    assert.strictEqual(interrupts, 2);
   });
 });
