@@ -65,7 +65,7 @@ export class KeyboardDevice implements Device {
 
   private maybeInterrupt(): void {
     if (this.isReady() && this.isInterruptEnabled()) {
-      this.interruptHandler?.();
+      this.interruptHandler?.(this);
     }
   }
 

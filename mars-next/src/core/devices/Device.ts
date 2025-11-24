@@ -1,6 +1,6 @@
 export type DeviceData = number | string | Uint8Array | null;
 
-export type InterruptHandler = () => void;
+export type InterruptHandler = (device?: Device) => void;
 
 export interface Device {
   read(offset: number): DeviceData;
