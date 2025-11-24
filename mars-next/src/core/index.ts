@@ -30,6 +30,7 @@ export * from "./devices/RandomStreamDevice";
 export * from "./syscalls/SyscallTable";
 export * from "./syscalls/SyscallHandlers";
 export * from "./debugger/BreakpointEngine";
+export * from "./debugger/Disassembler";
 export * from "./debugger/WatchEngine";
 export * from "./state/MachineState";
 export * from "./exceptions/AccessExceptions";

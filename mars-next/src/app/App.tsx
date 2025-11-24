@@ -1,10 +1,10 @@
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { MemoryTable } from "../features/memory-view";
 import { RegisterTable } from "../features/register-view";
 import { RunToolbar } from "../features/run-control";
 import { EditorView } from "../features/editor";
-import { BreakpointManagerPanel, WatchManagerPanel, WatchSpec } from "../features/breakpoints";
-import { CoreEngine, MachineState, assembleAndLoad } from "../core";
+import { BreakpointList, toggleBreakpoint } from "../features/breakpoints";
+import { BreakpointEngine, MachineState, type BinaryImage, assembleAndLoad } from "../core";
 
 const SAMPLE_PROGRAM = `# Simple hello-style program
 .data
@@ -28,98 +28,33 @@ export function App(): React.JSX.Element {
   const [lo, setLo] = useState(0);
   const [pc, setPc] = useState(0);
   const [memoryEntries, setMemoryEntries] = useState<Array<{ address: number; value: number }>>([]);
-  const [symbolTable, setSymbolTable] = useState<Record<string, number>>({});
-  const [breakpoints, setBreakpoints] = useState<string[]>([]);
-  const [watches, setWatches] = useState<WatchSpec[]>([]);
-  const [watchValues, setWatchValues] = useState<Record<string, number | undefined>>({});
+  const [breakpoints, setBreakpoints] = useState<number[]>([]);
+  const [program, setProgram] = useState<BinaryImage | null>(null);
+
+  const breakpointEngine = useMemo(() => new BreakpointEngine(), []);
 
   const editor = useMemo(
-    () => (
-      <EditorView
-        value={source}
-        onChange={setSource}
-        breakpoints={breakpoints}
-        onToggleBreakpoint={(label) =>
-          setBreakpoints((previous) =>
-            previous.includes(label) ? previous.filter((entry) => entry !== label) : [...previous, label],
-          )
-        }
-        symbols={symbolTable}
-      />
-    ),
-    [breakpoints, source, symbolTable],
+    () => <EditorView value={source} onChange={setSource} breakpoints={breakpoints} onToggleBreakpoint={
+      (line) => setBreakpoints((current) => toggleBreakpoint(line, current, breakpointEngine))
+    } />,
+    [source, breakpoints, breakpointEngine],
   );
 
-  const applyBreakpoints = (
-    targetEngine: CoreEngine,
-    specs: string[],
-    symbols: Record<string, number> = symbolTable,
-  ): void => {
-    const { breakpoints: engineBreakpoints } = targetEngine.getDebuggerEngines();
-    if (!engineBreakpoints) return;
-
-    engineBreakpoints.clearAll();
-    engineBreakpoints.setSymbolTable(symbols);
-
-    specs.forEach((spec) => {
-      const trimmed = spec.trim();
-      if (!trimmed) return;
-
-      if (/^0x[0-9a-f]+$/i.test(trimmed)) {
-        engineBreakpoints.setBreakpoint(Number.parseInt(trimmed, 16));
-        return;
-      }
-
-      if (/^\d+$/.test(trimmed)) {
-        engineBreakpoints.setBreakpoint(Number.parseInt(trimmed, 10));
-        return;
-      }
-
-      try {
-        engineBreakpoints.setBreakpointByLabel(trimmed);
-      } catch (resolutionError) {
-        console.warn(resolutionError);
-      }
-    });
-  };
-
-  const applyWatches = (
-    targetEngine: CoreEngine,
-    specs: WatchSpec[],
-    symbols: Record<string, number> = symbolTable,
-  ): void => {
-    const { watchEngine } = targetEngine.getDebuggerEngines();
-    if (!watchEngine) return;
-
-    watchEngine.clear();
-    watchEngine.setSymbolTable(symbols);
-
-    specs.forEach((spec) => {
-      try {
-        watchEngine.addWatch(spec.kind, spec.identifier);
-      } catch (watchError) {
-        console.warn(watchError);
-      }
-    });
-
-    const snapshot: Record<string, number | undefined> = {};
-    watchEngine.getWatchValues().forEach((entry) => {
-      snapshot[entry.key] = entry.value;
-    });
-    setWatchValues(snapshot);
-  };
+  const handleRemoveBreakpoint = useCallback((line: number) => {
+    setBreakpoints((current) => current.filter((point) => point !== line));
+    breakpointEngine.removeInstructionBreakpoint(line - 1);
+  }, [breakpointEngine]);
 
   const handleRun = (): void => {
     setError(null);
     try {
       setStatus("Assembling...");
-      const { engine: loadedEngine, layout } = assembleAndLoad(source);
-      setEngine(loadedEngine);
-      setSymbolTable(layout.symbols);
+      breakpointEngine.clearHit();
+      breakpointEngine.clearAll();
+      breakpoints.forEach((line) => breakpointEngine.setInstructionBreakpoint(line - 1));
 
-      applyBreakpoints(loadedEngine, breakpoints, layout.symbols);
-      applyWatches(loadedEngine, watches, layout.symbols);
-
+      const { engine, image } = assembleAndLoad(source, { breakpointEngine });
+      setProgram(image);
       setStatus("Running...");
       loadedEngine.run(2_000);
 
@@ -144,7 +79,14 @@ export function App(): React.JSX.Element {
         return;
       }
 
-      setStatus(state.isTerminated() ? "Program terminated" : "Execution halted");
+      const breakpointHit = breakpointEngine.getHitBreakpoint();
+      if (breakpointHit !== null) {
+        setStatus(`Hit breakpoint at instruction #${breakpointHit + 1}`);
+      } else if (state.isTerminated()) {
+        setStatus("Program terminated");
+      } else {
+        setStatus("Execution halted");
+      }
     } catch (runError) {
       const message = runError instanceof Error ? runError.message : String(runError);
       setError(message);
@@ -214,6 +156,10 @@ export function App(): React.JSX.Element {
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "1rem" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+            <h2 style={{ margin: 0, color: "#e5e7eb", fontSize: "1rem" }}>Breakpoints</h2>
+            <BreakpointList breakpoints={breakpoints} program={program} onRemove={handleRemoveBreakpoint} />
+          </div>
           <RegisterTable registers={registers} hi={hi} lo={lo} pc={pc} />
           <MemoryTable entries={memoryEntries} />
         </div>
