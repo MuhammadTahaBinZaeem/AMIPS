@@ -2,6 +2,7 @@ import { AddressError } from "../../exceptions/AccessExceptions";
 import { MachineState } from "../../state/MachineState";
 import { Cpu, DecodedInstruction, InstructionMemory } from "../Cpu";
 import { AccessType } from "../../memory/MemoryMap";
+import { ArithmeticOverflow, SyscallException } from "../../exceptions/ExecutionExceptions";
 
 interface RTypeFields {
   rs: number;
@@ -45,6 +46,24 @@ function signExtend8(value: number): number {
 
 function toInt32(value: number): number {
   return value | 0;
+}
+
+function checkedAdd(left: number, right: number): number {
+  const result = toInt32(left + right);
+  const overflow = ((left ^ result) & (right ^ result)) < 0;
+  if (overflow) {
+    throw new ArithmeticOverflow();
+  }
+  return result;
+}
+
+function checkedSub(left: number, right: number): number {
+  const result = toInt32(left - right);
+  const overflow = ((left ^ right) & (left ^ result)) < 0;
+  if (overflow) {
+    throw new ArithmeticOverflow();
+  }
+  return result;
 }
 
 function validateHalfwordAddress(address: number, access: AccessType): number {
@@ -310,8 +329,8 @@ const makeLoadUpperImmediate = (decoded: ITypeFields): DecodedInstruction => {
 
 const makeSyscall = (): DecodedInstruction => ({
   name: "syscall",
-  execute: () => {
-    throw new Error("Encountered syscall instruction without a SyscallTable wired");
+  execute: (state: MachineState) => {
+    throw new SyscallException(state.getRegister(2));
   },
 });
 
@@ -1132,11 +1151,11 @@ export function decodeInstruction(instruction: number, pc: number): DecodedInstr
       case 0x19:
         return makeMultiply("multu", decoded, true);
       case 0x20:
-        return createRegisterBinary("add", decoded, (l, r) => l + r);
+        return createRegisterBinary("add", decoded, (l, r) => checkedAdd(l, r));
       case 0x21:
         return createRegisterBinary("addu", decoded, (l, r) => l + r);
       case 0x22:
-        return createRegisterBinary("sub", decoded, (l, r) => l - r);
+        return createRegisterBinary("sub", decoded, (l, r) => checkedSub(l, r));
       case 0x23:
         return createRegisterBinary("subu", decoded, (l, r) => l - r);
       case 0x24:
@@ -1277,7 +1296,7 @@ export function decodeInstruction(instruction: number, pc: number): DecodedInstr
 
   switch (opcode) {
     case 0x08:
-      return createImmediateBinary("addi", decoded, (l, imm) => l + imm);
+      return createImmediateBinary("addi", decoded, (l, imm) => checkedAdd(l, imm));
     case 0x09:
       return createImmediateBinary("addiu", decoded, (l, imm) => l + imm);
     case 0x0c:
