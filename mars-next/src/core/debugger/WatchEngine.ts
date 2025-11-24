@@ -64,6 +64,7 @@ export class WatchEngine {
   private readonly watches = new Map<string, WatchTarget>();
   private readonly pendingEvents: WatchEvent[] = [];
   private readonly stepSnapshot = new Map<string, number>();
+  private symbolTable: Map<string, number> | null = null;
 
   constructor(state: MachineState, memory?: MemoryReader) {
     this.state = state;
@@ -74,6 +75,17 @@ export class WatchEngine {
     const target = this.createTarget(kind, identifier);
     target.lastValue = target.readValue();
     this.watches.set(target.key, target);
+  }
+
+  removeWatch(kind: WatchKind, identifier: WatchIdentifier): void {
+    const key = `${kind}:${identifier}`;
+    this.watches.delete(key);
+  }
+
+  clear(): void {
+    this.watches.clear();
+    this.stepSnapshot.clear();
+    this.pendingEvents.length = 0;
   }
 
   beginStep(): void {
@@ -107,6 +119,24 @@ export class WatchEngine {
     const events = [...this.pendingEvents];
     this.pendingEvents.length = 0;
     return events;
+  }
+
+  setSymbolTable(symbols: Map<string, number> | Record<string, number> | null): void {
+    if (!symbols) {
+      this.symbolTable = null;
+      return;
+    }
+
+    this.symbolTable = symbols instanceof Map ? new Map(symbols) : new Map(Object.entries(symbols));
+  }
+
+  getWatchValues(): Array<{ key: string; kind: WatchKind; identifier: WatchIdentifier; value: number | undefined }> {
+    return Array.from(this.watches.values()).map((watch) => ({
+      key: watch.key,
+      kind: watch.kind,
+      identifier: watch.identifier,
+      value: watch.lastValue,
+    }));
   }
 
   private createTarget(kind: WatchKind, identifier: WatchIdentifier): WatchTarget {
@@ -168,6 +198,10 @@ export class WatchEngine {
 
     if (/^\d+$/.test(identifier)) {
       return Number.parseInt(identifier, 10) | 0;
+    }
+
+    if (this.symbolTable?.has(identifier)) {
+      return this.symbolTable.get(identifier)! | 0;
     }
 
     throw new Error(`Unknown memory identifier: ${identifier}`);
