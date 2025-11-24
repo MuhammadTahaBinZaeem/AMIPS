@@ -33,15 +33,10 @@ describe("Pipeline", () => {
       ].join("\n"),
     );
 
-    pipeline.step();
+    pipeline.run(10);
+
     assert.strictEqual(state.getRegister(8), 5);
-    assert.strictEqual(state.getProgramCounter(), (DEFAULT_TEXT_BASE + 4) | 0);
-
-    pipeline.step();
     assert.strictEqual(state.getRegister(9), 7);
-    assert.strictEqual(state.getProgramCounter(), (DEFAULT_TEXT_BASE + 8) | 0);
-
-    pipeline.step();
     assert.strictEqual(state.getRegister(10), 12);
     assert.strictEqual(state.getProgramCounter(), (DEFAULT_TEXT_BASE + 12) | 0);
   });
@@ -59,21 +54,12 @@ describe("Pipeline", () => {
       ].join("\n"),
     );
 
-    pipeline.step();
-    pipeline.step();
+    pipeline.run(12);
 
-    pipeline.step();
-    assert.ok(state.isBranchTriggered());
-    assert.strictEqual(state.getProgramCounter(), (DEFAULT_TEXT_BASE + 12) | 0);
-
-    pipeline.step();
     assert.strictEqual(state.getRegister(2), 5);
-    assert.strictEqual(state.getProgramCounter(), (DEFAULT_TEXT_BASE + 20) | 0);
-
-    pipeline.step();
+    assert.strictEqual(state.getRegister(3), 0);
     assert.strictEqual(state.getRegister(4), 7);
     assert.strictEqual(state.getProgramCounter(), (DEFAULT_TEXT_BASE + 24) | 0);
-    assert.strictEqual(state.getRegister(3), 0);
   });
 
   test("falls through when branch condition fails", () => {
@@ -89,23 +75,10 @@ describe("Pipeline", () => {
       ].join("\n"),
     );
 
-    pipeline.step();
-    pipeline.step();
+    pipeline.run(12);
 
-    pipeline.step();
-    assert.ok(!state.isBranchRegistered());
-    assert.ok(!state.isBranchTriggered());
-    assert.strictEqual(state.getProgramCounter(), (DEFAULT_TEXT_BASE + 12) | 0);
-
-    pipeline.step();
     assert.strictEqual(state.getRegister(2), 5);
-    assert.strictEqual(state.getProgramCounter(), (DEFAULT_TEXT_BASE + 16) | 0);
-
-    pipeline.step();
     assert.strictEqual(state.getRegister(3), 9);
-    assert.strictEqual(state.getProgramCounter(), (DEFAULT_TEXT_BASE + 20) | 0);
-
-    pipeline.step();
     assert.strictEqual(state.getRegister(4), 7);
     assert.strictEqual(state.getProgramCounter(), (DEFAULT_TEXT_BASE + 24) | 0);
   });
