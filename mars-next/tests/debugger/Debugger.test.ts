@@ -219,6 +219,59 @@ describe("Debugger subsystem", () => {
     });
   });
 
+  test("evaluates register expressions in watch engine", () => {
+    const state = new MachineState();
+    const watchEngine = new WatchEngine(state);
+
+    const instructions: DecodedInstruction[] = [
+      { name: "write_t0", execute: (machine) => machine.setRegister(8, 8) },
+    ];
+
+    const cpu = createCpu(instructions, state);
+    const pipeline = new Pipeline({ cpu, watchEngine });
+
+    watchEngine.addWatch("expression", "$t0 + 4");
+
+    pipeline.run(5);
+
+    const events = watchEngine.getWatchChanges();
+    assert.strictEqual(events.length, 1);
+    assert.deepStrictEqual(events[0], {
+      kind: "expression",
+      identifier: "$t0 + 4",
+      oldValue: 4,
+      newValue: 12,
+    });
+  });
+
+  test("evaluates dereferenced expressions against memory", () => {
+    const state = new MachineState();
+    const memory = new DataMemory(state.getProgramCounter(), 1);
+    const watchEngine = new WatchEngine(state, memory);
+
+    const address = 0x10010000;
+
+    const instructions: DecodedInstruction[] = [
+      { name: "write_mem", execute: () => memory.write(address, 55) },
+    ];
+
+    const cpu = createCpu(instructions, state);
+    const pipeline = new Pipeline({ cpu, watchEngine });
+
+    watchEngine.addWatch("expression", "*(0x10010000)");
+
+    pipeline.run(5);
+
+    const events = watchEngine.getWatchChanges();
+    assert.strictEqual(events.length, 1);
+    assert.deepStrictEqual(events[0], {
+      kind: "expression",
+      identifier: "*(0x10010000)",
+      oldValue: 0,
+      newValue: 55,
+    });
+  });
+
   test("halts on assembled breakpoints and reports watched register changes", () => {
     const assembler = new Assembler();
     const program = assembler.assemble(

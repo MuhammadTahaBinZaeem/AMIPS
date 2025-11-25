@@ -1,4 +1,5 @@
 export * from "./components/EditorView";
+export * from "./components/EditorPane";
 export * from "./components/Gutter";
 export * from "./components/StatusBar";
 export * from "./state/editorSlice";
