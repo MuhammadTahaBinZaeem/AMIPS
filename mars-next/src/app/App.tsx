@@ -1,8 +1,8 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useState } from "react";
 import { MemoryTable } from "../features/memory-view";
 import { RegisterTable } from "../features/register-view";
 import { RunToolbar } from "../features/run-control";
-import { EditorView } from "../features/editor";
+import { EditorPane } from "../features/editor";
 import { BreakpointManagerPanel, BreakpointList, BreakpointSpec, WatchManagerPanel, WatchSpec } from "../features/breakpoints";
 import { resolveInstructionIndex, toggleBreakpoint } from "../features/breakpoints/services/breakpointService";
 import { BinaryImage, CoreEngine, MachineState, SourceMapEntry, assembleAndLoad } from "../core";
@@ -48,19 +48,6 @@ export function App(): React.JSX.Element {
       );
     },
     [activeFile, engine, sourceMap],
-  );
-
-  const editor = useMemo(
-    () => (
-      <EditorView
-        value={source}
-        onChange={setSource}
-        breakpoints={editorBreakpoints}
-        onToggleBreakpoint={handleToggleEditorBreakpoint}
-        activeLine={activeLine ?? undefined}
-      />
-    ),
-    [activeLine, editorBreakpoints, handleToggleEditorBreakpoint, source],
   );
 
   const applyBreakpoints = (
@@ -231,7 +218,19 @@ export function App(): React.JSX.Element {
           </div>
         )}
 
-        {editor}
+        <EditorPane
+          source={source}
+          status={status}
+          onChange={setSource}
+          breakpoints={editorBreakpoints}
+          managedBreakpoints={breakpoints}
+          watches={watches}
+          watchValues={watchValues}
+          symbols={symbolTable}
+          activeLine={activeLine}
+          activeFile={activeFile}
+          onToggleBreakpoint={handleToggleEditorBreakpoint}
+        />
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: "1rem" }}>
           <BreakpointManagerPanel

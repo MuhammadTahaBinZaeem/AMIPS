@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 
-export type WatchKind = "register" | "memory";
+export type WatchKind = "register" | "memory" | "expression";
 
 export interface WatchSpec {
   kind: WatchKind;
@@ -17,6 +17,7 @@ export interface WatchManagerPanelProps {
 
 function renderIdentifier(spec: WatchSpec, symbols?: Record<string, number>): string {
   if (spec.kind === "register") return spec.identifier;
+  if (spec.kind === "expression") return spec.identifier;
   if (symbols && spec.identifier in symbols) {
     return `${spec.identifier} (0x${symbols[spec.identifier].toString(16)})`;
   }
@@ -53,7 +54,7 @@ export function WatchManagerPanel({ watches, symbols, values, onAdd, onRemove }:
         <div style={{ display: "flex", flexDirection: "column", gap: "0.15rem" }}>
           <strong style={{ color: "#e2e8f0" }}>Watch Manager</strong>
           <span style={{ color: "#94a3b8", fontSize: "0.9rem" }}>
-            Track registers or memory locations; memory identifiers can be numeric or labels.
+            Track registers, memory locations, or expressions with register math and dereferencing.
           </span>
         </div>
         <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
@@ -70,11 +71,18 @@ export function WatchManagerPanel({ watches, symbols, values, onAdd, onRemove }:
           >
             <option value="register">Register</option>
             <option value="memory">Memory</option>
+            <option value="expression">Expression</option>
           </select>
           <input
             value={identifier}
             onChange={(event) => setIdentifier(event.target.value)}
-            placeholder={kind === "register" ? "$t0 or 8" : "0x10010000 or msg"}
+            placeholder={
+              kind === "register"
+                ? "$t0 or 8"
+                : kind === "memory"
+                  ? "0x10010000 or msg"
+                  : "$t0 + 4 or *(buffer)"
+            }
             style={{
               backgroundColor: "#0b1220",
               color: "#e2e8f0",
@@ -116,10 +124,15 @@ export function WatchManagerPanel({ watches, symbols, values, onAdd, onRemove }:
               borderRadius: "0.35rem",
               backgroundColor: "#0b1220",
             }}
-          >
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.1rem" }}>
+            >
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.1rem" }}>
               <span style={{ color: "#e2e8f0", fontWeight: 600 }}>
-                {spec.kind === "register" ? "Register" : "Memory"}: {renderIdentifier(spec, symbols)}
+                {spec.kind === "register"
+                  ? "Register"
+                  : spec.kind === "memory"
+                    ? "Memory"
+                    : "Expression"}
+                : {renderIdentifier(spec, symbols)}
               </span>
               <span style={{ color: "#38bdf8", fontSize: "0.9rem" }}>
                 {valueLookup[keyFor(spec)] !== undefined ? valueLookup[keyFor(spec)] : "No data yet"}
