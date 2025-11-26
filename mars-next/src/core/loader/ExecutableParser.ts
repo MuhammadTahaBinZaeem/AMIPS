@@ -1,4 +1,4 @@
-import { BinaryImage } from "../assembler/Assembler";
+import { BinaryImage, RelocationRecord, RelocationType, SymbolTableEntry } from "../assembler/Assembler";
 import { DEFAULT_TEXT_BASE } from "../state/MachineState";
 
 const DEFAULT_DATA_BASE = 0x10010000;
@@ -65,12 +65,6 @@ interface SymbolInfo {
   name: string;
   value: number;
   sectionIndex: number;
-}
-
-interface Hi16Relocation {
-  offset: number;
-  symbolValue: number;
-  addend: number;
 }
 
 /**
@@ -168,14 +162,13 @@ export class ExecutableParser {
 
     const symbolMap = this.buildSymbolMap(symbols, sections);
 
-    if (textSection?.relocations?.length) {
-      this.applyRelocations(textSection, symbols, sections, littleEndian);
-    }
-    if (dataSection?.relocations?.length) {
-      this.applyRelocations(dataSection, symbols, sections, littleEndian);
-    }
+    const symbolTable = this.buildSymbolTables(symbols, sections);
+    const relocations = [
+      ...this.toRelocationRecords(textSection, symbols, "text"),
+      ...this.toRelocationRecords(dataSection, symbols, "data"),
+    ];
 
-    return this.toBinaryImage(textSection, dataSection, symbolMap, littleEndian);
+    return this.toBinaryImage(textSection, dataSection, symbolMap, symbolTable, relocations, littleEndian);
   }
 
   private parseCoff(binary: Uint8Array): BinaryImage {
@@ -213,18 +206,17 @@ export class ExecutableParser {
 
     const symbols = this.readCoffSymbols(symbolTableOffset, symbolCount, binary);
     const symbolMap = this.buildSymbolMap(symbols, sections);
+    const symbolTable = this.buildSymbolTables(symbols, sections);
 
     const textSection = sections.find((section) => section.name === ".text") ?? null;
     const dataSection = sections.find((section) => section.name === ".data") ?? null;
 
-    if (textSection?.relocations?.length) {
-      this.applyRelocations(textSection, symbols, sections, true);
-    }
-    if (dataSection?.relocations?.length) {
-      this.applyRelocations(dataSection, symbols, sections, true);
-    }
+    const relocations = [
+      ...this.toRelocationRecords(textSection, symbols, "text"),
+      ...this.toRelocationRecords(dataSection, symbols, "data"),
+    ];
 
-    return this.toBinaryImage(textSection, dataSection, symbolMap, true);
+    return this.toBinaryImage(textSection, dataSection, symbolMap, symbolTable, relocations, true);
   }
 
   private readElfSymbols(
@@ -320,81 +312,52 @@ export class ExecutableParser {
     return relocations;
   }
 
-  private applyRelocations(
-    section: SectionInfo,
+  private toRelocationRecords(
+    section: SectionInfo | null,
     symbols: SymbolInfo[],
-    sections: SectionInfo[],
-    littleEndian: boolean,
-  ): void {
-    if (!section.rawData || !section.relocations) return;
+    segment: "text" | "data" | "ktext" | "kdata" | null,
+  ): RelocationRecord[] {
+    if (!section || !section.relocations || !segment) return [];
 
-    const dataView = new DataView(section.rawData.buffer, section.rawData.byteOffset, section.rawData.byteLength);
-    const pendingHi16: Hi16Relocation[] = [];
-    const sectionBase = section.address >>> 0;
-
+    const records: RelocationRecord[] = [];
     for (const relocation of section.relocations) {
       const symbol = symbols[relocation.symbolIndex];
-      const symbolValue = this.resolveSymbolAddress(symbol, sections);
+      const symbolName = symbol?.name;
+      if (!symbolName) continue;
 
-      switch (relocation.type) {
-        case ElfRelocationType.MIPS_32:
-        case CoffRelocationType.MIPS32: {
-          const addend = relocation.addend ?? dataView.getUint32(relocation.offset, littleEndian);
-          const relocated = (addend + symbolValue) >>> 0;
-          dataView.setUint32(relocation.offset, relocated, littleEndian);
-          break;
-        }
-        case ElfRelocationType.MIPS_26:
-        case CoffRelocationType.MIPS26: {
-          const original = dataView.getUint32(relocation.offset, littleEndian);
-          const addend = (original & 0x03ffffff) << 2;
-          const target = (symbolValue + addend) >>> 0;
-          const patched = (original & 0xfc000000) | ((target >>> 2) & 0x03ffffff);
-          dataView.setUint32(relocation.offset, patched >>> 0, littleEndian);
-          break;
-        }
-        case ElfRelocationType.MIPS_PC16: {
-          const original = dataView.getUint32(relocation.offset, littleEndian);
-          const addend = this.signExtend16(original & 0xffff) << 2;
-          const place = (sectionBase + relocation.offset) >>> 0;
-          const delta = (symbolValue + addend - (place + 4)) >> 2;
-          const patched = (original & 0xffff0000) | (delta & 0xffff);
-          dataView.setUint32(relocation.offset, patched >>> 0, littleEndian);
-          break;
-        }
-        case ElfRelocationType.MIPS_HI16:
-        case CoffRelocationType.MIPS_HI16: {
-          const word = dataView.getUint32(relocation.offset, littleEndian);
-          const addend = (this.signExtend16(word & 0xffff) << 16) >>> 0;
-          pendingHi16.push({ offset: relocation.offset, symbolValue, addend });
-          break;
-        }
-        case ElfRelocationType.MIPS_LO16:
-        case CoffRelocationType.MIPS_LO16: {
-          const word = dataView.getUint32(relocation.offset, littleEndian);
-          const addend = this.signExtend16(word & 0xffff);
-          const pendingIndex = pendingHi16.findIndex((item) => item.symbolValue === symbolValue);
-          const pending = pendingIndex >= 0 ? pendingHi16[pendingIndex] : null;
-          const hiAddend = pending?.addend ?? 0;
-          const combined = (symbolValue + hiAddend + addend) | 0;
-          const hiValue = ((combined + 0x8000) >>> 16) & 0xffff;
-          const loValue = combined & 0xffff;
+      const type = this.mapRelocationType(relocation.type);
+      if (!type) continue;
 
-          if (pending) {
-            const hiWord = dataView.getUint32(pending.offset, littleEndian);
-            const hiPatched = (hiWord & 0xffff0000) | hiValue;
-            dataView.setUint32(pending.offset, hiPatched >>> 0, littleEndian);
-            pendingHi16.splice(pendingIndex, 1);
-          }
+      records.push({
+        segment,
+        offset: relocation.offset >>> 0,
+        symbol: symbolName,
+        type,
+        addend: relocation.addend,
+      });
+    }
 
-          const loPatched = (word & 0xffff0000) | (loValue & 0xffff);
-          dataView.setUint32(relocation.offset, loPatched >>> 0, littleEndian);
-          break;
-        }
-        default:
-          // Unsupported relocation types are ignored for now.
-          break;
-      }
+    return records;
+  }
+
+  private mapRelocationType(type: number): RelocationType | null {
+    switch (type) {
+      case ElfRelocationType.MIPS_32:
+      case CoffRelocationType.MIPS32:
+        return "MIPS_32";
+      case ElfRelocationType.MIPS_26:
+      case CoffRelocationType.MIPS26:
+        return "MIPS_26";
+      case ElfRelocationType.MIPS_PC16:
+        return "MIPS_PC16";
+      case ElfRelocationType.MIPS_HI16:
+      case CoffRelocationType.MIPS_HI16:
+        return "MIPS_HI16";
+      case ElfRelocationType.MIPS_LO16:
+      case CoffRelocationType.MIPS_LO16:
+        return "MIPS_LO16";
+      default:
+        return null;
     }
   }
 
@@ -415,6 +378,8 @@ export class ExecutableParser {
     text: SectionInfo | null,
     data: SectionInfo | null,
     symbols: Record<string, number>,
+    symbolTable: SymbolTableEntry[],
+    relocations: RelocationRecord[],
     littleEndian: boolean,
   ): BinaryImage {
     const textBytes = text?.rawData ?? new Uint8Array();
@@ -432,23 +397,42 @@ export class ExecutableParser {
       kdata: [],
       kdataWords: [],
       symbols,
+      symbolTable,
+      relocations,
+      littleEndian,
     };
   }
 
-  private buildSymbolMap(symbols: SymbolInfo[], sections: SectionInfo[]): Record<string, number> {
-    const result: Record<string, number> = {};
+  private buildSymbolTables(symbols: SymbolInfo[], sections: SectionInfo[]): SymbolTableEntry[] {
+    const table: SymbolTableEntry[] = [];
+
     symbols.forEach((symbol) => {
       if (!symbol.name) return;
-      let address = symbol.value >>> 0;
-      if (symbol.sectionIndex > 0) {
-        const section = sections[symbol.sectionIndex] ?? sections[symbol.sectionIndex - 1];
-        if (section) {
-          address = (section.address + symbol.value) >>> 0;
-        }
-      }
-      result[symbol.name] = address;
+      const address = this.resolveSymbolAddress(symbol, sections) >>> 0;
+      table.push({ name: symbol.name, address, segment: this.resolveSectionSegment(symbol.sectionIndex, sections) });
     });
-    return result;
+
+    return table;
+  }
+
+  private buildSymbolMap(symbols: SymbolInfo[], sections: SectionInfo[]): Record<string, number> {
+    const table = this.buildSymbolTables(symbols, sections);
+    return Object.fromEntries(table.map((entry) => [entry.name, entry.address]));
+  }
+
+  private resolveSectionSegment(index: number, sections: SectionInfo[]): "text" | "data" | "ktext" | "kdata" | null {
+    if (index <= 0) return null;
+    const section = sections[index] ?? sections[index - 1];
+    return this.sectionToSegment(section);
+  }
+
+  private sectionToSegment(section: SectionInfo | undefined | null): "text" | "data" | "ktext" | "kdata" | null {
+    if (!section) return null;
+    if (section.name === ".text") return "text";
+    if (section.name === ".data") return "data";
+    if (section.name === ".ktext") return "ktext";
+    if (section.name === ".kdata") return "kdata";
+    return null;
   }
 
   private bytesToWords(bytes: Uint8Array, littleEndian: boolean): number[] {
