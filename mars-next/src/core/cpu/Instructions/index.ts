@@ -4,6 +4,24 @@ import { Cpu, DecodedInstruction, InstructionMemory } from "../Cpu";
 import { AccessType } from "../../memory/MemoryMap";
 import { ArithmeticOverflow, SyscallException } from "../../exceptions/ExecutionExceptions";
 
+export type InstructionExecutor = (state: MachineState, memory: InstructionMemory, cpu: Cpu) => void;
+
+type InstructionDecodePlugin = (instruction: number, pc: number) => DecodedInstruction | null;
+
+type InstructionDefinition = {
+  name: string;
+  mask: number;
+  pattern: number;
+  execute: InstructionExecutor;
+};
+
+type InstructionJsonDefinition = Omit<InstructionDefinition, "execute"> & {
+  handler: string;
+};
+
+const decodePlugins: InstructionDecodePlugin[] = [];
+const registeredDefinitions: InstructionDefinition[] = [];
+
 interface RTypeFields {
   rs: number;
   rt: number;
@@ -142,6 +160,65 @@ function splitToHiLo(value: bigint): { hi: number; lo: number } {
   const hi = Number((value >> 32n) & 0xffffffffn);
   const lo = Number(value & 0xffffffffn);
   return { hi, lo };
+}
+
+export function clearInstructionExtensions(): void {
+  decodePlugins.length = 0;
+  registeredDefinitions.length = 0;
+}
+
+export function registerInstructionPlugin(plugin: InstructionDecodePlugin): void {
+  decodePlugins.push(plugin);
+}
+
+export function registerInstructionDefinitions(definitions: InstructionDefinition[]): void {
+  definitions.forEach((definition) => {
+    registeredDefinitions.push({
+      ...definition,
+      mask: definition.mask >>> 0,
+      pattern: definition.pattern >>> 0,
+    });
+  });
+}
+
+export function registerJsonInstructionDefinitions(
+  definitions: InstructionJsonDefinition[],
+  handlers: Record<string, InstructionExecutor>,
+): void {
+  definitions.forEach((definition) => {
+    const executor = handlers[definition.handler];
+
+    if (!executor) {
+      throw new Error(`No instruction executor provided for handler '${definition.handler}'`);
+    }
+
+    registerInstructionDefinitions([
+      {
+        name: definition.name,
+        mask: definition.mask,
+        pattern: definition.pattern,
+        execute: executor,
+      },
+    ]);
+  });
+}
+
+function decodeWithExtensions(instruction: number, pc: number): DecodedInstruction | null {
+  const normalizedInstruction = instruction >>> 0;
+
+  for (const plugin of decodePlugins) {
+    const decoded = plugin(instruction, pc);
+    if (decoded) return decoded;
+  }
+
+  const match = registeredDefinitions.find(
+    (definition) => ((normalizedInstruction & definition.mask) >>> 0) === definition.pattern,
+  );
+  if (match) {
+    return { name: match.name, execute: match.execute };
+  }
+
+  return null;
 }
 
 const createRegisterBinary = (
@@ -1028,6 +1105,9 @@ const decodeCop1 = (instruction: number, pc: number): DecodedInstruction | null 
 export function decodeInstruction(instruction: number, pc: number): DecodedInstruction | null {
   const opcode = (instruction >>> 26) & 0x3f;
 
+  const pluginDecoded = decodeWithExtensions(instruction, pc);
+  if (pluginDecoded) return pluginDecoded;
+
   if (opcode === 0x00) {
     const decoded = decodeRType(instruction);
 
@@ -1390,4 +1470,3 @@ export function decodeInstruction(instruction: number, pc: number): DecodedInstr
 }
 
 export const instructionSetPlaceholder = false;
-export type InstructionExecutor = (state: MachineState, memory: InstructionMemory, cpu: Cpu) => void;
