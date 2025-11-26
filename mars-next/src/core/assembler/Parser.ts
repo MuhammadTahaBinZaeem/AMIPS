@@ -45,6 +45,8 @@ export type InstructionNode = {
   operands: Operand[];
   segment: Segment;
   line: number;
+  /** Raw source tokens (operator is token 0; parentheses are tokens, commas are not). */
+  tokens?: string[];
 };
 
 export type AstNode = DirectiveNode | LabelNode | InstructionNode;
@@ -53,7 +55,7 @@ export interface ProgramAst {
   nodes: AstNode[];
 }
 
-const REGISTER_ALIASES: Record<string, number> = {
+export const REGISTER_ALIASES: Record<string, number> = {
   zero: 0,
   at: 1,
   v0: 2,
@@ -229,7 +231,7 @@ export class Parser {
 
   private parseInstruction(tokens: Token[], segment: Segment, line: number): InstructionNode {
     const name = String(tokens[0].value).toLowerCase();
-    const args = this.collectArguments(tokens.slice(1), line, true);
+    const args = this.collectArguments(tokens.slice(1), line, true, true);
     return { kind: "instruction", name, operands: args, segment, line };
   }
 
@@ -260,8 +262,18 @@ export class Parser {
     }
 
     // Memory operand: offset(base)
-    if (allowMemory && tokens.length >= 3 && tokens.some((t) => t.type === "lparen")) {
-      return this.parseMemoryOperand(tokens, line);
+    if (allowMemory && tokens.length >= 3) {
+      const lparenIndex = tokens.findIndex((token) => token.type === "lparen");
+      const rparenIndex = tokens.findIndex((token) => token.type === "rparen");
+      const hasRegisterBetween =
+        lparenIndex !== -1 &&
+        rparenIndex !== -1 &&
+        rparenIndex > lparenIndex &&
+        tokens.slice(lparenIndex + 1, rparenIndex).some((token) => token.type === "register");
+
+      if (hasRegisterBetween) {
+        return this.parseMemoryOperand(tokens, line);
+      }
     }
 
     if (tokens.length === 1) {
@@ -284,8 +296,13 @@ export class Parser {
     }
 
     if (allowExpression) {
-      const expression = this.parseExpression(tokens, line);
-      return { kind: "expression", expression };
+      try {
+        const expression = this.parseExpression(tokens, line);
+        return { kind: "expression", expression };
+      } catch (error) {
+        const message = tokens.map((t) => t.raw).join(" ");
+        throw new Error(`Unable to parse operand near '${message}' (line ${line})`);
+      }
     }
 
     throw new Error(`Unable to parse operand near '${tokens.map((t) => t.raw).join(" ")}' (line ${line})`);

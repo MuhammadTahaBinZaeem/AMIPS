@@ -25,3 +25,30 @@ describe("Pseudo-op table bootstrap", () => {
     assert.strictEqual(lwForms?.[0]?.description, "load word");
   });
 });
+
+describe("Pseudo-op expansion", () => {
+  test("expands 32-bit immediate addi through the pseudo-op table", () => {
+    const assembler = new Assembler();
+    const result = assembler.assemble("addi $t0, $t1, 100000\n");
+
+    assert.deepStrictEqual(result.text, [0x3c010001, 0x342186a0, 0x01214020]);
+  });
+
+  test("feeds generated pseudo-ops back through the parser", () => {
+    const assembler = new Assembler();
+    const program = `
+la $t0, data
+j end
+.data
+data: .word 0
+.text
+end: nop
+`;
+
+    const result = assembler.assemble(program);
+
+    assert.strictEqual(result.text.length, 4);
+    assert.strictEqual(result.text[0], 0x3c011001);
+    assert.strictEqual(result.text[1], 0x34280000);
+  });
+});
