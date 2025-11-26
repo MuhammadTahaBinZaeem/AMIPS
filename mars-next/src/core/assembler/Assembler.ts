@@ -39,6 +39,9 @@ export interface BinaryImage {
   symbols: Record<string, number>;
   relocations: RelocationRecord[];
   symbolTable: SymbolTableEntry[];
+  globalSymbols?: string[];
+  externSymbols?: string[];
+  undefinedSymbols?: string[];
   littleEndian?: boolean;
   sourceMap?: SourceMapEntry[];
 }
@@ -48,6 +51,19 @@ const DEFAULT_KTEXT_BASE = 0x80000000;
 const DEFAULT_KDATA_BASE = 0x90000000;
 
 type SymbolTable = Map<string, number>;
+
+interface SymbolTableBuildResult {
+  symbols: SymbolTable;
+  externSymbols: Set<string>;
+  globalSymbols: Set<string>;
+  undefinedSymbols: Set<string>;
+}
+
+interface RelocationContext {
+  segment: Segment;
+  offset: number;
+  relocations: RelocationRecord[];
+}
 
 interface NormalizedInstruction {
   name: string;
@@ -105,9 +121,13 @@ export class Assembler {
     const expanded = this.macroExpander.expand(withIncludes.source);
     const lexed = this.lexer.tokenize(expanded);
     const ast = this.parser.parse(lexed);
-    const symbols = this.buildSymbolTable(ast);
+    const { symbols, externSymbols, globalSymbols, undefinedSymbols } = this.buildSymbolTable(ast);
     const resolveLocation = this.createLocationResolver(withIncludes, expanded, includeOptions.sourceName);
-    const { text, data, dataWords, ktext, kdata, kdataWords, sourceMap } = this.emit(ast, symbols, resolveLocation);
+    const { text, data, dataWords, ktext, kdata, kdataWords, relocations, sourceMap } = this.emit(
+      ast,
+      symbols,
+      resolveLocation,
+    );
 
     return {
       textBase: DEFAULT_TEXT_BASE,
@@ -121,7 +141,7 @@ export class Assembler {
       dataWords,
       kdataWords,
       symbols: Object.fromEntries(symbols),
-      relocations: [],
+      relocations,
       symbolTable: this.buildSymbolTableEntries(symbols, {
         textBase: DEFAULT_TEXT_BASE,
         textLength: text.length,
@@ -132,6 +152,9 @@ export class Assembler {
         kdataBase: DEFAULT_KDATA_BASE,
         kdataLength: kdata.length,
       }),
+      globalSymbols: Array.from(globalSymbols).filter((name) => symbols.has(name)),
+      externSymbols: Array.from(externSymbols),
+      undefinedSymbols: Array.from(undefinedSymbols),
       sourceMap,
     };
   }
@@ -180,7 +203,7 @@ export class Assembler {
     return (line: number) => locations[line - 1] ?? { file: fallbackFile, line };
   }
 
-  private buildSymbolTable(ast: ProgramAst): SymbolTable {
+  private buildSymbolTable(ast: ProgramAst): SymbolTableBuildResult {
     let segment: Segment = "text";
     let textOffset = 0;
     let dataOffset = 0;
@@ -190,6 +213,7 @@ export class Assembler {
     const definedSymbols = new Set<string>();
     const externSymbols = new Set<string>();
     const globalSymbols = new Set<string>();
+    const undefinedSymbols = new Set<string>();
     const eqvDefinitions = new Map<string, { value: Operand; line: number }>();
     const resolvedEqvSymbols = new Set<string>();
     const resolvingEqv = new Set<string>();
@@ -212,6 +236,7 @@ export class Assembler {
       // Resolve and cache the .eqv value to make it visible during this pass.
       const resolved = this.resolveValue(eqv.value, symbols, eqv.line, resolveEqv);
       symbols.set(name, this.toInt32(resolved));
+      undefinedSymbols.delete(name);
       resolvedEqvSymbols.add(name);
       definedSymbols.add(name);
       resolvingEqv.delete(name);
@@ -219,7 +244,7 @@ export class Assembler {
     };
 
     const resolveValue = (operand: Operand, line: number): number =>
-      this.resolveValue(operand, symbols, line, resolveEqv);
+      this.resolveValue(operand, symbols, line, resolveEqv, externSymbols, undefinedSymbols);
 
     for (let i = 0; i < ast.nodes.length; i++) {
       const node = ast.nodes[i];
@@ -251,7 +276,7 @@ export class Assembler {
                   globalSymbols.add(arg.name);
                 } else {
                   externSymbols.add(arg.name);
-                  if (!symbols.has(arg.name)) symbols.set(arg.name, 0);
+                  undefinedSymbols.add(arg.name);
                 }
               }
             });
@@ -344,6 +369,7 @@ export class Assembler {
           }
           symbols.set(node.name, address | 0);
           definedSymbols.add(node.name);
+          undefinedSymbols.delete(node.name);
           break;
         }
         case "instruction": {
@@ -368,17 +394,18 @@ export class Assembler {
       }
       const resolved = this.resolveValue(value, symbols, line, resolveEqv);
       symbols.set(name, this.toInt32(resolved));
+      undefinedSymbols.delete(name);
       resolvedEqvSymbols.add(name);
       definedSymbols.add(name);
     }
 
     for (const name of globalSymbols) {
-      if (!definedSymbols.has(name)) {
-        throw new Error(`Global symbol '${name}' declared but not defined`);
+      if (!definedSymbols.has(name) && !externSymbols.has(name)) {
+        undefinedSymbols.add(name);
       }
     }
 
-    return symbols;
+    return { symbols, externSymbols, globalSymbols, undefinedSymbols };
   }
 
   private emit(
@@ -392,6 +419,7 @@ export class Assembler {
     ktext: number[];
     kdata: number[];
     kdataWords: number[];
+    relocations: RelocationRecord[];
     sourceMap: SourceMapEntry[];
   } {
     let segment: Segment = "text";
@@ -402,6 +430,7 @@ export class Assembler {
     const kdata: number[] = [];
     const dataWords: number[] = [];
     const kdataWords: number[] = [];
+    const relocations: RelocationRecord[] = [];
     let dataOffset = 0;
     let kdataOffset = 0;
     let textOffset = 0;
@@ -452,7 +481,15 @@ export class Assembler {
               if (arg.kind !== "immediate" && arg.kind !== "label" && arg.kind !== "expression") {
                 throw new Error(`.word expects numeric arguments (line ${node.line})`);
               }
-              const value = this.resolveValue(arg, symbols, node.line);
+              const value = this.resolveValue(arg, symbols, node.line, undefined, undefined, undefined);
+              if (arg.kind === "label") {
+                this.recordRelocation(
+                  { segment, offset: segment === "data" ? dataOffset : kdataOffset, relocations },
+                  arg.name,
+                  "MIPS_32",
+                  0,
+                );
+              }
               targetWords.push(this.toInt32(value));
               this.pushWordBytes(value, targetBytes);
               if (segment === "data") dataOffset += 4;
@@ -604,7 +641,12 @@ export class Assembler {
         const normalized = this.expandInstruction(node);
         const targetText = segment === "ktext" ? ktext : text;
         for (const inst of normalized) {
-          const encoded = this.encodeInstruction(inst, pc, symbols);
+          const relocationContext: RelocationContext = {
+            segment,
+            offset: segment === "text" ? textOffset : ktextOffset,
+            relocations,
+          };
+          const encoded = this.encodeInstruction(inst, pc, symbols, relocationContext);
           const segmentIndex = targetText.length;
           targetText.push(encoded);
           const location = resolveLocation(inst.line);
@@ -632,6 +674,7 @@ export class Assembler {
       ktext: ktext.map((w) => this.toInt32(w)),
       kdata,
       kdataWords: kdataWords.map((w) => this.toInt32(w)),
+      relocations,
       sourceMap,
     };
   }
@@ -675,6 +718,17 @@ export class Assembler {
     return name === ".globl" || name === ".extern" || name === ".eqv" || name === ".set";
   }
 
+  private recordRelocation(
+    context: RelocationContext,
+    symbol: string,
+    type: RelocationType,
+    addend?: number,
+  ): void {
+    const relocation: RelocationRecord = { segment: context.segment, offset: context.offset, symbol, type };
+    if (addend !== undefined) relocation.addend = addend;
+    context.relocations.push(relocation);
+  }
+
   private calculatePadding(offset: number, alignment: number): number {
     return (alignment - (offset % alignment)) % alignment;
   }
@@ -684,13 +738,19 @@ export class Assembler {
     symbols: SymbolTable,
     line: number,
     eqvResolver?: (name: string, line: number) => number,
+    externSymbols?: Set<string>,
+    undefinedSymbols?: Set<string>,
   ): number {
     if (operand.kind === "immediate") return operand.value;
     if (operand.kind === "expression")
-      return this.evaluateExpression(operand.expression, symbols, line, eqvResolver);
+      return this.evaluateExpression(operand.expression, symbols, line, eqvResolver, externSymbols, undefinedSymbols);
     if (operand.kind === "label") {
       const value = symbols.get(operand.name);
       if (value !== undefined) return value;
+      if (externSymbols?.has(operand.name)) {
+        undefinedSymbols?.add(operand.name);
+        return 0;
+      }
       if (eqvResolver) return eqvResolver(operand.name, line);
       throw new Error(`Undefined label '${operand.name}' (line ${line})`);
     }
@@ -702,14 +762,23 @@ export class Assembler {
     symbols: SymbolTable,
     line: number,
     eqvResolver?: (name: string, line: number) => number,
+    externSymbols?: Set<string>,
+    undefinedSymbols?: Set<string>,
   ): number {
     switch (node.type) {
       case "number":
         return node.value;
       case "symbol":
-        return this.resolveValue({ kind: "label", name: node.name }, symbols, line, eqvResolver);
+        return this.resolveValue(
+          { kind: "label", name: node.name },
+          symbols,
+          line,
+          eqvResolver,
+          externSymbols,
+          undefinedSymbols,
+        );
       case "unary": {
-        const value = this.evaluateExpression(node.argument, symbols, line, eqvResolver);
+        const value = this.evaluateExpression(node.argument, symbols, line, eqvResolver, externSymbols, undefinedSymbols);
         switch (node.op) {
           case "plus":
             return value;
@@ -721,8 +790,8 @@ export class Assembler {
         break;
       }
       case "binary": {
-        const left = this.evaluateExpression(node.left, symbols, line, eqvResolver);
-        const right = this.evaluateExpression(node.right, symbols, line, eqvResolver);
+        const left = this.evaluateExpression(node.left, symbols, line, eqvResolver, externSymbols, undefinedSymbols);
+        const right = this.evaluateExpression(node.right, symbols, line, eqvResolver, externSymbols, undefinedSymbols);
         switch (node.op) {
           case "add":
             return left + right;
@@ -830,19 +899,32 @@ export class Assembler {
     }
   }
 
-  private encodeInstruction(instruction: NormalizedInstruction, pc: number, symbols: SymbolTable): number {
+  private encodeInstruction(
+    instruction: NormalizedInstruction,
+    pc: number,
+    symbols: SymbolTable,
+    context: RelocationContext,
+  ): number {
     const { name, operands, line } = instruction;
     switch (name) {
       case "addi":
       case "addiu":
         this.expectOperands(name, operands, ["register", "register", "immediate|label"], line);
-        return this.encodeI(name === "addi" ? 0x08 : 0x09, operands[1], operands[0], operands[2], line, symbols);
+        return this.encodeI(
+          name === "addi" ? 0x08 : 0x09,
+          operands[1],
+          operands[0],
+          operands[2],
+          line,
+          symbols,
+          context,
+        );
       case "ori":
         this.expectOperands(name, operands, ["register", "register", "immediate|label"], line);
-        return this.encodeOri(operands[1], operands[0], operands[2], line, symbols);
+        return this.encodeOri(operands[1], operands[0], operands[2], line, symbols, context);
       case "lui":
         this.expectOperands(name, operands, ["register", "immediate|label"], line);
-        return this.encodeLui(operands[0], operands[1], line, symbols);
+        return this.encodeLui(operands[0], operands[1], line, symbols, context);
       case "add":
         this.expectOperands(name, operands, ["register", "register", "register"], line);
         return this.encodeR(0x20, operands[1], operands[2], operands[0], line);
@@ -869,7 +951,7 @@ export class Assembler {
         return this.encodeR(0x00, { kind: "register", name: "$zero", register: 0 }, operands[1], operands[0], line, operands[2]);
       case "slti":
         this.expectOperands(name, operands, ["register", "register", "immediate|label"], line);
-        return this.encodeI(0x0a, operands[1], operands[0], operands[2], line, symbols);
+        return this.encodeI(0x0a, operands[1], operands[0], operands[2], line, symbols, context);
       case "lb":
       case "lbu":
       case "lh":
@@ -890,20 +972,20 @@ export class Assembler {
           sh: 0x29,
           sw: 0x2b,
         };
-        return this.encodeMemoryInstruction(opcodeMap[name], operands[0], memory, line, symbols);
+        return this.encodeMemoryInstruction(opcodeMap[name], operands[0], memory, line, symbols, context);
       }
       case "beq":
         this.expectOperands(name, operands, ["register", "register", "label|immediate"], line);
-        return this.encodeBranch(0x04, operands[0], operands[1], operands[2], pc, symbols, line);
+        return this.encodeBranch(0x04, operands[0], operands[1], operands[2], pc, symbols, context, line);
       case "bne":
         this.expectOperands(name, operands, ["register", "register", "label|immediate"], line);
-        return this.encodeBranch(0x05, operands[0], operands[1], operands[2], pc, symbols, line);
+        return this.encodeBranch(0x05, operands[0], operands[1], operands[2], pc, symbols, context, line);
       case "j":
         this.expectOperands(name, operands, ["label|immediate"], line);
-        return this.encodeJump(0x02, operands[0], symbols, line);
+        return this.encodeJump(0x02, operands[0], symbols, context, line);
       case "jal":
         this.expectOperands(name, operands, ["label|immediate"], line);
-        return this.encodeJump(0x03, operands[0], symbols, line);
+        return this.encodeJump(0x03, operands[0], symbols, context, line);
       case "jr":
         this.expectOperands(name, operands, ["register"], line);
         return this.encodeR(0x08, operands[0], { kind: "register", name: "$zero", register: 0 }, { kind: "register", name: "$zero", register: 0 }, line);
@@ -935,9 +1017,10 @@ export class Assembler {
     memory: Operand & { kind: "memory" },
     line: number,
     symbols: SymbolTable,
+    context: RelocationContext,
   ): number {
     const baseRegister: Operand = { kind: "register", name: `$${memory.base}`, register: memory.base };
-    return this.encodeI(opcode, baseRegister, rt, memory.offset, line, symbols);
+    return this.encodeI(opcode, baseRegister, rt, memory.offset, line, symbols, context);
   }
 
   private encodeI(
@@ -947,26 +1030,47 @@ export class Assembler {
     immediate: Operand,
     line: number,
     symbols: SymbolTable,
+    context: RelocationContext,
     signed = true,
   ): number {
     const rsNum = this.requireRegister(rs, line);
     const rtNum = this.requireRegister(rt, line);
-    const immValue = this.resolveImmediate(immediate, symbols, line, signed);
+    const immValue =
+      immediate.kind === "label"
+        ? this.resolveImmediateWithRelocation(immediate, symbols, line, context, "MIPS_LO16", signed)
+        : this.resolveImmediate(immediate, symbols, line, signed);
     return (opcode << 26) | (rsNum << 21) | (rtNum << 16) | (immValue & 0xffff);
   }
 
-  private encodeLui(rt: Operand, immediate: Operand, line: number, symbols: SymbolTable): number {
+  private encodeLui(
+    rt: Operand,
+    immediate: Operand,
+    line: number,
+    symbols: SymbolTable,
+    context: RelocationContext,
+  ): number {
     const rtNum = this.requireRegister(rt, line);
-    const value = this.resolveLabelOrImmediate(immediate, symbols, line);
-    const imm = immediate.kind === "label" ? (value >>> 16) & 0xffff : this.resolveImmediate(immediate, symbols, line, false);
+    const imm =
+      immediate.kind === "label"
+        ? this.resolveImmediateWithRelocation(immediate, symbols, line, context, "MIPS_HI16", false)
+        : this.resolveImmediate(immediate, symbols, line, false);
     return (0x0f << 26) | (rtNum << 16) | (imm & 0xffff);
   }
 
-  private encodeOri(rs: Operand, rt: Operand, immediate: Operand, line: number, symbols: SymbolTable): number {
+  private encodeOri(
+    rs: Operand,
+    rt: Operand,
+    immediate: Operand,
+    line: number,
+    symbols: SymbolTable,
+    context: RelocationContext,
+  ): number {
     const rsNum = this.requireRegister(rs, line);
     const rtNum = this.requireRegister(rt, line);
-    const value = this.resolveLabelOrImmediate(immediate, symbols, line);
-    const imm = immediate.kind === "label" ? value & 0xffff : this.resolveImmediate(immediate, symbols, line, false);
+    const imm =
+      immediate.kind === "label"
+        ? this.resolveImmediateWithRelocation(immediate, symbols, line, context, "MIPS_LO16", false)
+        : this.resolveImmediate(immediate, symbols, line, false);
     return (0x0d << 26) | (rsNum << 21) | (rtNum << 16) | (imm & 0xffff);
   }
 
@@ -977,10 +1081,18 @@ export class Assembler {
     target: Operand,
     pc: number,
     symbols: SymbolTable,
+    context: RelocationContext,
     line: number,
   ): number {
     const rsNum = this.requireRegister(rs, line);
     const rtNum = this.requireRegister(rt, line);
+    if (target.kind === "label") {
+      const address = this.toInt32(this.resolveLabelOrImmediate(target, symbols, line));
+      const offset = ((address - (this.toInt32(pc) + 4)) / 4) | 0;
+      this.recordRelocation(context, target.name, "MIPS_PC16", 0);
+      return (opcode << 26) | (rsNum << 21) | (rtNum << 16) | (offset & 0xffff);
+    }
+
     const address = this.toInt32(this.resolveLabelOrImmediate(target, symbols, line));
     const offset = ((address - (this.toInt32(pc) + 4)) / 4) | 0;
     if (offset < -32768 || offset > 32767) {
@@ -989,7 +1101,20 @@ export class Assembler {
     return (opcode << 26) | (rsNum << 21) | (rtNum << 16) | (offset & 0xffff);
   }
 
-  private encodeJump(opcode: number, target: Operand, symbols: SymbolTable, line: number): number {
+  private encodeJump(
+    opcode: number,
+    target: Operand,
+    symbols: SymbolTable,
+    context: RelocationContext,
+    line: number,
+  ): number {
+    if (target.kind === "label") {
+      const address = this.resolveLabelOrImmediate(target, symbols, line);
+      const field = (address >>> 2) & 0x03ffffff;
+      this.recordRelocation(context, target.name, "MIPS_26", 0);
+      return (opcode << 26) | field;
+    }
+
     const address = this.resolveLabelOrImmediate(target, symbols, line);
     const field = (address >>> 2) & 0x03ffffff;
     return (opcode << 26) | field;
@@ -1007,6 +1132,23 @@ export class Assembler {
       if (expected.includes("memory") && operand.kind === "memory") return;
       throw new Error(`Unexpected operand for ${name} at position ${index + 1} (line ${line})`);
     });
+  }
+
+  private resolveImmediateWithRelocation(
+    operand: Operand,
+    symbols: SymbolTable,
+    line: number,
+    context: RelocationContext,
+    type: RelocationType,
+    signed: boolean,
+  ): number {
+    if (operand.kind === "label") {
+      const value = this.resolveImmediate(operand, symbols, line, signed);
+      this.recordRelocation(context, operand.name, type, 0);
+      return value;
+    }
+
+    return this.resolveImmediate(operand, symbols, line, signed);
   }
 
   private resolveImmediate(operand: Operand, symbols: SymbolTable, line: number, signed: boolean): number {

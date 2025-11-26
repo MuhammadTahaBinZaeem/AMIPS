@@ -40,6 +40,7 @@ export class Linker {
     const mergedSymbols = new Map<string, number>();
     const mergedSymbolTable: SymbolTableEntry[] = [];
     const mergedSourceMap: SourceMapEntry[] = [];
+    const unresolvedSymbols = new Set<string>();
 
     let textOffset = 0;
     let dataOffset = 0;
@@ -85,6 +86,9 @@ export class Linker {
         kdataDelta,
       });
 
+      (image.externSymbols ?? []).forEach((symbol) => unresolvedSymbols.add(symbol));
+      (image.undefinedSymbols ?? []).forEach((symbol) => unresolvedSymbols.add(symbol));
+
       this.mergeRelocations(image, mergedRelocations, placement);
       this.mergeSourceMap(image, mergedSourceMap, {
         textDelta,
@@ -102,6 +106,12 @@ export class Linker {
     const littleEndian = endianPreference;
     const dataBytes = new Uint8Array(mergedData);
     const kdataBytes = new Uint8Array(mergedKdata);
+
+    for (const symbol of unresolvedSymbols) {
+      if (!mergedSymbols.has(symbol)) {
+        throw new Error(`Undefined external symbol '${symbol}' encountered during linking`);
+      }
+    }
 
     return {
       textBase,
