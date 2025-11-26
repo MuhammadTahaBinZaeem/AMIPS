@@ -9,6 +9,7 @@ import {
   buildPseudoOpDocumentation,
   loadPseudoOpTable,
   parsePseudoOpsFile,
+  reloadPseudoOpTable,
   resetPseudoOpCacheForTesting,
 } from "../../src/core/assembler/PseudoOps";
 
@@ -145,6 +146,31 @@ describe("User-supplied pseudo-op table", () => {
 
       const bazForms = table.get("baz");
       assert.ok(bazForms);
+    } finally {
+      process.chdir(originalCwd);
+      resetPseudoOpCacheForTesting();
+    }
+  });
+
+  test("hot-reloads user pseudo-ops from disk", () => {
+    const originalCwd = process.cwd();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "pseudoops-reload-"));
+
+    try {
+      const pseudoOpsPath = path.join(tempDir, "PseudoOps.txt");
+      fs.writeFileSync(pseudoOpsPath, "foo $t0\taddi RG1, $zero, 1", "utf8");
+
+      process.chdir(tempDir);
+      resetPseudoOpCacheForTesting();
+
+      const initial = loadPseudoOpTable();
+      assert.strictEqual(initial.get("foo")?.[0]?.templates[0], "addi RG1, $zero, 1");
+
+      fs.writeFileSync(pseudoOpsPath, "foo $t0\taddi RG1, $zero, 2", "utf8");
+
+      const reloaded = reloadPseudoOpTable();
+      assert.strictEqual(reloaded.get("foo")?.[0]?.templates[0], "addi RG1, $zero, 2");
+      assert.ok(reloaded.get("not"), "built-in pseudo-ops remain available after reload");
     } finally {
       process.chdir(originalCwd);
       resetPseudoOpCacheForTesting();

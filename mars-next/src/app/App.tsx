@@ -6,7 +6,7 @@ import { EditorPane } from "../features/editor";
 import { BreakpointManagerPanel, BreakpointList, BreakpointSpec, WatchManagerPanel, WatchSpec } from "../features/breakpoints";
 import { resolveInstructionIndex, toggleBreakpoint } from "../features/breakpoints/services/breakpointService";
 import { SettingsDialog } from "../features/settings";
-import { BinaryImage, CoreEngine, MachineState, SourceMapEntry, assembleAndLoad } from "../core";
+import { BinaryImage, CoreEngine, MachineState, SourceMapEntry, assembleAndLoad, reloadPseudoOpTable } from "../core";
 
 const SAMPLE_PROGRAM = `# Simple hello-style program
 .data
@@ -128,6 +128,19 @@ export function App(): React.JSX.Element {
     setWatchValues(snapshot);
   };
 
+  const handleReloadPseudoOps = (): void => {
+    setError(null);
+    try {
+      setStatus("Reloading pseudo-ops...");
+      reloadPseudoOpTable();
+      setStatus("Pseudo-ops reloaded");
+    } catch (reloadError) {
+      const message = reloadError instanceof Error ? reloadError.message : String(reloadError);
+      setError(`Failed to reload pseudo-ops: ${message}`);
+      setStatus("Failed to reload pseudo-ops");
+    }
+  };
+
   const handleRun = (): void => {
     setError(null);
     setActiveLine(null);
@@ -205,6 +218,7 @@ export function App(): React.JSX.Element {
         <SettingsDialog
           enablePseudoInstructions={enablePseudoInstructions}
           onTogglePseudoInstructions={setEnablePseudoInstructions}
+          onReloadPseudoOps={handleReloadPseudoOps}
         />
         <RunToolbar onRun={handleRun} status={status} />
         {activeLine !== null && (

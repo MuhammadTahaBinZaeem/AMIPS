@@ -52,6 +52,14 @@ export function resetPseudoOpCacheForTesting(): void {
 }
 
 /**
+ * Re-read pseudo-op definitions from disk, including user overrides, replacing the cached table.
+ */
+export function reloadPseudoOpTable(): PseudoOpTable {
+  cachedPseudoOps = null;
+  return loadPseudoOpTable();
+}
+
+/**
  * Parse the contents of PseudoOps.txt into a lookup table. Each line contains an
  * example pseudo-instruction followed by one or more templates separated by tabs.
  */

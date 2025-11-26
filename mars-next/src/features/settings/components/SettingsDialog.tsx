@@ -3,11 +3,13 @@ import React from "react";
 export interface SettingsDialogProps {
   enablePseudoInstructions: boolean;
   onTogglePseudoInstructions: (enabled: boolean) => void;
+  onReloadPseudoOps: () => void;
 }
 
 export function SettingsDialog({
   enablePseudoInstructions,
   onTogglePseudoInstructions,
+  onReloadPseudoOps,
 }: SettingsDialogProps): React.JSX.Element {
   return (
     <div
@@ -36,6 +38,24 @@ export function SettingsDialog({
       <span style={{ color: "#94a3b8", fontSize: "0.9rem" }}>
         Disable this to mirror MARS&apos;s &ldquo;allow pseudo-instructions&rdquo; checkbox and surface errors instead of automatic
         expansion.
+      </span>
+      <button
+        onClick={onReloadPseudoOps}
+        style={{
+          alignSelf: "flex-start",
+          background: "linear-gradient(135deg, #38bdf8, #0ea5e9)",
+          color: "#0b1726",
+          border: "none",
+          borderRadius: "0.375rem",
+          padding: "0.45rem 0.9rem",
+          fontWeight: 700,
+          cursor: "pointer",
+        }}
+      >
+        Reload Pseudo-Ops
+      </button>
+      <span style={{ color: "#9ca3af", fontSize: "0.9rem" }}>
+        Re-read PseudoOps.txt or PseudoOps.json overrides without restarting MARS Next.
       </span>
     </div>
   );
