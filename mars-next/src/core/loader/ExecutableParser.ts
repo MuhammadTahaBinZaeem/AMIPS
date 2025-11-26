@@ -245,7 +245,7 @@ export class ExecutableParser {
       const value = view.getUint32(offset + 4, littleEndian);
       const shndx = view.getUint16(offset + 14, littleEndian);
       const name = this.readNullTerminated(strtabData, nameOffset);
-      symbols.push({ name, value: value >>> 0, sectionIndex: shndx });
+      symbols.push({ name, value: value >>> 0, sectionIndex: shndx === 0 ? -1 : shndx });
     }
 
     return symbols;
@@ -301,7 +301,10 @@ export class ExecutableParser {
       const sectionNumber = this.readInt16(binary, base + 12);
       const auxCount = binary[base + 17];
 
-      symbols.push({ name, value: value >>> 0, sectionIndex: sectionNumber });
+      const sectionIndex =
+        sectionNumber > 0 ? sectionNumber - 1 : sectionNumber === 0 ? -1 : sectionNumber;
+
+      symbols.push({ name, value: value >>> 0, sectionIndex });
       i += auxCount;
     }
 
@@ -401,8 +404,8 @@ export class ExecutableParser {
   private resolveSymbolAddress(symbol: SymbolInfo | undefined, sections: SectionInfo[]): number {
     if (!symbol) return 0;
 
-    if (symbol.sectionIndex > 0) {
-      const section = sections[symbol.sectionIndex] ?? sections[symbol.sectionIndex - 1];
+    if (symbol.sectionIndex >= 0) {
+      const section = sections[symbol.sectionIndex];
       if (section) {
         return (section.address + symbol.value) >>> 0;
       }
@@ -440,8 +443,8 @@ export class ExecutableParser {
     symbols.forEach((symbol) => {
       if (!symbol.name) return;
       let address = symbol.value >>> 0;
-      if (symbol.sectionIndex > 0) {
-        const section = sections[symbol.sectionIndex] ?? sections[symbol.sectionIndex - 1];
+      if (symbol.sectionIndex >= 0) {
+        const section = sections[symbol.sectionIndex];
         if (section) {
           address = (section.address + symbol.value) >>> 0;
         }
