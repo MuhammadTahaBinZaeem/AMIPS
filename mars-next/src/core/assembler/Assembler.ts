@@ -169,7 +169,9 @@ export class Assembler {
   }
 
   private throwPseudoDisabled(instruction: InstructionNode): never {
-    throw new Error(`Pseudo-instruction ${instruction.name} is disabled (line ${instruction.line})`);
+    throw new Error(
+      `Pseudo-instruction ${instruction.name} is disabled (line ${instruction.line}). Enable pseudo-instructions in settings or assembler options to expand this instruction.`,
+    );
   }
 
   assemble(source: string, options: AssemblerOptions = {}): BinaryImage {
