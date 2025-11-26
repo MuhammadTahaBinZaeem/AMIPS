@@ -1,39 +1,15 @@
 # Core porting status
 
-This document tracks how much of the legacy MARS core has been ported into `mars-next/src/core` and where placeholders remain.
+This document tracks how much of the legacy Java MARS core has been ported into `mars-next/src/core` and where placeholders remain.
 
-## Legacy gaps
+## Current implementation snapshot
+- **Assembler/front-end:** Supports `.text`, `.data`, `.ktext`, `.kdata`, `.word`, `.byte`, `.half`, `.float`, `.double`, `.ascii`, `.asciiz`, `.space`, `.align`, `.globl`, `.extern`, `.eqv`, and `.set` with arithmetic/bitwise expressions. Macros and includes are expanded before parsing, and all 83 pseudo-op mnemonics from `resources/PseudoOps.txt` are loaded at runtime.
+- **Instruction decoder:** `src/core/cpu/Instructions/index.ts` implements 99 of the 139 legacy instruction mnemonics, spanning arithmetic/logic, branches (with delay slots), load/store variants, traps, coprocessor transfers, and basic FPU conversions. See `docs/mips-syntax-coverage.md` for the complete matrix.
+- **Pipeline and execution:** `src/core/cpu/Pipeline.ts` models a multi-stage pipeline with hazard detection for load-use stalls and shared memory, performance counters, branch-delay handling, and interrupt hooks. Tests under `tests/cpu/` and `tests/integration/` cover arithmetic, branching, and hazard scenarios.
+- **Debugger hooks:** `BreakpointEngine` resolves breakpoints by address or symbol and records hit metadata; `WatchEngine` tracks registers/addresses/symbols and snapshots values for the renderer. Source maps from the assembler are threaded through `CoreEngine` so UI breakpoints can map back to instructions.
+- **Syscalls and devices:** Legacy syscalls 1–59 are registered in `SyscallTable` with optional handler overrides. Terminal, file, timer, keyboard, display, and random-stream devices are available and raise interrupts through `InterruptController`; heap growth, file I/O, and pseudo-random streams match the legacy behaviors.
 
-The following items come directly from the legacy Java tree and have not been fully re-created yet. See `src/core/porting/PortingPlaceholders.ts` for details on the open work.
-
-- Instruction decoder/executor coverage beyond the minimal `add`, `addi`, `beq`, and `nop` handlers.
-- Full assembler directives, expressions, and pseudo-op handling from `PseudoOps.java`.
-- Comprehensive syscall catalog (legacy syscalls 1-59 now wired; dialog and MIDI behaviors are stubbed).
-- Broader MMIO devices (keyboard/display), file-backed memory mapping, and cache/TLB simulation.
-- Simulator pipeline hazards, exceptions, and profiling hooks.
-- Rich debugger affordances such as disassembly, symbol lookup, and source mapping.
-- Loader support for ELF/MIPS binaries, relocation records, and alignment rules.
-
-## Current core implementation snapshot
-
-### Implemented and under test
-
-- **MachineState**: Register file, delayed branch bookkeeping, and termination flags with unit coverage in `tests/state/MachineState.test.ts`.
-- **Memory**: Byte and word reads/writes with alignment enforcement, tested in `tests/memory/Memory.test.ts`.
-- **MemoryMap**: Segment mapping and MMIO device resolution, covered by `tests/memory/MemoryMap.test.ts`.
-- **ProgramLoader**: BinaryImage loading, relocation offsets, and register initialization, verified by `tests/loader/ProgramLoader.test.ts`.
-- **Debugger basics**: BreakpointEngine and WatchEngine watch sets, exercised via `tests/debugger/Debugger.test.ts`.
-- **Devices**: TerminalDevice logging/queueing, TimerDevice ticking, and FileDevice descriptor bookkeeping are smoke-tested in `tests/devices/Devices.test.ts`.
-- **CPU/Pipeline shell**: Program stepping with branch-delay handling is validated by `tests/cpu/Cpu.test.ts`, `tests/cpu/Pipeline.test.ts`, and integration tests under `tests/integration`.
-- **Assembler front-end**: Tokenization/parsing plus encoding for a small instruction subset with tests in `tests/assembler/Assembler.test.ts`.
-- **Syscall wiring**: Baseline print/read/exit syscalls are asserted in `tests/syscalls`.
-
-### Placeholder or incomplete areas
-
-- **Instruction set**: `src/core/cpu/Instructions` only decodes `add`, `addi`, `beq`, and `nop`; no load/store, shifts, jumps, coprocessors, or exceptions.
-- **Assembler directives**: `src/core/assembler/Assembler.ts` recognizes `.text`, `.data`, `.word`, `.asciiz` plus `li`/`move`/`nop` expansions; other directives and expression evaluation remain unimplemented.
-- **Syscalls**: `src/core/syscalls/legacy/LegacySyscalls.ts` wires the legacy 1-59 catalog, with dialogs and MIDI modeled as headless no-ops.
-- **Devices/MMIO**: `src/core/devices/FileDevice.ts` throws for memory-mapped reads/writes, and no keyboard/display/timer interrupts are surfaced through `MemoryMap`.
-- **Pipeline depth**: `src/core/cpu/Pipeline.ts` provides single-step execution without hazard detection, exceptions, or performance counters found in the legacy simulator.
-- **Loader formats**: `src/core/loader/ProgramLoader.ts` consumes an in-memory BinaryImage only; there is no ELF or object file parsing yet.
-- **Debugger depth**: `src/core/debugger` lacks disassembly, source mapping, or symbol-aware breakpoints beyond basic watch/breakpoint lists.
+## Known gaps and placeholders
+- **Missing instructions:** 40 legacy mnemonics are still unimplemented in the TypeScript decoder: `abs.d`, `abs.s`, `add.d`, `add.s`, `bc1f`, `bc1t`, `c.eq.d`, `c.eq.s`, `c.le.d`, `c.le.s`, `c.lt.d`, `c.lt.s`, `ceil.w.d`, `ceil.w.s`, `div.d`, `div.s`, `floor.w.d`, `floor.w.s`, `mov.d`, `mov.s`, `movf`, `movf.d`, `movf.s`, `movn.d`, `movn.s`, `movt`, `movt.d`, `movt.s`, `movz.d`, `movz.s`, `mul.d`, `mul.s`, `round.w.d`, `round.w.s`, `sqrt.d`, `sqrt.s`, `sub.d`, `sub.s`, `trunc.w.d`, `trunc.w.s`.
+- **Linking and binaries:** `Linker` is stubbed and `ProgramLoader` only consumes in-memory `BinaryImage` payloads; ELF/object parsing and multi-image linking remain TODOs.
+- **Renderer coverage:** Console I/O, tools, settings, and file manager features exist as stubs; CLI entry (`apps/cli`) also only logs arguments. UI polish such as disassembly views or advanced debugger panes has not been ported yet.
