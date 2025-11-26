@@ -19,6 +19,7 @@ export interface PseudoOpDocumentation {
 export type PseudoOpTable = Map<string, PseudoOpDefinition[]>;
 
 let cachedPseudoOps: PseudoOpTable | null = null;
+let cachedPseudoOpDocumentation: PseudoOpDocumentation[] | null = null;
 
 /**
  * Load and parse the bundled PseudoOps.txt resource into a table keyed by mnemonic.
@@ -49,6 +50,7 @@ export function loadPseudoOpTable(): PseudoOpTable {
 /** Reset the cached pseudo-op table (intended for tests). */
 export function resetPseudoOpCacheForTesting(): void {
   cachedPseudoOps = null;
+  cachedPseudoOpDocumentation = null;
 }
 
 /**
@@ -56,7 +58,11 @@ export function resetPseudoOpCacheForTesting(): void {
  */
 export function reloadPseudoOpTable(): PseudoOpTable {
   cachedPseudoOps = null;
-  return loadPseudoOpTable();
+  cachedPseudoOpDocumentation = null;
+
+  const table = loadPseudoOpTable();
+  cachedPseudoOpDocumentation = buildPseudoOpDocumentation(table);
+  return table;
 }
 
 /**
@@ -123,6 +129,16 @@ export function buildPseudoOpDocumentation(table: PseudoOpTable = loadPseudoOpTa
   }
 
   return docs.sort((a, b) => a.mnemonic.localeCompare(b.mnemonic));
+}
+
+/**
+ * Cached accessor for pseudo-op documentation, suitable for help tabs.
+ */
+export function getPseudoOpDocumentation(): PseudoOpDocumentation[] {
+  if (cachedPseudoOpDocumentation) return cachedPseudoOpDocumentation;
+
+  cachedPseudoOpDocumentation = buildPseudoOpDocumentation();
+  return cachedPseudoOpDocumentation;
 }
 
 /**
