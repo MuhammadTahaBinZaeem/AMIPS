@@ -20,6 +20,7 @@ export * from "./memory/Memory";
 export * from "./memory/Caches";
 export * from "./memory/MemoryMap";
 export * from "./assembler/Assembler";
+export * from "./assembler/PseudoOps";
 export * from "./loader/ProgramLoader";
 export * from "./loader/ExecutableParser";
 export * from "./loader/Linker";
