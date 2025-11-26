@@ -7,7 +7,7 @@ import {
 } from "./IncludeProcessor";
 import { Lexer } from "./Lexer";
 import { MacroExpander } from "./MacroExpander";
-import { ExpressionNode, InstructionNode, Operand, Parser, ProgramAst, Segment } from "./Parser";
+import { ExpressionNode, InstructionNode, Operand, Parser, ProgramAst, Segment, REGISTER_ALIASES } from "./Parser";
 import { loadPseudoOpTable, type PseudoOpTable } from "./PseudoOps";
 
 export type RelocationType = "MIPS_32" | "MIPS_26" | "MIPS_PC16" | "MIPS_HI16" | "MIPS_LO16";
@@ -90,10 +90,57 @@ export interface AssemblerOptions extends IncludeProcessOptions {
 }
 
 export class Assembler {
+  private static readonly nativeInstructions = new Set([
+    "addi",
+    "addiu",
+    "ori",
+    "lui",
+    "add",
+    "addu",
+    "mul",
+    "sub",
+    "and",
+    "or",
+    "slt",
+    "sll",
+    "slti",
+    "lb",
+    "lbu",
+    "lh",
+    "lhu",
+    "lw",
+    "sb",
+    "sh",
+    "sw",
+    "beq",
+    "bne",
+    "j",
+    "jal",
+    "jr",
+    "syscall",
+  ]);
+
+  private static readonly pseudoEligibleNatives = new Set([
+    "addi",
+    "addiu",
+    "add",
+    "addu",
+    "sub",
+    "subu",
+    "ori",
+    "and",
+    "or",
+    "xor",
+    "andi",
+    "xori",
+  ]);
+
   private readonly lexer = new Lexer();
   private readonly parser = new Parser();
   private readonly macroExpander = new MacroExpander(this.lexer);
   private readonly pseudoOpTable: PseudoOpTable;
+
+  private sourceLines: string[] = [];
 
   private readonly includeProcessor: IncludeProcessor;
   private readonly defaultIncludeOptions: IncludeProcessOptions;
@@ -126,8 +173,10 @@ export class Assembler {
 
     const withIncludes = this.includeProcessor.process(source, includeOptions);
     const expanded = this.macroExpander.expand(withIncludes.source);
+    this.sourceLines = expanded.split(/\r?\n/);
     const lexed = this.lexer.tokenize(expanded);
     const ast = this.parser.parse(lexed);
+    this.attachSourceTokens(ast);
     const { symbols, externSymbols, globalSymbols, undefinedSymbols } = this.buildSymbolTable(ast);
     const resolveLocation = this.createLocationResolver(withIncludes, expanded, includeOptions.sourceName);
     const { text, data, dataWords, ktext, kdata, kdataWords, relocations, sourceMap } = this.emit(
@@ -208,6 +257,54 @@ export class Assembler {
     const expandedLines = expanded.split(/\r?\n/);
     const locations = expandedLines.map((_, index) => processed.map[index] ?? { file: fallbackFile, line: index + 1 });
     return (line: number) => locations[line - 1] ?? { file: fallbackFile, line };
+  }
+
+  private attachSourceTokens(ast: ProgramAst): void {
+    for (const node of ast.nodes) {
+      if (node.kind !== "instruction") continue;
+      node.tokens = this.tokenizeSourceLine(node.line);
+    }
+  }
+
+  private tokenizeSourceLine(line: number): string[] {
+    const text = this.sourceLines[line - 1];
+    if (!text) return [];
+
+    let cleaned = this.stripComment(text);
+    // Remove any leading labels (may be chained) so token 0 is the mnemonic.
+    while (/^\s*[A-Za-z_][\w$]*\s*:\s*/.test(cleaned)) {
+      cleaned = cleaned.replace(/^\s*[A-Za-z_][\w$]*\s*:\s*/, "");
+    }
+
+    return this.tokenizeExample(cleaned);
+  }
+
+  private stripComment(text: string): string {
+    let inString = false;
+    for (let i = 0; i < text.length; i++) {
+      const char = text[i];
+      if (char === "\"") {
+        inString = !inString;
+        continue;
+      }
+
+      if (!inString && char === "#") {
+        return text.slice(0, i);
+      }
+
+      if (!inString && char === "/" && text[i + 1] === "/") {
+        return text.slice(0, i);
+      }
+    }
+    return text;
+  }
+
+  private tokenizeExample(example: string): string[] {
+    const spaced = example.replace(/,/g, " ").replace(/\(/g, " ( ").replace(/\)/g, " ) ");
+    return spaced
+      .split(/\s+/)
+      .map((token) => token.trim())
+      .filter((token) => token.length > 0);
   }
 
   private buildSymbolTable(ast: ProgramAst): SymbolTableBuildResult {
@@ -875,6 +972,260 @@ export class Assembler {
     ];
   }
 
+  private expandWithPseudoTable(instruction: InstructionNode): NormalizedInstruction[] | null {
+    const pseudoForms = this.pseudoOpTable.get(instruction.name);
+    if (!pseudoForms || pseudoForms.length === 0) return null;
+
+    const sourceTokens = instruction.tokens ?? this.tokenizeSourceLine(instruction.line);
+
+    for (const form of pseudoForms) {
+      if (!this.matchesPseudoForm(sourceTokens, form.tokens)) continue;
+
+      const templateGroups: string[][] = [];
+      let current: string[] = [];
+      for (const template of form.templates) {
+        if (template.startsWith("COMPACT")) {
+          if (current.length > 0) templateGroups.push(current);
+          current = [];
+          const trimmed = template.replace(/^COMPACT\s*/, "");
+          if (trimmed.length > 0) current.push(trimmed);
+          continue;
+        }
+        current.push(template);
+      }
+      if (current.length > 0) templateGroups.push(current);
+
+      const selectedTemplates = templateGroups[0] ?? [];
+      if (selectedTemplates.length === 0) continue;
+
+      const substituted = selectedTemplates.map((template) => this.applyPseudoTemplate(template, sourceTokens));
+      const parsedInstructions = this.parseExpandedLines(substituted, instruction);
+      if (parsedInstructions) return parsedInstructions;
+    }
+
+    return null;
+  }
+
+  private parseExpandedLines(lines: string[], original: InstructionNode): NormalizedInstruction[] | null {
+    const text = lines.join("\n");
+    const lexed = this.lexer.tokenize(text);
+    const ast = this.parser.parse(lexed);
+
+    const expanded: NormalizedInstruction[] = [];
+    for (let i = 0; i < ast.nodes.length; i++) {
+      const node = ast.nodes[i];
+      if (node.kind !== "instruction") return null;
+      node.line = original.line;
+      node.segment = original.segment;
+      node.tokens = this.tokenizeExample(lines[i] ?? "");
+      expanded.push(...this.expandInstruction(node));
+    }
+
+    return expanded;
+  }
+
+  private matchesPseudoForm(actualTokens: string[], expectedTokens: string[]): boolean {
+    if (actualTokens.length !== expectedTokens.length) return false;
+
+    for (let i = 0; i < expectedTokens.length; i++) {
+      const expected = expectedTokens[i]?.toLowerCase();
+      const actual = actualTokens[i];
+      if (expected === undefined || actual === undefined) return false;
+
+      if (expected === "(" || expected === ")") {
+        if (actual !== expected) return false;
+        continue;
+      }
+
+      if (expected.startsWith("$")) {
+        if (!actual.startsWith("$")) return false;
+        continue;
+      }
+
+      if (expected === "label") {
+        if (this.isNumericToken(actual)) return false;
+        if (actual.startsWith("$")) return false;
+        continue;
+      }
+
+      if (this.isNumericToken(expected)) {
+        if (!this.isNumericToken(actual)) return false;
+        if (!this.numericMatchesRange(actual, expected)) return false;
+        continue;
+      }
+
+      if (expected !== actual.toLowerCase()) return false;
+    }
+
+    return true;
+  }
+
+  private isNumericToken(token: string): boolean {
+    return Number.isFinite(Number(token));
+  }
+
+  private numericMatchesRange(actual: string, exemplar: string): boolean {
+    const value = Number(actual);
+    const sample = Math.abs(Number(exemplar));
+
+    if (sample === 10) return value >= 0 && value <= 31;
+    if (sample === 100) return value >= -32768 && value <= 32767;
+    return Number.isFinite(value);
+  }
+
+  private applyPseudoTemplate(template: string, tokens: string[]): string {
+    const macroPattern =
+      /(RG\d+|NR\d+|OP\d+|LLPP\d|LLP[AU]?|LLP\d|LL\d+P?\d?U?|LHPA|LHPN|LHPAP\d|LHL|VH\d+P?\d?|VHL\d+P?\d?|VL\d+P?\d?U?|LAB|S32|DBNOP|BROFF\d\d)/g;
+
+    return template.replace(macroPattern, (macro) => this.expandMacro(macro, tokens));
+  }
+
+  private expandMacro(macro: string, tokens: string[]): string {
+    if (macro === "COMPACT") return "";
+    if (macro === "DBNOP") return "nop";
+    if (macro.startsWith("BROFF") && macro.length === 7) return macro.substring(5, 6);
+    if (macro === "LAB") return tokens[tokens.length - 1] ?? "";
+    if (macro === "LHL") return this.high16(tokens[2] ?? "", false);
+
+    const rg = macro.match(/^RG(\d+)$/);
+    if (rg) return tokens[Number(rg[1])] ?? "";
+
+    const nr = macro.match(/^NR(\d+)$/);
+    if (nr) {
+      const index = Number(nr[1]);
+      const register = tokens[index];
+      const number = this.parseRegister(register);
+      return `$${number + 1}`;
+    }
+
+    const op = macro.match(/^OP(\d+)$/);
+    if (op) return tokens[Number(op[1])] ?? "";
+
+    const llpNoIndex = macro.match(/^LLP(P(\d))?(U)?$/);
+    if (llpNoIndex) {
+      const addend = llpNoIndex[2] ? Number(llpNoIndex[2]) : 0;
+      const unsigned = llpNoIndex[3] !== undefined;
+      return this.low16(tokens[2] ?? "", !unsigned, addend);
+    }
+
+    const ll = macro.match(/^LL(\d+)(P(\d))?(U)?$/);
+    if (ll) {
+      const index = Number(ll[1]);
+      const addend = ll[3] ? Number(ll[3]) : 0;
+      const unsigned = ll[4] !== undefined;
+      return this.low16(tokens[index] ?? "", !unsigned, addend);
+    }
+
+    const lhpa = macro.match(/^LHPA(P(\d))?$/);
+    if (lhpa) {
+      const addend = lhpa[2] ? Number(lhpa[2]) : 0;
+      return this.high16(tokens[2] ?? "", true, addend);
+    }
+
+    if (macro === "LHPN") return this.high16(tokens[2] ?? "", false);
+
+    const vh = macro.match(/^VH(\d+)(P(\d))?$/);
+    if (vh) {
+      const index = Number(vh[1]);
+      const addend = vh[3] ? Number(vh[3]) : 0;
+      return this.high16(tokens[index] ?? "", true, addend);
+    }
+
+    const vhl = macro.match(/^VHL(\d+)(P(\d))?$/);
+    if (vhl) {
+      const index = Number(vhl[1]);
+      const addend = vhl[3] ? Number(vhl[3]) : 0;
+      return this.high16(tokens[index] ?? "", false, addend);
+    }
+
+    const vl = macro.match(/^VL(\d+)(P(\d))?(U)?$/);
+    if (vl) {
+      const index = Number(vl[1]);
+      const addend = vl[3] ? Number(vl[3]) : 0;
+      const unsigned = vl[4] !== undefined;
+      return this.low16(tokens[index] ?? "", !unsigned, addend);
+    }
+
+    if (macro === "S32") {
+      const last = tokens[tokens.length - 1] ?? "0";
+      const value = Number(last);
+      return String(32 - (Number.isFinite(value) ? value : 0));
+    }
+
+    return macro;
+  }
+
+  private low16(source: string, signed: boolean, addend = 0): string {
+    const expr = addend ? `(${source} + ${addend})` : source;
+    return signed ? `(((${expr}) << 16) >> 16)` : `((${expr}) & 0xffff)`;
+  }
+
+  private high16(source: string, adjust: boolean, addend = 0): string {
+    const expr = addend ? `(${source} + ${addend})` : source;
+    const withAdjust = adjust ? `(${expr} + 0x8000)` : expr;
+    return `((${withAdjust} >> 16) & 0xffff)`;
+  }
+
+  private parseRegister(register: string): number {
+    const trimmed = register.replace(/^\$/g, "").toLowerCase();
+    if (/^\d+$/.test(trimmed)) {
+      return Number.parseInt(trimmed, 10);
+    }
+
+    if (trimmed in REGISTER_ALIASES) {
+      return REGISTER_ALIASES[trimmed];
+    }
+
+    throw new Error(`Unknown register ${register}`);
+  }
+
+  private shouldUsePseudoTable(instruction: InstructionNode): boolean {
+    if (!Assembler.nativeInstructions.has(instruction.name)) return true;
+
+    const [, , op3] = instruction.operands;
+    const immediateOperand = op3;
+    const name = instruction.name;
+
+    switch (name) {
+      case "addi":
+      case "addiu":
+      case "slti": {
+        if (!immediateOperand) return true;
+        if (immediateOperand.kind === "immediate") {
+          return !this.fitsSigned16(immediateOperand.value);
+        }
+        return false;
+      }
+      case "ori":
+      case "andi":
+      case "xori": {
+        if (!immediateOperand) return true;
+        if (immediateOperand.kind === "immediate") {
+          return !this.fitsUnsigned16(immediateOperand.value);
+        }
+        return false;
+      }
+      case "add":
+      case "addu":
+      case "sub":
+      case "subu":
+      case "and":
+      case "or":
+      case "xor":
+        return op3?.kind !== "register";
+      default:
+        return false;
+    }
+  }
+
+  private fitsSigned16(value: number): boolean {
+    return value >= -32768 && value <= 32767;
+  }
+
+  private fitsUnsigned16(value: number): boolean {
+    return value >= 0 && value <= 0xffff;
+  }
+
   private expandInstruction(instruction: InstructionNode): NormalizedInstruction[] {
     const { name, operands, line } = instruction;
     switch (name) {
@@ -901,9 +1252,12 @@ export class Assembler {
       }
       case "nop":
         return [{ name: "sll", operands: [{ kind: "register", name: "$zero", register: 0 }, { kind: "register", name: "$zero", register: 0 }, { kind: "immediate", value: 0 }], line }];
-      default:
-        return [{ name, operands, line }];
     }
+
+    const pseudo = this.shouldUsePseudoTable(instruction) ? this.expandWithPseudoTable(instruction) : null;
+    if (pseudo) return pseudo;
+
+    return [{ name, operands, line }];
   }
 
   private encodeInstruction(
