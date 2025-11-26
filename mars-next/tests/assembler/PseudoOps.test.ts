@@ -1,8 +1,16 @@
 import assert from "node:assert";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { describe, test } from "node:test";
 
 import { Assembler } from "../../src/core/assembler/Assembler";
-import { buildPseudoOpDocumentation, parsePseudoOpsFile } from "../../src/core/assembler/PseudoOps";
+import {
+  buildPseudoOpDocumentation,
+  loadPseudoOpTable,
+  parsePseudoOpsFile,
+  resetPseudoOpCacheForTesting,
+} from "../../src/core/assembler/PseudoOps";
 
 describe("Pseudo-op table bootstrap", () => {
   test("loads definitions during assembler initialization", () => {
@@ -71,6 +79,76 @@ end: nop
       () => assembler.assemble("addi $t0, $t1, 100000\n"),
       /Pseudo-instruction addi is disabled.*Enable pseudo-instructions/,
     );
+  });
+});
+
+describe("User-supplied pseudo-op table", () => {
+  test("overrides bundled definitions from a working directory file", () => {
+    const originalCwd = process.cwd();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "pseudoops-wd-"));
+
+    try {
+      fs.writeFileSync(
+        path.join(tempDir, "PseudoOps.txt"),
+        [
+          "li $t0, 123\taddi RG1, $zero, 123",
+          "foo $t1\taddu RG1, RG2, $zero\t#custom foo",
+        ].join("\n"),
+        "utf8",
+      );
+
+      process.chdir(tempDir);
+      resetPseudoOpCacheForTesting();
+
+      const table = loadPseudoOpTable();
+
+      const liForms = table.get("li");
+      assert.deepStrictEqual(liForms?.[0]?.templates, ["addi RG1, $zero, 123"]);
+      assert.strictEqual(liForms?.[0]?.description, undefined);
+
+      const fooForms = table.get("foo");
+      assert.ok(fooForms);
+      assert.strictEqual(fooForms?.[0]?.description, "custom foo");
+
+      const bundledNot = table.get("not");
+      assert.ok(bundledNot, "built-in definitions should still be present");
+    } finally {
+      process.chdir(originalCwd);
+      resetPseudoOpCacheForTesting();
+    }
+  });
+
+  test("loads JSON pseudo-op overrides from a config directory", () => {
+    const originalCwd = process.cwd();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "pseudoops-config-"));
+    const configDir = path.join(tempDir, "config");
+    fs.mkdirSync(configDir);
+
+    try {
+      fs.writeFileSync(
+        path.join(configDir, "PseudoOps.json"),
+        JSON.stringify([
+          { example: "bar $t0", templates: ["addi RG1, $zero, 5"], description: "json override" },
+          { example: "baz $t1", templates: ["addu RG1, RG2, $zero"] },
+        ]),
+      );
+
+      process.chdir(tempDir);
+      resetPseudoOpCacheForTesting();
+
+      const table = loadPseudoOpTable();
+
+      const barForms = table.get("bar");
+      assert.ok(barForms);
+      assert.strictEqual(barForms?.[0]?.description, "json override");
+      assert.deepStrictEqual(barForms?.[0]?.templates, ["addi RG1, $zero, 5"]);
+
+      const bazForms = table.get("baz");
+      assert.ok(bazForms);
+    } finally {
+      process.chdir(originalCwd);
+      resetPseudoOpCacheForTesting();
+    }
   });
 });
 
