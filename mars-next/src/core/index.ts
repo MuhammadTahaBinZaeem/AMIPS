@@ -6,6 +6,7 @@ import { TerminalDevice } from "./devices/TerminalDevice";
 import { BreakpointEngine } from "./debugger/BreakpointEngine";
 import { WatchEngine } from "./debugger/WatchEngine";
 import { ProgramLoader, type ProgramLayout, type ProgramLoadOptions } from "./loader/ProgramLoader";
+import { Linker } from "./loader/Linker";
 import { Memory } from "./memory/Memory";
 import { MachineState } from "./state/MachineState";
 import { createDefaultSyscallHandlers, type SyscallDevices, type SyscallHandler } from "./syscalls/SyscallHandlers";
@@ -21,6 +22,7 @@ export * from "./memory/MemoryMap";
 export * from "./assembler/Assembler";
 export * from "./loader/ProgramLoader";
 export * from "./loader/ExecutableParser";
+export * from "./loader/Linker";
 export * from "./devices/Device";
 export * from "./devices/TerminalDevice";
 export * from "./devices/FileDevice";
@@ -235,11 +237,32 @@ export class CoreEngine {
   }
 }
 
-export function assemble(program: string): BinaryImage {
+export function assemble(program: string | string[]): BinaryImage {
+  if (Array.isArray(program)) {
+    return assembleFiles(program);
+  }
+
   const loader = new ProgramLoader(new Memory());
   const normalizedSource = loader.normalizeSource(program);
   const assembler = new Assembler();
   return assembler.assemble(normalizedSource);
+}
+
+export function assembleFiles(programs: string[]): BinaryImage {
+  if (programs.length === 0) {
+    throw new Error("No input files provided for assembly");
+  }
+
+  const loader = new ProgramLoader(new Memory());
+  const assembler = new Assembler();
+  const linker = new Linker();
+
+  const images = programs.map((program) => {
+    const normalized = loader.normalizeSource(program);
+    return assembler.assemble(normalized);
+  });
+
+  return linker.link(images);
 }
 
 export function createEngine(options: CoreEngineOptions = {}): CoreEngine {
@@ -253,7 +276,7 @@ export function loadMachineFromBinary(image: BinaryImage, options: CoreEngineOpt
 }
 
 export function assembleAndLoad(
-  source: string,
+  source: string | string[],
   options: CoreEngineOptions & { loadOptions?: ProgramLoadOptions } = {},
 ): { image: BinaryImage; layout: ProgramLayout; engine: CoreEngine } {
   const image = assemble(source);
