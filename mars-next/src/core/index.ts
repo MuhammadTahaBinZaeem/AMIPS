@@ -1,4 +1,4 @@
-import { Assembler, BinaryImage } from "./assembler/Assembler";
+import { Assembler, BinaryImage, type AssemblerOptions } from "./assembler/Assembler";
 import { InstructionDecoder } from "./cpu/Cpu";
 import { decodeInstruction } from "./cpu/Instructions";
 import { Pipeline, type PerformanceCounters } from "./cpu/Pipeline";
@@ -237,29 +237,29 @@ export class CoreEngine {
   }
 }
 
-export function assemble(program: string | string[]): BinaryImage {
+export function assemble(program: string | string[], assemblerOptions: AssemblerOptions = {}): BinaryImage {
   if (Array.isArray(program)) {
-    return assembleFiles(program);
+    return assembleFiles(program, assemblerOptions);
   }
 
   const loader = new ProgramLoader(new Memory());
   const normalizedSource = loader.normalizeSource(program);
-  const assembler = new Assembler();
-  return assembler.assemble(normalizedSource);
+  const assembler = new Assembler(assemblerOptions);
+  return assembler.assemble(normalizedSource, assemblerOptions);
 }
 
-export function assembleFiles(programs: string[]): BinaryImage {
+export function assembleFiles(programs: string[], assemblerOptions: AssemblerOptions = {}): BinaryImage {
   if (programs.length === 0) {
     throw new Error("No input files provided for assembly");
   }
 
   const loader = new ProgramLoader(new Memory());
-  const assembler = new Assembler();
+  const assembler = new Assembler(assemblerOptions);
   const linker = new Linker();
 
   const images = programs.map((program) => {
     const normalized = loader.normalizeSource(program);
-    return assembler.assemble(normalized);
+    return assembler.assemble(normalized, assemblerOptions);
   });
 
   return linker.link(images);
@@ -277,10 +277,11 @@ export function loadMachineFromBinary(image: BinaryImage, options: CoreEngineOpt
 
 export function assembleAndLoad(
   source: string | string[],
-  options: CoreEngineOptions & { loadOptions?: ProgramLoadOptions } = {},
+  options: CoreEngineOptions & { loadOptions?: ProgramLoadOptions; assemblerOptions?: AssemblerOptions } = {},
 ): { image: BinaryImage; layout: ProgramLayout; engine: CoreEngine } {
-  const image = assemble(source);
-  const engine = new CoreEngine(options);
-  const layout = engine.load(image, options.loadOptions);
+  const { assemblerOptions, loadOptions, ...engineOptions } = options;
+  const image = assemble(source, assemblerOptions);
+  const engine = new CoreEngine(engineOptions);
+  const layout = engine.load(image, loadOptions);
   return { image, layout, engine };
 }

@@ -51,4 +51,11 @@ end: nop
     assert.strictEqual(result.text[0], 0x3c011001);
     assert.strictEqual(result.text[1], 0x34280000);
   });
+
+  test("throws when pseudo-instructions are disabled", () => {
+    const assembler = new Assembler({ enablePseudoInstructions: false });
+
+    assert.throws(() => assembler.assemble("li $t0, 1"), /Pseudo-instruction li is disabled/);
+    assert.throws(() => assembler.assemble("addi $t0, $t1, 100000\n"), /Pseudo-instruction addi is disabled/);
+  });
 });

@@ -87,6 +87,8 @@ export interface SourceMapEntry {
 
 export interface AssemblerOptions extends IncludeProcessOptions {
   includeResolver?: IncludeResolver | null;
+  /** Whether pseudo-instructions should be expanded during assembly. Enabled by default. */
+  enablePseudoInstructions?: boolean;
 }
 
 export class Assembler {
@@ -140,6 +142,9 @@ export class Assembler {
   private readonly macroExpander = new MacroExpander(this.lexer);
   private readonly pseudoOpTable: PseudoOpTable;
 
+  private readonly defaultEnablePseudoInstructions: boolean;
+  private enablePseudoInstructions: boolean;
+
   private sourceLines: string[] = [];
 
   private readonly includeProcessor: IncludeProcessor;
@@ -154,13 +159,22 @@ export class Assembler {
       ...(includeResolver !== null && includeResolver !== undefined ? { resolver: includeResolver } : {}),
     };
     this.pseudoOpTable = loadPseudoOpTable();
+
+    this.defaultEnablePseudoInstructions = options.enablePseudoInstructions ?? true;
+    this.enablePseudoInstructions = this.defaultEnablePseudoInstructions;
   }
 
   getPseudoOpTable(): PseudoOpTable {
     return this.pseudoOpTable;
   }
 
+  private throwPseudoDisabled(instruction: InstructionNode): never {
+    throw new Error(`Pseudo-instruction ${instruction.name} is disabled (line ${instruction.line})`);
+  }
+
   assemble(source: string, options: AssemblerOptions = {}): BinaryImage {
+    this.enablePseudoInstructions = options.enablePseudoInstructions ?? this.defaultEnablePseudoInstructions;
+
     const includeOptions: IncludeProcessOptions = {
       baseDir: options.baseDir ?? this.defaultIncludeOptions.baseDir,
       sourceName: options.sourceName ?? this.defaultIncludeOptions.sourceName,
@@ -1228,12 +1242,16 @@ export class Assembler {
 
   private expandInstruction(instruction: InstructionNode): NormalizedInstruction[] {
     const { name, operands, line } = instruction;
+    const pseudoForms = this.pseudoOpTable.get(name);
+
     switch (name) {
       case "li": {
+        if (!this.enablePseudoInstructions) this.throwPseudoDisabled(instruction);
         const [dest, immediate] = operands;
         return this.expandLoadImmediate(dest, immediate, line, "li");
       }
       case "move": {
+        if (!this.enablePseudoInstructions) this.throwPseudoDisabled(instruction);
         const [dest, source] = operands;
         if (!dest || dest.kind !== "register" || !source || source.kind !== "register") {
           throw new Error(`move expects two register operands (line ${line})`);
@@ -1241,6 +1259,7 @@ export class Assembler {
         return [{ name: "addu", operands: [dest, source, { kind: "register", name: "$zero", register: 0 }], line }];
       }
       case "muli": {
+        if (!this.enablePseudoInstructions) this.throwPseudoDisabled(instruction);
         const [dest, source, immediate] = operands;
         if (!dest || dest.kind !== "register" || !source || source.kind !== "register") {
           throw new Error(`muli expects two registers followed by an immediate (line ${line})`);
@@ -1251,11 +1270,26 @@ export class Assembler {
         return [...loadImmediate, { name: "mul", operands: [dest, source, atRegister], line }];
       }
       case "nop":
+        if (!this.enablePseudoInstructions) this.throwPseudoDisabled(instruction);
         return [{ name: "sll", operands: [{ kind: "register", name: "$zero", register: 0 }, { kind: "register", name: "$zero", register: 0 }, { kind: "immediate", value: 0 }], line }];
     }
 
-    const pseudo = this.shouldUsePseudoTable(instruction) ? this.expandWithPseudoTable(instruction) : null;
+    const shouldExpand = this.shouldUsePseudoTable(instruction);
+    if (shouldExpand && !this.enablePseudoInstructions) {
+      if (Assembler.nativeInstructions.has(name) || (pseudoForms?.length ?? 0) > 0) {
+        this.throwPseudoDisabled(instruction);
+      }
+    }
+
+    const pseudo = shouldExpand && this.enablePseudoInstructions ? this.expandWithPseudoTable(instruction) : null;
     if (pseudo) return pseudo;
+
+    if (!Assembler.nativeInstructions.has(name)) {
+      if (!this.enablePseudoInstructions && (pseudoForms?.length ?? 0) > 0) {
+        this.throwPseudoDisabled(instruction);
+      }
+      throw new Error(`Unknown instruction ${name} (line ${line})`);
+    }
 
     return [{ name, operands, line }];
   }
