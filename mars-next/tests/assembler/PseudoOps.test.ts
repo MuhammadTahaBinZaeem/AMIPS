@@ -212,3 +212,24 @@ describe("Pseudo-op documentation", () => {
     assert.strictEqual(barDoc?.forms[0]?.description, "two-step load");
   });
 });
+
+describe("Pseudo-op macro substitutions", () => {
+  test("supports label high/low halves and LLPP offsets", () => {
+    const assembler = new Assembler();
+    const tokens = (assembler as any).tokenizeExample("bar $t0,label+4($t1)") as string[];
+
+    const withHigh = (assembler as any).applyPseudoTemplate("lui RG1, LH2P1", tokens) as string;
+    assert.strictEqual(withHigh, "lui $t0, (((((label+4) + 1) + 0x8000) >> 16) & 0xffff)");
+
+    const withLow = (assembler as any).applyPseudoTemplate("lwl RG1, LLPP3(RG4)", tokens) as string;
+    assert.strictEqual(withLow, "lwl $t0, (((((label+4) + 3)) << 16) >> 16)($t1)");
+  });
+
+  test("substitutes the first immediate token with IMM", () => {
+    const assembler = new Assembler();
+    const tokens = (assembler as any).tokenizeExample("immtest $t0,42") as string[];
+
+    const substituted = (assembler as any).applyPseudoTemplate("addi RG1, $zero, IMM", tokens) as string;
+    assert.strictEqual(substituted, "addi $t0, $zero, 42");
+  });
+});

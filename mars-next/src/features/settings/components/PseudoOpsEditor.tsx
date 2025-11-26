@@ -72,6 +72,28 @@ export function PseudoOpsEditor({ onSaved }: PseudoOpsEditorProps): React.JSX.El
           Edit the active <code>PseudoOps.txt</code> file. User overrides are saved to the working directory or
           <code>config/PseudoOps.txt</code>.
         </span>
+        <div style={{ color: "#94a3b8", fontSize: "0.9rem", display: "flex", flexDirection: "column", gap: "0.35rem" }}>
+          <span>Template substitutions supported in <code>PseudoOps.txt</code>:</span>
+          <ul style={{ margin: 0, paddingInlineStart: "1.25rem" }}>
+            <li>
+              <code>RGn</code>, <code>NRn</code>, <code>OPn</code>, <code>IMM</code>: registers, next register, raw tokens, or the
+              first immediate value from the source line.
+            </li>
+            <li>
+              <code>LLn</code>/<code>LLnU</code>/<code>LLnPm</code>, <code>LLP</code>/<code>LLPU</code>/<code>LLPPm</code>,
+              <code>LHn</code>/<code>LHnPm</code>, <code>LHPA</code>/<code>LHPN</code>/<code>LHPAPm</code>, <code>LHL</code>:
+              low/high 16-bit label halves with optional addends.
+            </li>
+            <li>
+              <code>VLn</code>/<code>VLnU</code>/<code>VLnPm(U)</code>, <code>VHn</code>/<code>VHnPm</code>, <code>VHLn</code>
+              /<code>VHLnPm</code>: value-based 16-bit halves with optional addends.
+            </li>
+            <li>
+              <code>LAB</code>, <code>S32</code>, <code>DBNOP</code>, <code>BROFFnm</code>, <code>COMPACT</code>: branch/label helpers
+              and compact-template separator.
+            </li>
+          </ul>
+        </div>
         {sourcePath && (
           <span style={{ color: "#9ca3af", fontSize: "0.85rem" }}>Currently loaded from: {sourcePath}</span>
         )}

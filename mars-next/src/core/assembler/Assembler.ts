@@ -1091,7 +1091,7 @@ export class Assembler {
 
   private applyPseudoTemplate(template: string, tokens: string[]): string {
     const macroPattern =
-      /(RG\d+|NR\d+|OP\d+|LLPP\d|LLP[AU]?|LLP\d|LL\d+P?\d?U?|LHPA|LHPN|LHPAP\d|LHL|VH\d+P?\d?|VHL\d+P?\d?|VL\d+P?\d?U?|LAB|S32|DBNOP|BROFF\d\d)/g;
+      /(RG\d+|NR\d+|OP\d+|IMM|LLPP\d|LLP[AU]?|LLP\d|LL\d+P?\d?U?|LH\d+P?\d?|LHPA|LHPN|LHPAP\d|LHL|VH\d+P?\d?|VHL\d+P?\d?|VL\d+P?\d?U?|LAB|S32|DBNOP|BROFF\d\d)/g;
 
     return template.replace(macroPattern, (macro) => this.expandMacro(macro, tokens));
   }
@@ -1101,7 +1101,9 @@ export class Assembler {
     if (macro === "DBNOP") return "nop";
     if (macro.startsWith("BROFF") && macro.length === 7) return macro.substring(5, 6);
     if (macro === "LAB") return tokens[tokens.length - 1] ?? "";
-    if (macro === "LHL") return this.high16(tokens[2] ?? "", false);
+    if (macro === "LHL") return this.high16(this.labelExpression(tokens, 2), false);
+
+    if (macro === "IMM") return this.findImmediateToken(tokens);
 
     const rg = macro.match(/^RG(\d+)$/);
     if (rg) return tokens[Number(rg[1])] ?? "";
@@ -1121,7 +1123,13 @@ export class Assembler {
     if (llpNoIndex) {
       const addend = llpNoIndex[2] ? Number(llpNoIndex[2]) : 0;
       const unsigned = llpNoIndex[3] !== undefined;
-      return this.low16(tokens[2] ?? "", !unsigned, addend);
+      return this.low16(this.labelExpression(tokens, 2), !unsigned, addend);
+    }
+
+    const llpp = macro.match(/^LLPP(\d)$/);
+    if (llpp) {
+      const addend = Number(llpp[1]);
+      return this.low16(this.labelExpression(tokens, 2), true, addend);
     }
 
     const ll = macro.match(/^LL(\d+)(P(\d))?(U)?$/);
@@ -1129,29 +1137,36 @@ export class Assembler {
       const index = Number(ll[1]);
       const addend = ll[3] ? Number(ll[3]) : 0;
       const unsigned = ll[4] !== undefined;
-      return this.low16(tokens[index] ?? "", !unsigned, addend);
+      return this.low16(this.labelExpression(tokens, index), !unsigned, addend);
     }
 
     const lhpa = macro.match(/^LHPA(P(\d))?$/);
     if (lhpa) {
       const addend = lhpa[2] ? Number(lhpa[2]) : 0;
-      return this.high16(tokens[2] ?? "", true, addend);
+      return this.high16(this.labelExpression(tokens, 2), true, addend);
     }
 
-    if (macro === "LHPN") return this.high16(tokens[2] ?? "", false);
+    if (macro === "LHPN") return this.high16(this.labelExpression(tokens, 2), false);
+
+    const lh = macro.match(/^LH(\d+)(P(\d))?$/);
+    if (lh) {
+      const index = Number(lh[1]);
+      const addend = lh[3] ? Number(lh[3]) : 0;
+      return this.high16(this.labelExpression(tokens, index), true, addend);
+    }
 
     const vh = macro.match(/^VH(\d+)(P(\d))?$/);
     if (vh) {
       const index = Number(vh[1]);
       const addend = vh[3] ? Number(vh[3]) : 0;
-      return this.high16(tokens[index] ?? "", true, addend);
+      return this.high16(this.labelExpression(tokens, index), true, addend);
     }
 
     const vhl = macro.match(/^VHL(\d+)(P(\d))?$/);
     if (vhl) {
       const index = Number(vhl[1]);
       const addend = vhl[3] ? Number(vhl[3]) : 0;
-      return this.high16(tokens[index] ?? "", false, addend);
+      return this.high16(this.labelExpression(tokens, index), false, addend);
     }
 
     const vl = macro.match(/^VL(\d+)(P(\d))?(U)?$/);
@@ -1159,7 +1174,7 @@ export class Assembler {
       const index = Number(vl[1]);
       const addend = vl[3] ? Number(vl[3]) : 0;
       const unsigned = vl[4] !== undefined;
-      return this.low16(tokens[index] ?? "", !unsigned, addend);
+      return this.low16(this.labelExpression(tokens, index), !unsigned, addend);
     }
 
     if (macro === "S32") {
@@ -1169,6 +1184,30 @@ export class Assembler {
     }
 
     return macro;
+  }
+
+  private findImmediateToken(tokens: string[]): string {
+    for (let i = 1; i < tokens.length; i++) {
+      if (this.isNumericToken(tokens[i])) return tokens[i];
+    }
+
+    return tokens[tokens.length - 1] ?? "";
+  }
+
+  private labelExpression(tokens: string[], index: number): string {
+    let base = tokens[index] ?? "";
+    const sign = tokens[index + 1];
+    const offset = tokens[index + 2];
+
+    if ((sign === "+" || sign === "-") && offset) {
+      return `(${base} ${sign} ${offset})`;
+    }
+
+    if (/[+-]/.test(base)) {
+      base = `(${base})`;
+    }
+
+    return base;
   }
 
   private low16(source: string, signed: boolean, addend = 0): string {
