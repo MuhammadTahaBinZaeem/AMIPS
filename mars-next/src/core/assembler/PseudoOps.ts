@@ -27,10 +27,28 @@ export function loadPseudoOpTable(): PseudoOpTable {
   if (cachedPseudoOps) return cachedPseudoOps;
 
   const fs = require("fs") as typeof import("fs");
-  const resolvedPath = resolvePseudoOpsPath(fs);
-  const contents = fs.readFileSync(resolvedPath, "utf8");
-  cachedPseudoOps = parsePseudoOpsFile(contents);
+  const pathModule = require("path") as typeof import("path");
+
+  const builtInPath = resolvePseudoOpsPath(fs, pathModule);
+  const builtInContents = fs.readFileSync(builtInPath, "utf8");
+  const table = parsePseudoOpsFile(builtInContents);
+
+  const userPath = resolveUserPseudoOpsPath(fs, pathModule);
+  if (userPath) {
+    const userContents = fs.readFileSync(userPath, "utf8");
+    const userTable = isJsonPseudoOpFile(userPath)
+      ? parsePseudoOpsJson(userContents)
+      : parsePseudoOpsFile(userContents);
+    mergePseudoOpTables(table, userTable);
+  }
+
+  cachedPseudoOps = table;
   return cachedPseudoOps;
+}
+
+/** Reset the cached pseudo-op table (intended for tests). */
+export function resetPseudoOpCacheForTesting(): void {
+  cachedPseudoOps = null;
 }
 
 /**
@@ -48,14 +66,32 @@ export function parsePseudoOpsFile(contents: string): PseudoOpTable {
     const parsed = parsePseudoOpLine(body, description);
     if (!parsed) continue;
 
-    const existing = table.get(parsed.mnemonic) ?? [];
-    existing.push({
-      tokens: parsed.tokens,
-      example: parsed.example,
-      templates: parsed.templates,
-      description: parsed.description,
-    });
-    table.set(parsed.mnemonic, existing);
+    addDefinition(table, parsed);
+  }
+
+  return table;
+}
+
+/**
+ * Parse a JSON pseudo-op table. The JSON may be an object whose keys are mnemonics mapping to
+ * one or more forms, or an array of objects containing at least `example` and `templates`.
+ */
+export function parsePseudoOpsJson(contents: string): PseudoOpTable {
+  const parsed = JSON.parse(contents) as unknown;
+  const table: PseudoOpTable = new Map();
+
+  if (Array.isArray(parsed)) {
+    for (const entry of parsed) {
+      addJsonEntry(table, entry, undefined);
+    }
+  } else if (parsed && typeof parsed === "object") {
+    for (const [mnemonic, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (Array.isArray(value)) {
+        for (const entry of value) addJsonEntry(table, entry, mnemonic);
+      } else {
+        addJsonEntry(table, value, mnemonic);
+      }
+    }
   }
 
   return table;
@@ -93,27 +129,13 @@ function parsePseudoOpLine(
   if (parts.length < 2) return null;
 
   const [example, ...rest] = parts;
-  const tokens = tokenizeExample(example);
-  if (tokens.length === 0) return null;
-
   const templates: string[] = [];
-  let description: string | undefined;
 
   for (const segment of rest) {
     templates.push(segment);
   }
 
-  if (templates.length === 0) return null;
-
-  description = descriptionFromComment ?? description;
-
-  return {
-    mnemonic: tokens[0]?.toLowerCase(),
-    tokens,
-    example,
-    templates,
-    description,
-  };
+  return createDefinition(example, templates, descriptionFromComment);
 }
 
 function tokenizeExample(example: string): string[] {
@@ -154,9 +176,10 @@ function stripInlineComment(line: string): { body: string; description?: string 
     description: line.substring(hashIndex + 1).trim(),
   };
 }
-
-function resolvePseudoOpsPath(fs: { existsSync: (path: string) => boolean; readFileSync: ReadFileSync }): string {
-  const pathModule = require("path") as typeof import("path");
+function resolvePseudoOpsPath(
+  fs: { existsSync: (path: string) => boolean; readFileSync: ReadFileSync },
+  pathModule: typeof import("path"),
+): string {
   const candidates: string[] = [];
 
   if (typeof __dirname !== "undefined") {
@@ -169,4 +192,84 @@ function resolvePseudoOpsPath(fs: { existsSync: (path: string) => boolean; readF
   if (found) return found;
 
   throw new Error("PseudoOps.txt not found. Checked: " + candidates.join(", "));
+}
+
+function resolveUserPseudoOpsPath(
+  fs: { existsSync: (path: string) => boolean },
+  pathModule: typeof import("path"),
+): string | null {
+  const candidates = [
+    pathModule.resolve(process.cwd(), "PseudoOps.txt"),
+    pathModule.resolve(process.cwd(), "PseudoOps.json"),
+    pathModule.resolve(process.cwd(), "config", "PseudoOps.txt"),
+    pathModule.resolve(process.cwd(), "config", "PseudoOps.json"),
+  ];
+
+  return candidates.find((candidate) => fs.existsSync(candidate)) ?? null;
+}
+
+function mergePseudoOpTables(base: PseudoOpTable, overrides: PseudoOpTable): void {
+  for (const [mnemonic, definitions] of overrides.entries()) {
+    base.set(mnemonic, definitions);
+  }
+}
+
+function isJsonPseudoOpFile(path: string): boolean {
+  const pathModule = require("path") as typeof import("path");
+  return pathModule.extname(path).toLowerCase() === ".json";
+}
+
+function addJsonEntry(table: PseudoOpTable, entry: unknown, mnemonicHint: string | undefined): void {
+  if (!entry || typeof entry !== "object") return;
+
+  const { example, templates, description } = entry as Partial<{
+    example: string;
+    templates: unknown;
+    description?: string;
+    mnemonic?: string;
+  }>;
+
+  if (!example || typeof example !== "string") return;
+  if (!Array.isArray(templates)) return;
+
+  const stringTemplates = templates.filter((template) => typeof template === "string") as string[];
+  if (stringTemplates.length === 0) return;
+
+  const definition = createDefinition(example, stringTemplates, description, mnemonicHint ?? (entry as { mnemonic?: string }).mnemonic);
+  if (!definition) return;
+
+  addDefinition(table, definition);
+}
+
+function createDefinition(
+  example: string,
+  templates: string[],
+  description?: string,
+  mnemonicHint?: string,
+): { mnemonic: string; tokens: string[]; example: string; templates: string[]; description?: string } | null {
+  const tokens = tokenizeExample(example);
+  if (tokens.length === 0) return null;
+  if (templates.length === 0) return null;
+
+  const mnemonic = (mnemonicHint ?? tokens[0])?.toLowerCase();
+  if (!mnemonic) return null;
+
+  return { mnemonic, tokens, example, templates, description };
+}
+
+function addDefinition(table: PseudoOpTable, parsed: {
+  mnemonic: string;
+  tokens: string[];
+  example: string;
+  templates: string[];
+  description?: string;
+}): void {
+  const existing = table.get(parsed.mnemonic) ?? [];
+  existing.push({
+    tokens: parsed.tokens,
+    example: parsed.example,
+    templates: parsed.templates,
+    description: parsed.description,
+  });
+  table.set(parsed.mnemonic, existing);
 }
