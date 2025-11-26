@@ -5,6 +5,7 @@ import { RunToolbar } from "../features/run-control";
 import { EditorPane } from "../features/editor";
 import { BreakpointManagerPanel, BreakpointList, BreakpointSpec, WatchManagerPanel, WatchSpec } from "../features/breakpoints";
 import { resolveInstructionIndex, toggleBreakpoint } from "../features/breakpoints/services/breakpointService";
+import { SettingsDialog } from "../features/settings";
 import { BinaryImage, CoreEngine, MachineState, SourceMapEntry, assembleAndLoad } from "../core";
 
 const SAMPLE_PROGRAM = `# Simple hello-style program
@@ -39,6 +40,7 @@ export function App(): React.JSX.Element {
   const [editorBreakpoints, setEditorBreakpoints] = useState<number[]>([]);
   const [activeLine, setActiveLine] = useState<number | null>(null);
   const [activeFile, setActiveFile] = useState<string | null>(null);
+  const [enablePseudoInstructions, setEnablePseudoInstructions] = useState(true);
 
   const handleToggleEditorBreakpoint = useCallback(
     (line: number): void => {
@@ -132,7 +134,9 @@ export function App(): React.JSX.Element {
     setActiveFile(null);
     try {
       setStatus("Assembling...");
-      const { engine: loadedEngine, layout, image } = assembleAndLoad(source);
+      const { engine: loadedEngine, layout, image } = assembleAndLoad(source, {
+        assemblerOptions: { enablePseudoInstructions },
+      });
       setEngine(loadedEngine);
       setSymbolTable(layout.symbols);
       setProgram(image);
@@ -198,6 +202,10 @@ export function App(): React.JSX.Element {
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+        <SettingsDialog
+          enablePseudoInstructions={enablePseudoInstructions}
+          onTogglePseudoInstructions={setEnablePseudoInstructions}
+        />
         <RunToolbar onRun={handleRun} status={status} />
         {activeLine !== null && (
           <div style={{ color: "#a5b4fc", fontWeight: 600 }}>

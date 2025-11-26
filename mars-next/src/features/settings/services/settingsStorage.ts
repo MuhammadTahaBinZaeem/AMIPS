@@ -1,5 +1,5 @@
 import { type SettingsState } from "../state/settingsSlice";
 
 export function loadSettings(): SettingsState {
-  return { theme: "light" };
+  return { theme: "light", enablePseudoInstructions: true };
 }
