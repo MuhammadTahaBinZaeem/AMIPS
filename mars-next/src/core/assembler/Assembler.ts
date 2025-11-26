@@ -1213,6 +1213,20 @@ export class Assembler {
       case "or":
       case "xor":
         return op3?.kind !== "register";
+      case "lb":
+      case "lbu":
+      case "lh":
+      case "lhu":
+      case "lw":
+      case "sb":
+      case "sh":
+      case "sw": {
+        const memoryOperand = instruction.operands[1];
+        if (!memoryOperand || memoryOperand.kind !== "memory") return true;
+        const offset = memoryOperand.offset;
+        if (offset.kind !== "immediate") return false;
+        return !this.fitsSigned16(offset.value);
+      }
       default:
         return false;
     }

@@ -84,6 +84,27 @@ describe("Assembler pipeline", () => {
     assert.strictEqual(image.symbols["store_offset"], 0x12);
   });
 
+  test("expands wide memory offsets using pseudo-op table", () => {
+    const source = "lw $t0, 100000($t1)";
+
+    const image = new Assembler().assemble(source);
+
+    const offset = 100000;
+    const upper = (offset + 0x8000) >>> 16;
+    const lower = offset & 0xffff;
+    const at = 1;
+    const base = 9; // $t1
+    const dest = 8; // $t0
+
+    const expected = [
+      (0x0f << 26) | (at << 16) | upper, // lui $at, upper
+      (0 << 26) | (at << 21) | (base << 16) | (at << 11) | 0x21, // addu $at, $at, $t1
+      (0x23 << 26) | (at << 21) | (dest << 16) | lower, // lw $t0, lower($at)
+    ];
+
+    assert.deepStrictEqual(toHexWords(image.text), toHexWords(expected));
+  });
+
   test("expands muli pseudo-instruction using mul", () => {
     const source = "muli $t0, $t1, 5";
 
