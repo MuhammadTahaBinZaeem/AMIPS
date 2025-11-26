@@ -1,4 +1,5 @@
 import { BinaryImage, RelocationRecord, RelocationType, SymbolTableEntry } from "../assembler/Assembler";
+import { Linker } from "./Linker";
 import { DEFAULT_TEXT_BASE } from "../state/MachineState";
 
 const DEFAULT_DATA_BASE = 0x10010000;
@@ -72,6 +73,12 @@ interface SymbolInfo {
  * sections, symbol table entries and applying basic MIPS relocations.
  */
 export class ExecutableParser {
+  parseExecutables(binaries: Uint8Array[]): BinaryImage {
+    const linker = new Linker();
+    const images = binaries.map((binary) => this.parseExecutable(binary));
+    return linker.link(images);
+  }
+
   parseExecutable(binary: Uint8Array): BinaryImage {
     if (this.isElf(binary)) {
       return this.parseElf(binary);
