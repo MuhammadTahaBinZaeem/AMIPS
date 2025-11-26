@@ -8,6 +8,7 @@ import {
 import { Lexer } from "./Lexer";
 import { MacroExpander } from "./MacroExpander";
 import { ExpressionNode, InstructionNode, Operand, Parser, ProgramAst, Segment } from "./Parser";
+import { loadPseudoOpTable, type PseudoOpTable } from "./PseudoOps";
 
 export type RelocationType = "MIPS_32" | "MIPS_26" | "MIPS_PC16" | "MIPS_HI16" | "MIPS_LO16";
 
@@ -92,6 +93,7 @@ export class Assembler {
   private readonly lexer = new Lexer();
   private readonly parser = new Parser();
   private readonly macroExpander = new MacroExpander(this.lexer);
+  private readonly pseudoOpTable: PseudoOpTable;
 
   private readonly includeProcessor: IncludeProcessor;
   private readonly defaultIncludeOptions: IncludeProcessOptions;
@@ -104,6 +106,11 @@ export class Assembler {
       sourceName: options.sourceName,
       ...(includeResolver !== null && includeResolver !== undefined ? { resolver: includeResolver } : {}),
     };
+    this.pseudoOpTable = loadPseudoOpTable();
+  }
+
+  getPseudoOpTable(): PseudoOpTable {
+    return this.pseudoOpTable;
   }
 
   assemble(source: string, options: AssemblerOptions = {}): BinaryImage {
