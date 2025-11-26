@@ -263,8 +263,18 @@ export class Parser {
 
     // Memory operand: offset(base)
     if (allowMemory && tokens.length >= 3) {
-      const lparenIndex = tokens.findIndex((token) => token.type === "lparen");
-      const rparenIndex = tokens.findIndex((token) => token.type === "rparen");
+      const lparenIndex = (() => {
+        for (let i = tokens.length - 1; i >= 0; i--) {
+          if (tokens[i]?.type === "lparen") return i;
+        }
+        return -1;
+      })();
+      const rparenIndex = (() => {
+        for (let i = tokens.length - 1; i >= 0; i--) {
+          if (tokens[i]?.type === "rparen") return i;
+        }
+        return -1;
+      })();
       const hasRegisterBetween =
         lparenIndex !== -1 &&
         rparenIndex !== -1 &&
@@ -309,8 +319,19 @@ export class Parser {
   }
 
   private parseMemoryOperand(tokens: Token[], line: number): Operand {
-    const lparenIndex = tokens.findIndex((token) => token.type === "lparen");
-    const rparenIndex = tokens.findIndex((token) => token.type === "rparen");
+    const lparenIndex = (() => {
+      for (let i = tokens.length - 1; i >= 0; i--) {
+        if (tokens[i]?.type === "lparen") return i;
+      }
+      return -1;
+    })();
+
+    const rparenIndex = (() => {
+      for (let i = tokens.length - 1; i >= 0; i--) {
+        if (tokens[i]?.type === "rparen") return i;
+      }
+      return -1;
+    })();
 
     if (lparenIndex === -1 || rparenIndex === -1 || rparenIndex < lparenIndex) {
       throw new Error(`Malformed memory operand at line ${line}`);
