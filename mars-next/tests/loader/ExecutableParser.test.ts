@@ -2,12 +2,15 @@ import assert from "node:assert";
 import { describe, test } from "node:test";
 
 import { ExecutableParser } from "../../src/core/loader/ExecutableParser";
+import { ProgramLoader } from "../../src/core/loader/ProgramLoader";
+import { Memory } from "../../src/core/memory/Memory";
+import { MachineState } from "../../src/core/state/MachineState";
 
 const TEXT_ADDRESS = 0x00400000;
 const DATA_ADDRESS = 0x10010000;
 
 describe("ExecutableParser", () => {
-  test("parses a relocatable ELF image and applies MIPS relocations", () => {
+  test("parses a relocatable ELF image and exposes relocation records", () => {
     const elfBytes = buildRelocatableElf();
     const parser = new ExecutableParser();
 
@@ -15,9 +18,19 @@ describe("ExecutableParser", () => {
 
     assert.strictEqual(image.textBase, TEXT_ADDRESS);
     assert.strictEqual(image.dataBase, DATA_ADDRESS);
-    assert.deepStrictEqual(image.text, [0x10010000, 0x3c011001, 0x34210000]);
+    assert.deepStrictEqual(image.text, [0, 0x3c010000, 0x34210000]);
     assert.deepStrictEqual(image.data, [1, 2, 3, 4]);
-    assert.strictEqual(image.symbols.dataVal, DATA_ADDRESS);
+    assert.ok(image.symbolTable.some((entry) => entry.name === "dataVal"));
+    assert.deepStrictEqual(
+      image.relocations.map(({ segment, offset, type, symbol }) => ({ segment, offset, type, symbol })),
+      [
+        { segment: "text", offset: 0, type: "MIPS_32", symbol: "dataVal" },
+        { segment: "text", offset: 4, type: "MIPS_HI16", symbol: "dataVal" },
+        { segment: "text", offset: 8, type: "MIPS_LO16", symbol: "dataVal" },
+      ],
+    );
+
+    assertLoadsWithRelocations(image, "dataVal");
   });
 
   test("parses a COFF object with relocations", () => {
@@ -28,11 +41,45 @@ describe("ExecutableParser", () => {
 
     assert.strictEqual(image.textBase, TEXT_ADDRESS);
     assert.strictEqual(image.dataBase, DATA_ADDRESS);
-    assert.deepStrictEqual(image.text, [0x10010000, 0x3c011001, 0x34210000]);
+    assert.deepStrictEqual(image.text, [0, 0x3c010000, 0x34210000]);
     assert.deepStrictEqual(image.data, [1, 2, 3, 4]);
-    assert.strictEqual(image.symbols.data, DATA_ADDRESS);
+    assert.ok(image.symbolTable.some((entry) => entry.name === "data"));
+    assert.deepStrictEqual(
+      image.relocations.map(({ segment, offset, type, symbol }) => ({ segment, offset, type, symbol })),
+      [
+        { segment: "text", offset: 0, type: "MIPS_32", symbol: "data" },
+        { segment: "text", offset: 4, type: "MIPS_HI16", symbol: "data" },
+        { segment: "text", offset: 8, type: "MIPS_LO16", symbol: "data" },
+      ],
+    );
+
+    assertLoadsWithRelocations(image, "data");
   });
 });
+
+function assertLoadsWithRelocations(image: ReturnType<ExecutableParser["parseExecutable"]>, symbolName: string): void {
+  const memory = new Memory();
+  const loader = new ProgramLoader(memory);
+  const state = new MachineState();
+
+  const layout = loader.loadProgram(state, image);
+
+  const loadedText = [
+    memory.readWord(TEXT_ADDRESS),
+    memory.readWord(TEXT_ADDRESS + 4),
+    memory.readWord(TEXT_ADDRESS + 8),
+  ];
+  const loadedData = [
+    memory.readByte(DATA_ADDRESS),
+    memory.readByte(DATA_ADDRESS + 1),
+    memory.readByte(DATA_ADDRESS + 2),
+    memory.readByte(DATA_ADDRESS + 3),
+  ];
+
+  assert.deepStrictEqual(loadedText, [0x10010000, 0x3c011001, 0x34210000]);
+  assert.deepStrictEqual(loadedData, [1, 2, 3, 4]);
+  assert.strictEqual(layout.symbols[symbolName], DATA_ADDRESS);
+}
 
 function buildRelocatableElf(): Uint8Array {
   const ELF_HEADER_SIZE = 52;

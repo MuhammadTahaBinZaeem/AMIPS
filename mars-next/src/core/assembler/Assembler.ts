@@ -9,6 +9,22 @@ import { Lexer } from "./Lexer";
 import { MacroExpander } from "./MacroExpander";
 import { ExpressionNode, InstructionNode, Operand, Parser, ProgramAst, Segment } from "./Parser";
 
+export type RelocationType = "MIPS_32" | "MIPS_26" | "MIPS_PC16" | "MIPS_HI16" | "MIPS_LO16";
+
+export interface RelocationRecord {
+  segment: Segment;
+  offset: number;
+  symbol: string;
+  type: RelocationType;
+  addend?: number;
+}
+
+export interface SymbolTableEntry {
+  name: string;
+  address: number;
+  segment?: Segment | null;
+}
+
 export interface BinaryImage {
   textBase: number;
   dataBase: number;
@@ -21,6 +37,9 @@ export interface BinaryImage {
   kdata: number[]; // kernel data bytes
   kdataWords: number[]; // kernel data values aligned to 4 bytes
   symbols: Record<string, number>;
+  relocations: RelocationRecord[];
+  symbolTable: SymbolTableEntry[];
+  littleEndian?: boolean;
   sourceMap?: SourceMapEntry[];
 }
 
@@ -102,8 +121,52 @@ export class Assembler {
       dataWords,
       kdataWords,
       symbols: Object.fromEntries(symbols),
+      relocations: [],
+      symbolTable: this.buildSymbolTableEntries(symbols, {
+        textBase: DEFAULT_TEXT_BASE,
+        textLength: text.length,
+        dataBase: DEFAULT_DATA_BASE,
+        dataLength: data.length,
+        ktextBase: DEFAULT_KTEXT_BASE,
+        ktextLength: ktext.length,
+        kdataBase: DEFAULT_KDATA_BASE,
+        kdataLength: kdata.length,
+      }),
       sourceMap,
     };
+  }
+
+  private buildSymbolTableEntries(
+    symbols: SymbolTable,
+    layout: {
+      textBase: number;
+      textLength: number;
+      dataBase: number;
+      dataLength: number;
+      ktextBase: number;
+      ktextLength: number;
+      kdataBase: number;
+      kdataLength: number;
+    },
+  ): SymbolTableEntry[] {
+    const textEnd = layout.textBase + layout.textLength * 4;
+    const dataEnd = layout.dataBase + layout.dataLength;
+    const ktextEnd = layout.ktextBase + layout.ktextLength * 4;
+    const kdataEnd = layout.kdataBase + layout.kdataLength;
+
+    const resolveSegment = (address: number): Segment | null => {
+      if (address >= layout.textBase && address < textEnd) return "text";
+      if (address >= layout.dataBase && address < dataEnd) return "data";
+      if (address >= layout.ktextBase && address < ktextEnd) return "ktext";
+      if (address >= layout.kdataBase && address < kdataEnd) return "kdata";
+      return null;
+    };
+
+    return Array.from(symbols.entries()).map(([name, address]) => ({
+      name,
+      address,
+      segment: resolveSegment(address),
+    }));
   }
 
   private createLocationResolver(
