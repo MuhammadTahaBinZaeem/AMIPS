@@ -91,4 +91,39 @@ describe("ProgramLoader", () => {
     assert.strictEqual(state.getRegister(28), DEFAULT_GLOBAL_POINTER);
     assert.strictEqual(state.getRegister(29), DEFAULT_STACK_POINTER);
   });
+
+  test("normalizeSource expands .include files and macros", () => {
+    const loader = new ProgramLoader(new Memory());
+
+    const normalized = loader.normalizeSource(
+      `
+        .include "lib.s"
+
+        main:
+          loadimm $t0, 5
+          j helper
+          nop
+      `,
+      {
+        baseDir: "/tmp",
+        resolver: (path) => {
+          if (!path.endsWith("lib.s")) throw new Error(`Unexpected include: ${path}`);
+          return `
+            .macro loadimm reg, value
+              addi reg, $zero, value
+            .end_macro
+
+            helper:
+              addi $t1, $zero, 10
+          `;
+        },
+      },
+    );
+
+    assert.match(normalized, /helper\s*:\s*addi\s+\$t1\s*,\s*\$zero\s*,\s*10/);
+    assert.match(normalized, /addi\s+\$t0\s*,\s*\$zero\s*,\s*5/);
+    assert.ok(!normalized.includes(".include"));
+    assert.ok(!normalized.includes("loadimm"));
+    assert.ok(!/\.macro/.test(normalized));
+  });
 });

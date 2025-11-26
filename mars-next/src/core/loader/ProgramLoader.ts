@@ -1,4 +1,7 @@
 import { BinaryImage, RelocationRecord } from "../assembler/Assembler";
+import { IncludeProcessor, type IncludeProcessOptions } from "../assembler/IncludeProcessor";
+import { MacroExpander } from "../assembler/MacroExpander";
+import { Lexer } from "../assembler/Lexer";
 import { Memory } from "../memory/Memory";
 import {
   DEFAULT_GLOBAL_POINTER,
@@ -35,10 +38,27 @@ export interface ProgramLayout {
 }
 
 export class ProgramLoader {
-  constructor(private readonly memory: Memory) {}
+  private readonly includeProcessor: IncludeProcessor;
+  private readonly macroExpander: MacroExpander;
 
-  normalizeSource(source: string): string {
-    return source;
+  constructor(private readonly memory: Memory) {
+    const lexer = new Lexer();
+    this.includeProcessor = new IncludeProcessor(lexer);
+    this.macroExpander = new MacroExpander(lexer);
+  }
+
+  normalizeSource(source: string, options: IncludeProcessOptions = {}): string {
+    const includeOptions: IncludeProcessOptions = {
+      baseDir: options.baseDir,
+      sourceName: options.sourceName,
+    };
+
+    if (options.resolver !== undefined) {
+      includeOptions.resolver = options.resolver;
+    }
+
+    const withIncludes = this.includeProcessor.process(source, includeOptions);
+    return this.macroExpander.expand(withIncludes.source);
   }
 
   loadProgram(state: MachineState, binary: BinaryImage, options: ProgramLoadOptions = {}): ProgramLayout {
