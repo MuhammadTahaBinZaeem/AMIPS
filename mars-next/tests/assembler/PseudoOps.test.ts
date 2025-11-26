@@ -7,6 +7,7 @@ import { describe, test } from "node:test";
 import { Assembler } from "../../src/core/assembler/Assembler";
 import {
   buildPseudoOpDocumentation,
+  getPseudoOpDocumentation,
   loadPseudoOpTable,
   parsePseudoOpsFile,
   reloadPseudoOpTable,
@@ -210,6 +211,35 @@ describe("Pseudo-op documentation", () => {
     assert.strictEqual(fooDoc?.forms[0]?.description, "load immediate into foo");
     assert.deepStrictEqual(barDoc?.forms[0]?.expansions, ["lui RG1, VHL2", "ori RG1, RG1, VL2U"]);
     assert.strictEqual(barDoc?.forms[0]?.description, "two-step load");
+  });
+
+  test("refreshes documentation after reloading pseudo-ops", () => {
+    const originalCwd = process.cwd();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "pseudoops-docs-"));
+
+    try {
+      const pseudoOpsPath = path.join(tempDir, "PseudoOps.txt");
+      fs.writeFileSync(pseudoOpsPath, "foo $t0\taddi RG1, $zero, 1\t#first description", "utf8");
+
+      process.chdir(tempDir);
+      resetPseudoOpCacheForTesting();
+
+      let docs = getPseudoOpDocumentation();
+      let fooDoc = docs.find((entry) => entry.mnemonic === "foo");
+      assert.strictEqual(fooDoc?.forms[0]?.expansions[0], "addi RG1, $zero, 1");
+      assert.strictEqual(fooDoc?.forms[0]?.description, "first description");
+
+      fs.writeFileSync(pseudoOpsPath, "foo $t0\taddi RG1, $zero, 2\t#second description", "utf8");
+      reloadPseudoOpTable();
+
+      docs = getPseudoOpDocumentation();
+      fooDoc = docs.find((entry) => entry.mnemonic === "foo");
+      assert.strictEqual(fooDoc?.forms[0]?.expansions[0], "addi RG1, $zero, 2");
+      assert.strictEqual(fooDoc?.forms[0]?.description, "second description");
+    } finally {
+      process.chdir(originalCwd);
+      resetPseudoOpCacheForTesting();
+    }
   });
 });
 
