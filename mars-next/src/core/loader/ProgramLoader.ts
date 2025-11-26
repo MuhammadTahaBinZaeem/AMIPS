@@ -129,7 +129,7 @@ export class ProgramLoader {
         }
         case "MIPS_26": {
           const original = dataView.getUint32(relocation.offset, littleEndian);
-          const addend = (original & 0x03ffffff) << 2;
+          const addend = relocation.addend ?? ((original & 0x03ffffff) << 2);
           const target = (symbolValue + addend) >>> 0;
           const patched = (original & 0xfc000000) | ((target >>> 2) & 0x03ffffff);
           dataView.setUint32(relocation.offset, patched >>> 0, littleEndian);
@@ -137,7 +137,7 @@ export class ProgramLoader {
         }
         case "MIPS_PC16": {
           const original = dataView.getUint32(relocation.offset, littleEndian);
-          const addend = this.signExtend16(original & 0xffff) << 2;
+          const addend = (relocation.addend ?? (this.signExtend16(original & 0xffff) << 2)) | 0;
           const place = (segmentBase + relocation.offset) >>> 0;
           const delta = (symbolValue + addend - (place + 4)) >> 2;
           const patched = (original & 0xffff0000) | (delta & 0xffff);
@@ -146,13 +146,13 @@ export class ProgramLoader {
         }
         case "MIPS_HI16": {
           const word = dataView.getUint32(relocation.offset, littleEndian);
-          const addend = (this.signExtend16(word & 0xffff) << 16) >>> 0;
+          const addend = relocation.addend ?? ((this.signExtend16(word & 0xffff) << 16) >>> 0);
           pendingHi16.push({ offset: relocation.offset, symbolValue, addend });
           break;
         }
         case "MIPS_LO16": {
           const word = dataView.getUint32(relocation.offset, littleEndian);
-          const addend = this.signExtend16(word & 0xffff);
+          const addend = relocation.addend ?? this.signExtend16(word & 0xffff);
           const pendingIndex = pendingHi16.findIndex((item) => item.symbolValue === symbolValue);
           const pending = pendingIndex >= 0 ? pendingHi16[pendingIndex] : null;
           const hiAddend = pending?.addend ?? 0;
