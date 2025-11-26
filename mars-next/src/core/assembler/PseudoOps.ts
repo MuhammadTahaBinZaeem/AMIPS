@@ -11,6 +11,11 @@ export interface PseudoOpDefinition {
   description?: string;
 }
 
+export interface PseudoOpDocumentation {
+  mnemonic: string;
+  forms: Array<{ syntax: string; expansions: string[]; description?: string }>;
+}
+
 export type PseudoOpTable = Map<string, PseudoOpDefinition[]>;
 
 let cachedPseudoOps: PseudoOpTable | null = null;
@@ -37,8 +42,10 @@ export function parsePseudoOpsFile(contents: string): PseudoOpTable {
 
   const lines = contents.split(/\r?\n/);
   for (const line of lines) {
-    if (!line || line.startsWith("#") || /^\s/.test(line)) continue;
-    const parsed = parsePseudoOpLine(line);
+    const { body, description } = stripInlineComment(line);
+    if (!body || /^\s*$/.test(body) || body.trimStart().startsWith("#") || /^\s/.test(body)) continue;
+
+    const parsed = parsePseudoOpLine(body, description);
     if (!parsed) continue;
 
     const existing = table.get(parsed.mnemonic) ?? [];
@@ -54,9 +61,30 @@ export function parsePseudoOpsFile(contents: string): PseudoOpTable {
   return table;
 }
 
-function parsePseudoOpLine(line: string):
-  | { mnemonic: string; tokens: string[]; example: string; templates: string[]; description?: string }
-  | null {
+/**
+ * Convert the pseudo-op table into documentation entries suitable for help listings.
+ */
+export function buildPseudoOpDocumentation(table: PseudoOpTable = loadPseudoOpTable()): PseudoOpDocumentation[] {
+  const docs: PseudoOpDocumentation[] = [];
+
+  for (const [mnemonic, forms] of table.entries()) {
+    docs.push({
+      mnemonic,
+      forms: forms.map((form) => ({
+        syntax: form.example,
+        expansions: groupTemplatesForDocs(form.templates),
+        description: form.description,
+      })),
+    });
+  }
+
+  return docs.sort((a, b) => a.mnemonic.localeCompare(b.mnemonic));
+}
+
+function parsePseudoOpLine(
+  line: string,
+  descriptionFromComment?: string,
+): { mnemonic: string; tokens: string[]; example: string; templates: string[]; description?: string } | null {
   const parts = line
     .split("\t")
     .map((part) => part.trim())
@@ -72,14 +100,12 @@ function parsePseudoOpLine(line: string):
   let description: string | undefined;
 
   for (const segment of rest) {
-    if (segment.startsWith("#")) {
-      description = segment.substring(1);
-      break;
-    }
     templates.push(segment);
   }
 
   if (templates.length === 0) return null;
+
+  description = descriptionFromComment ?? description;
 
   return {
     mnemonic: tokens[0]?.toLowerCase(),
@@ -96,6 +122,37 @@ function tokenizeExample(example: string): string[] {
     .split(/\s+/)
     .map((token) => token.trim())
     .filter((token) => token.length > 0);
+}
+
+function groupTemplatesForDocs(templates: string[]): string[] {
+  const groups: string[][] = [];
+  let current: string[] = [];
+
+  for (const template of templates) {
+    if (template.startsWith("COMPACT")) {
+      if (current.length > 0) groups.push(current);
+      current = [];
+      const trimmed = template.replace(/^COMPACT\s*/, "").trim();
+      if (trimmed.length > 0) current.push(trimmed);
+      continue;
+    }
+
+    current.push(template);
+  }
+
+  if (current.length > 0) groups.push(current);
+
+  return groups.map((group) => group.join("; "));
+}
+
+function stripInlineComment(line: string): { body: string; description?: string } {
+  const hashIndex = line.indexOf("#");
+  if (hashIndex === -1) return { body: line };
+
+  return {
+    body: line.substring(0, hashIndex),
+    description: line.substring(hashIndex + 1).trim(),
+  };
 }
 
 function resolvePseudoOpsPath(fs: { existsSync: (path: string) => boolean; readFileSync: ReadFileSync }): string {
