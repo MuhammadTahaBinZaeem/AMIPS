@@ -48,7 +48,7 @@ export class Linker {
 
     const endianPreference = images.find((image) => image.littleEndian !== undefined)?.littleEndian ?? true;
 
-    for (const image of images) {
+    images.forEach((image, index) => {
       if (image.littleEndian !== undefined && image.littleEndian !== endianPreference) {
         throw new Error("Input files use mixed endianness, cannot link");
       }
@@ -78,14 +78,16 @@ export class Linker {
       const ktextDelta = ktextStartAddress - image.ktextBase;
       const kdataDelta = kdataStartAddress - image.kdataBase;
 
-      this.mergeSymbols(image, mergedSymbols, mergedSymbolTable, {
+      const resolveSymbolName = this.createSymbolResolver(mergedSymbols, index, image.symbols);
+
+      this.mergeSymbols(image, mergedSymbols, mergedSymbolTable, resolveSymbolName, {
         textDelta,
         dataDelta,
         ktextDelta,
         kdataDelta,
       });
 
-      this.mergeRelocations(image, mergedRelocations, placement);
+      this.mergeRelocations(image, mergedRelocations, placement, resolveSymbolName);
       this.mergeSourceMap(image, mergedSourceMap, {
         textDelta,
         ktextDelta,
@@ -97,7 +99,7 @@ export class Linker {
       dataOffset = placement.dataOffset + image.data.length;
       ktextOffset = placement.ktextOffset + image.ktext.length * 4;
       kdataOffset = placement.kdataOffset + image.kdata.length;
-    }
+    });
 
     const littleEndian = endianPreference;
     const dataBytes = new Uint8Array(mergedData);
@@ -149,6 +151,7 @@ export class Linker {
     image: BinaryImage,
     symbols: Map<string, number>,
     symbolTable: SymbolTableEntry[],
+    resolveSymbolName: (name: string) => string,
     deltas: { textDelta: number; dataDelta: number; ktextDelta: number; kdataDelta: number },
   ): void {
     const textEnd = image.textBase + image.text.length * 4;
@@ -165,18 +168,21 @@ export class Linker {
     };
 
     for (const [name, address] of Object.entries(image.symbols)) {
-      if (symbols.has(name)) {
-        throw new Error(`Duplicate symbol '${name}' encountered during linking`);
-      }
-      symbols.set(name, adjust(address));
+      const resolvedName = resolveSymbolName(name);
+      symbols.set(resolvedName, adjust(address));
     }
 
     for (const entry of image.symbolTable) {
-      symbolTable.push({ ...entry, address: adjust(entry.address) });
+      symbolTable.push({ ...entry, name: resolveSymbolName(entry.name), address: adjust(entry.address) });
     }
   }
 
-  private mergeRelocations(image: BinaryImage, relocations: RelocationRecord[], placement: SegmentPlacement): void {
+  private mergeRelocations(
+    image: BinaryImage,
+    relocations: RelocationRecord[],
+    placement: SegmentPlacement,
+    resolveSymbolName: (name: string) => string,
+  ): void {
     const baseOffset = (segment: RelocationRecord["segment"]): number => {
       switch (segment) {
         case "text":
@@ -193,8 +199,48 @@ export class Linker {
     };
 
     for (const record of image.relocations ?? []) {
-      relocations.push({ ...record, offset: record.offset + baseOffset(record.segment) });
+      relocations.push({
+        ...record,
+        symbol: resolveSymbolName(record.symbol),
+        offset: record.offset + baseOffset(record.segment),
+      });
     }
+  }
+
+  private createSymbolResolver(
+    symbols: Map<string, number>,
+    imageIndex: number,
+    imageSymbols: Record<string, number>,
+  ): (name: string) => string {
+    const cache = new Map<string, string>();
+
+    return (name: string): string => {
+      if (cache.has(name)) return cache.get(name)!;
+
+      if (!symbols.has(name)) {
+        cache.set(name, name);
+        return name;
+      }
+
+      const isDefinition = Object.prototype.hasOwnProperty.call(imageSymbols, name);
+
+      if (isDefinition && this.isLocalSymbol(name)) {
+        const renamed = `${name}#${imageIndex}`;
+        cache.set(name, renamed);
+        return renamed;
+      }
+
+      if (isDefinition) {
+        throw new Error(`Duplicate symbol '${name}' encountered during linking`);
+      }
+
+      cache.set(name, name);
+      return name;
+    };
+  }
+
+  private isLocalSymbol(name: string): boolean {
+    return name.startsWith(".");
   }
 
   private mergeSourceMap(
