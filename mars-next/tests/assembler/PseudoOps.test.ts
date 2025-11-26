@@ -11,6 +11,7 @@ import {
   parsePseudoOpsFile,
   reloadPseudoOpTable,
   resetPseudoOpCacheForTesting,
+  validatePseudoOpsText,
 } from "../../src/core/assembler/PseudoOps";
 
 describe("Pseudo-op table bootstrap", () => {
@@ -40,6 +41,20 @@ describe("Pseudo-op table bootstrap", () => {
 
     assert.ok(fooForms);
     assert.strictEqual(fooForms?.[0]?.description, "inline description");
+  });
+
+  test("rejects malformed pseudo-op definitions", () => {
+    assert.doesNotThrow(() => validatePseudoOpsText("foo $t0\taddi RG1, $zero, 1"));
+
+    assert.throws(
+      () => validatePseudoOpsText("  bar $t0\taddi RG1, $zero, 1"),
+      /must start in the first column/,
+    );
+
+    assert.throws(
+      () => validatePseudoOpsText("baz $t0 addu RG1, RG2, $zero"),
+      /expected tab-separated example and template definitions/,
+    );
   });
 });
 

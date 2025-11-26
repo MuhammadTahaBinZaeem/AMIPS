@@ -125,6 +125,36 @@ export function buildPseudoOpDocumentation(table: PseudoOpTable = loadPseudoOpTa
   return docs.sort((a, b) => a.mnemonic.localeCompare(b.mnemonic));
 }
 
+/**
+ * Validate a pseudo-op definition file, throwing a descriptive error if any
+ * non-comment line cannot be parsed into a definition.
+ */
+export function validatePseudoOpsText(contents: string): void {
+  const errors: string[] = [];
+
+  contents.split(/\r?\n/).forEach((line, index) => {
+    const lineNumber = index + 1;
+    const { body, description } = stripInlineComment(line);
+
+    if (!body || /^\s*$/.test(body)) return;
+    if (body.trimStart().startsWith("#")) return;
+
+    if (/^\s/.test(body)) {
+      errors.push(`Line ${lineNumber}: pseudo-op definitions must start in the first column.`);
+      return;
+    }
+
+    const parsed = parsePseudoOpLine(body, description);
+    if (!parsed) {
+      errors.push(`Line ${lineNumber}: expected tab-separated example and template definitions.`);
+    }
+  });
+
+  if (errors.length > 0) {
+    throw new Error(errors.join("\n"));
+  }
+}
+
 function parsePseudoOpLine(
   line: string,
   descriptionFromComment?: string,
