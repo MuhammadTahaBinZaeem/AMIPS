@@ -139,8 +139,9 @@ export class Parser {
     const name = tokens[0].raw.startsWith(".")
       ? tokens[0].raw.toLowerCase()
       : `.${String(tokens[0].value).toLowerCase()}`;
+    const normalizedName = this.normalizeDirectiveName(name);
     const args = this.collectArguments(tokens.slice(1), line, false, true);
-    switch (name) {
+    switch (normalizedName) {
       case ".text":
       case ".ktext":
       case ".data":
@@ -241,7 +242,7 @@ export class Parser {
         throw new Error(`Unknown directive ${name} (line ${line})`);
     }
 
-    return { kind: "directive", name, args, segment, line };
+    return { kind: "directive", name: normalizedName, args, segment, line };
   }
 
   private parseInstruction(tokens: Token[], segment: Segment, line: number): InstructionNode {
@@ -321,6 +322,21 @@ export class Parser {
     }
 
     throw new Error(`Unable to parse operand near '${tokens.map((t) => t.raw).join(" ")}' (line ${line})`);
+  }
+
+  private normalizeDirectiveName(name: string): string {
+    switch (name) {
+      case ".balign":
+        return ".align";
+      case ".skip":
+        return ".space";
+      case ".global":
+        return ".globl";
+      case ".equ":
+        return ".eqv";
+      default:
+        return name;
+    }
   }
 
   private parseMemoryOperand(tokens: Token[], line: number): Operand {
