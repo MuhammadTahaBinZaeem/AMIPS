@@ -37,6 +37,8 @@
 #      RGn means substitute register found in n'th token of source statement
 #      NRn means substitute next higher register than the one in n'th token of source code
 #      OPn means substitute n'th token of source code as is
+#      IMM means substitute the first immediate (numeric) token in the source statement
+#          (if none are found, the last token is used)
 #      LLn means substitute low order 16-bits from label address in source token n.
 #      LLnU means substitute low order 16-bits (unsigned) from label address in source token n.
 #      LLnPm (m=1,2,3,4) means substitute low order 16-bits from label address in source token n, after adding m.
@@ -65,6 +67,9 @@
 #   Everything else is copied as is into the generated statement (you must use register numbers not mnemonics)
 #   The list of basic instruction templates is optionally followed a description of the instruction for help purposes.
 #   To add optional description, append a tab then the '#' character followed immediately (no spaces) by the description.
+#
+#  This file is synced with the legacy pseudo-op definitions to retain every macro symbol in use (for example,
+#  RGn, IMM, and VL2P3) so assembler substitutions continue to match historical MARS behavior.
 #
 #  See documentation for ExtendedInstruction.makeTemplateSubstitutions() for more details.
 #
