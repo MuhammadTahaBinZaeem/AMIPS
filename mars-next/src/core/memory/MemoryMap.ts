@@ -77,7 +77,8 @@ const DEFAULT_MMIO_BASE = 0xffff0000;
 const DEFAULT_MMIO_SIZE = 0x00010000;
 const KEYBOARD_START = 0xffff0000;
 const KEYBOARD_SIZE = 0x10;
-const BITMAP_START = 0xffff1000;
+const BITMAP_START = 0xffff0100;
+const BITMAP_END = 0xffff01ff;
 
 export class MemoryMap {
   private readonly segments: MemorySegment[];
@@ -192,7 +193,7 @@ export class MemoryMap {
     const keyboardStart = KEYBOARD_START >>> 0;
     const keyboardEnd = (keyboardStart + KEYBOARD_SIZE - 1) >>> 0;
     const bitmapStart = BITMAP_START >>> 0;
-    const bitmapEnd = (bitmapStart + bitmapDisplay.byteLength - 1) >>> 0;
+    const bitmapEnd = BITMAP_END >>> 0;
 
     return [
       { start: keyboardStart, end: keyboardEnd, device: keyboard },
