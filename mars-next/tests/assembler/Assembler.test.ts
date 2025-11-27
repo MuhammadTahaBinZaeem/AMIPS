@@ -4,6 +4,7 @@ import { describe, test } from "node:test";
 import { Assembler } from "../../src/core/assembler/Assembler";
 import { Lexer } from "../../src/core/assembler/Lexer";
 import { Parser } from "../../src/core/assembler/Parser";
+import { parsePseudoOpsFile } from "../../src/core/assembler/PseudoOps";
 
 const toHexWords = (words: number[]): string[] => words.map((w) => `0x${(w >>> 0).toString(16)}`);
 
@@ -89,6 +90,32 @@ describe("Assembler pipeline", () => {
 
     const image = new Assembler().assemble(source);
     assert.deepStrictEqual(toHexWords(image.text), ["0x20010005", "0x71214002"]);
+  });
+
+  test("uses compact pseudo-op templates when operands fit in 16 bits", () => {
+    const assembler = new Assembler();
+    const custom = parsePseudoOpsFile(
+      "foo $t0,100000\tlui RG1, VHL2\tori RG1, RG1, VL2U\tCOMPACT addiu RG1, $0, VL2",
+    );
+    const fooForms = custom.get("foo");
+    assert.ok(fooForms);
+    assembler.getPseudoOpTable().set("foo", fooForms);
+
+    const image = assembler.assemble("foo $t0, 0x1234");
+    assert.deepStrictEqual(toHexWords(image.text), ["0x24081234"]);
+  });
+
+  test("falls back to default pseudo-op templates when operands exceed 16 bits", () => {
+    const assembler = new Assembler();
+    const custom = parsePseudoOpsFile(
+      "foo $t0,100000\tlui RG1, VHL2\tori RG1, RG1, VL2U\tCOMPACT addiu RG1, $0, VL2",
+    );
+    const fooForms = custom.get("foo");
+    assert.ok(fooForms);
+    assembler.getPseudoOpTable().set("foo", fooForms);
+
+    const image = assembler.assemble("foo $t0, 0x12345678");
+    assert.deepStrictEqual(toHexWords(image.text), ["0x3c081234", "0x35085678"]);
   });
 
   test("throws on unknown instructions", () => {
