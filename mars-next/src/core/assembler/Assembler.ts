@@ -7,6 +7,7 @@ import {
 } from "./IncludeProcessor";
 import { Lexer } from "./Lexer";
 import { MacroExpander } from "./MacroExpander";
+import { macroPattern, parseMacro, type ParsedMacro } from "./MacroParser";
 import { ExpressionNode, InstructionNode, Operand, Parser, ProgramAst, Segment, REGISTER_ALIASES } from "./Parser";
 import { loadPseudoOpTable, type PseudoOpTable } from "./PseudoOps";
 
@@ -1090,100 +1091,61 @@ export class Assembler {
   }
 
   private applyPseudoTemplate(template: string, tokens: string[]): string {
-    const macroPattern =
-      /(RG\d+|NR\d+|OP\d+|IMM|LLPP\d|LLP[AU]?|LLP\d|LL\d+P?\d?U?|LH\d+P?\d?|LHPA|LHPN|LHPAP\d|LHL|VH\d+P?\d?|VHL\d+P?\d?|VL\d+P?\d?U?|LAB|S32|DBNOP|BROFF\d\d)/g;
-
-    return template.replace(macroPattern, (macro) => this.expandMacro(macro, tokens));
+    return template.replace(macroPattern, (macro) => {
+      const parsed = parseMacro(macro);
+      return parsed ? this.expandMacro(parsed, tokens) : macro;
+    });
   }
 
-  private expandMacro(macro: string, tokens: string[]): string {
-    if (macro === "COMPACT") return "";
-    if (macro === "DBNOP") return "nop";
-    if (macro.startsWith("BROFF") && macro.length === 7) return macro.substring(5, 6);
-    if (macro === "LAB") return tokens[tokens.length - 1] ?? "";
-    if (macro === "LHL") return this.high16(this.labelExpression(tokens, 2), false);
-
-    if (macro === "IMM") return this.findImmediateToken(tokens);
-
-    const rg = macro.match(/^RG(\d+)$/);
-    if (rg) return tokens[Number(rg[1])] ?? "";
-
-    const nr = macro.match(/^NR(\d+)$/);
-    if (nr) {
-      const index = Number(nr[1]);
-      const register = tokens[index];
-      const number = this.parseRegister(register);
-      return `$${number + 1}`;
+  private expandMacro(macro: ParsedMacro, tokens: string[]): string {
+    switch (macro.kind) {
+      case "COMPACT":
+        return "";
+      case "DBNOP":
+        return "nop";
+      case "BROFF":
+        return String(macro.disabledOffset ?? "");
+      case "LAB":
+        return tokens[tokens.length - 1] ?? "";
+      case "LHL":
+        return this.high16(this.labelExpression(tokens, 2), false);
+      case "IMM":
+        return this.findImmediateToken(tokens);
+      case "RG":
+        return tokens[macro.index ?? 0] ?? "";
+      case "NR": {
+        const register = tokens[macro.index ?? 0];
+        const number = this.parseRegister(register);
+        return `$${number + 1}`;
+      }
+      case "OP":
+        return tokens[macro.index ?? 0] ?? "";
+      case "LLP":
+        return this.low16(this.labelExpression(tokens, 2), !macro.unsigned, macro.addend ?? 0);
+      case "LLPP":
+        return this.low16(this.labelExpression(tokens, 2), true, macro.addend ?? 0);
+      case "LL":
+        return this.low16(this.labelExpression(tokens, macro.index ?? 0), !macro.unsigned, macro.addend ?? 0);
+      case "LHPA":
+        return this.high16(this.labelExpression(tokens, 2), true, macro.addend ?? 0);
+      case "LHPN":
+        return this.high16(this.labelExpression(tokens, 2), false);
+      case "LH":
+        return this.high16(this.labelExpression(tokens, macro.index ?? 0), true, macro.addend ?? 0);
+      case "VH":
+        return this.high16(this.labelExpression(tokens, macro.index ?? 0), true, macro.addend ?? 0);
+      case "VHL":
+        return this.high16(this.labelExpression(tokens, macro.index ?? 0), false, macro.addend ?? 0);
+      case "VL":
+        return this.low16(this.labelExpression(tokens, macro.index ?? 0), !macro.unsigned, macro.addend ?? 0);
+      case "S32": {
+        const last = tokens[tokens.length - 1] ?? "0";
+        const value = Number(last);
+        return String(32 - (Number.isFinite(value) ? value : 0));
+      }
+      default:
+        return macro.raw;
     }
-
-    const op = macro.match(/^OP(\d+)$/);
-    if (op) return tokens[Number(op[1])] ?? "";
-
-    const llpNoIndex = macro.match(/^LLP(P(\d))?(U)?$/);
-    if (llpNoIndex) {
-      const addend = llpNoIndex[2] ? Number(llpNoIndex[2]) : 0;
-      const unsigned = llpNoIndex[3] !== undefined;
-      return this.low16(this.labelExpression(tokens, 2), !unsigned, addend);
-    }
-
-    const llpp = macro.match(/^LLPP(\d)$/);
-    if (llpp) {
-      const addend = Number(llpp[1]);
-      return this.low16(this.labelExpression(tokens, 2), true, addend);
-    }
-
-    const ll = macro.match(/^LL(\d+)(P(\d))?(U)?$/);
-    if (ll) {
-      const index = Number(ll[1]);
-      const addend = ll[3] ? Number(ll[3]) : 0;
-      const unsigned = ll[4] !== undefined;
-      return this.low16(this.labelExpression(tokens, index), !unsigned, addend);
-    }
-
-    const lhpa = macro.match(/^LHPA(P(\d))?$/);
-    if (lhpa) {
-      const addend = lhpa[2] ? Number(lhpa[2]) : 0;
-      return this.high16(this.labelExpression(tokens, 2), true, addend);
-    }
-
-    if (macro === "LHPN") return this.high16(this.labelExpression(tokens, 2), false);
-
-    const lh = macro.match(/^LH(\d+)(P(\d))?$/);
-    if (lh) {
-      const index = Number(lh[1]);
-      const addend = lh[3] ? Number(lh[3]) : 0;
-      return this.high16(this.labelExpression(tokens, index), true, addend);
-    }
-
-    const vh = macro.match(/^VH(\d+)(P(\d))?$/);
-    if (vh) {
-      const index = Number(vh[1]);
-      const addend = vh[3] ? Number(vh[3]) : 0;
-      return this.high16(this.labelExpression(tokens, index), true, addend);
-    }
-
-    const vhl = macro.match(/^VHL(\d+)(P(\d))?$/);
-    if (vhl) {
-      const index = Number(vhl[1]);
-      const addend = vhl[3] ? Number(vhl[3]) : 0;
-      return this.high16(this.labelExpression(tokens, index), false, addend);
-    }
-
-    const vl = macro.match(/^VL(\d+)(P(\d))?(U)?$/);
-    if (vl) {
-      const index = Number(vl[1]);
-      const addend = vl[3] ? Number(vl[3]) : 0;
-      const unsigned = vl[4] !== undefined;
-      return this.low16(this.labelExpression(tokens, index), !unsigned, addend);
-    }
-
-    if (macro === "S32") {
-      const last = tokens[tokens.length - 1] ?? "0";
-      const value = Number(last);
-      return String(32 - (Number.isFinite(value) ? value : 0));
-    }
-
-    return macro;
   }
 
   private findImmediateToken(tokens: string[]): string {
