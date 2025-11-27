@@ -197,6 +197,21 @@ export class Parser {
           throw new Error(`.align expects a single power-of-two argument (line ${line})`);
         }
         break;
+      case ".org":
+        if (args.length !== 1 || (args[0].kind !== "immediate" && args[0].kind !== "label" && args[0].kind !== "expression")) {
+          throw new Error(`.org expects a single address argument (line ${line})`);
+        }
+        break;
+      case ".module":
+        if (args.length !== 1 || args[0].kind !== "label") {
+          throw new Error(`.module expects a single module identifier (line ${line})`);
+        }
+        break;
+      case ".endmodule":
+        if (args.length !== 0) {
+          throw new Error(`.endmodule does not take arguments (line ${line})`);
+        }
+        break;
       case ".globl":
       case ".extern":
         if (args.length < 1) {
