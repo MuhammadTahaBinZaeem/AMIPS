@@ -29,14 +29,23 @@ export class BitmapDisplayDevice implements Device {
   private readonly onFlush?: (regions: DirtyRegion[], buffer: Uint8Array) => void;
 
   constructor(options: BitmapDisplayOptions = {}) {
-    this.width = Math.max(1, options.width ?? 64);
-    this.height = Math.max(1, options.height ?? 64);
-    this.buffer = new Uint8Array(this.width * this.height * 4);
+    this.width = Math.max(1, options.width ?? 10);
+    this.height = Math.max(1, options.height ?? 6);
+    const bufferLength = this.width * this.height * 4;
+    const maximumBufferLength = 0x100 - FRAMEBUFFER_OFFSET;
+
+    if (bufferLength > maximumBufferLength) {
+      throw new RangeError(
+        `BitmapDisplayDevice buffer too large: ${bufferLength} bytes (max ${maximumBufferLength})`,
+      );
+    }
+
+    this.buffer = new Uint8Array(bufferLength);
     this.onFlush = options.onFlush;
   }
 
   get byteLength(): number {
-    return FRAMEBUFFER_OFFSET + this.buffer.length;
+    return 0x100;
   }
 
   read(offset: number): DeviceData {
@@ -50,8 +59,12 @@ export class BitmapDisplayDevice implements Device {
       return this.dirtyRegions.length + (this.pendingRegion ? 1 : 0);
     }
 
-    if (offset >= FRAMEBUFFER_OFFSET && offset < FRAMEBUFFER_OFFSET + this.buffer.length) {
-      return this.buffer[offset - FRAMEBUFFER_OFFSET];
+    if (offset >= FRAMEBUFFER_OFFSET && offset < this.byteLength) {
+      if (offset < FRAMEBUFFER_OFFSET + this.buffer.length) {
+        return this.buffer[offset - FRAMEBUFFER_OFFSET];
+      }
+
+      return 0;
     }
 
     throw new RangeError(`BitmapDisplayDevice read offset out of range: ${offset}`);
@@ -63,8 +76,12 @@ export class BitmapDisplayDevice implements Device {
       return;
     }
 
-    if (offset < FRAMEBUFFER_OFFSET || offset >= FRAMEBUFFER_OFFSET + this.buffer.length) {
+    if (offset < FRAMEBUFFER_OFFSET || offset >= this.byteLength) {
       throw new RangeError(`BitmapDisplayDevice write offset out of range: ${offset}`);
+    }
+
+    if (offset >= FRAMEBUFFER_OFFSET + this.buffer.length) {
+      return;
     }
 
     if (typeof value === "number") {
