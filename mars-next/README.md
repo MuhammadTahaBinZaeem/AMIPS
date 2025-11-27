@@ -21,4 +21,4 @@ TypeScript/Electron workspace for the next-generation MARS simulator. The reposi
   - [`docs/macro-symbols.md`](docs/macro-symbols.md): Macro template symbol reference for customizing `PseudoOps.txt`.
 - [`resources/`](resources/): Bundled PseudoOps table imported by the assembler.
 
-See [`docs/troubleshooting.md`](docs/troubleshooting.md) if you run into npm installation errors or Windows cleanup warnings.
+See [`docs/troubleshooting.md`](docs/troubleshooting.md) if you run into npm installation errors or Windows cleanup warnings, and [`docs/legacy-comparison.md`](docs/legacy-comparison.md) for a gap report against the legacy Java MARS distribution.

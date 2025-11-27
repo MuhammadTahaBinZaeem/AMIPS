@@ -4,7 +4,7 @@ The workspace is split into an Electron shell, a React renderer, and a headless 
 
 ## Desktop shell
 - **Entry points:** `apps/desktop/main.ts` creates the browser window and loads the renderer bundle. `apps/desktop/preload.ts` exposes a safe bridge for future IPC routes, and `apps/desktop/ipcRoutes.ts` is the registration point for new channels.
-- **CLI:** `apps/cli/index.ts` is a stub that currently just logs its arguments but is wired for future command-line tooling that can reuse the core engine without Electron.
+- **CLI:** `apps/cli/index.ts` is a stub that currently just logs its arguments but is wired for future command-line tooling that can reuse the core engine without Electron. CLI parity gaps compared to legacy tooling are tracked in [`docs/legacy-comparison.md`](legacy-comparison.md).
 
 ## Renderer
 - **Mount point:** `src/app/index.tsx` boots the React app and renders `src/app/App.tsx`.
@@ -20,4 +20,4 @@ The workspace is split into an Electron shell, a React renderer, and a headless 
 - **Debugging/interrupts:** `BreakpointEngine` and `WatchEngine` in `src/core/debugger/` track breakpoints, watches, and hit info. `src/core/interrupts/InterruptController.ts` coordinates syscall/device interrupts surfaced through the pipeline.
 
 ## Data flow
-`CoreEngine` (exported from `src/core/index.ts`) is the façade used by the renderer. It assembles source, loads it into memory, wires syscalls/devices, enables breakpoints/watches, and drives the `Pipeline` for stepping or long runs. Renderer features (like the editor and run toolbar) call into these helpers so the UI never manipulates CPU state or memory directly.
+`CoreEngine` (exported from `src/core/index.ts`) is the façade used by the renderer. It assembles source, loads it into memory, wires syscalls/devices, enables breakpoints/watches, and drives the `Pipeline` for stepping or long runs. Renderer features (like the editor and run toolbar) call into these helpers so the UI never manipulates CPU state or memory directly. Use [`docs/legacy-comparison.md`](legacy-comparison.md) alongside [`docs/porting-status.md`](porting-status.md) to keep changes aligned with legacy parity goals.
