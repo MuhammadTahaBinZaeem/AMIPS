@@ -8,7 +8,16 @@ import {
 import { Lexer } from "./Lexer";
 import { MacroExpander } from "./MacroExpander";
 import { macroPattern, parseMacro, type ParsedMacro } from "./MacroParser";
-import { ExpressionNode, InstructionNode, Operand, Parser, ProgramAst, Segment, REGISTER_ALIASES } from "./Parser";
+import {
+  ExpressionNode,
+  InstructionNode,
+  MemoryOffset,
+  Operand,
+  Parser,
+  ProgramAst,
+  Segment,
+  REGISTER_ALIASES,
+} from "./Parser";
 import { loadPseudoOpTable, type PseudoOpTable } from "./PseudoOps";
 
 export type RelocationType = "MIPS_32" | "MIPS_26" | "MIPS_PC16" | "MIPS_HI16" | "MIPS_LO16";
@@ -994,6 +1003,7 @@ export class Assembler {
     if (!pseudoForms || pseudoForms.length === 0) return null;
 
     const sourceTokens = instruction.tokens ?? this.tokenizeSourceLine(instruction.line);
+    const operandsFitCompact = this.operandsFitSigned16(instruction.operands);
 
     for (const form of pseudoForms) {
       if (!this.matchesPseudoForm(sourceTokens, form.tokens)) continue;
@@ -1012,7 +1022,9 @@ export class Assembler {
       }
       if (current.length > 0) templateGroups.push(current);
 
-      const selectedTemplates = templateGroups[0] ?? [];
+      const defaultTemplates = templateGroups[0] ?? [];
+      const compactTemplates = templateGroups[1] ?? [];
+      const selectedTemplates = operandsFitCompact && compactTemplates.length > 0 ? compactTemplates : defaultTemplates;
       if (selectedTemplates.length === 0) continue;
 
       const substituted = selectedTemplates.map((template) => this.applyPseudoTemplate(template, sourceTokens));
@@ -1088,6 +1100,93 @@ export class Assembler {
     if (sample === 10) return value >= 0 && value <= 31;
     if (sample === 100) return value >= -32768 && value <= 32767;
     return Number.isFinite(value);
+  }
+
+  private operandsFitSigned16(operands: Operand[]): boolean {
+    for (const operand of operands) {
+      if (operand.kind === "register" || operand.kind === "string") continue;
+
+      const value = this.extractOperandValue(operand);
+      if (value === null) return false;
+      if (!this.fitsSigned16(value)) return false;
+    }
+
+    return true;
+  }
+
+  private extractOperandValue(operand: Operand): number | null {
+    switch (operand.kind) {
+      case "immediate":
+        return operand.value;
+      case "expression":
+        return this.evaluateConstantExpression(operand.expression);
+      case "label":
+        return null;
+      case "memory":
+        return this.extractMemoryOffsetValue(operand.offset);
+      default:
+        return null;
+    }
+  }
+
+  private extractMemoryOffsetValue(offset: MemoryOffset): number | null {
+    if (offset.kind === "immediate") return offset.value;
+    if (offset.kind === "expression") return this.evaluateConstantExpression(offset.expression);
+    return null;
+  }
+
+  private evaluateConstantExpression(node: ExpressionNode): number | null {
+    switch (node.type) {
+      case "number":
+        return node.value;
+      case "symbol":
+        return null;
+      case "unary": {
+        const value = this.evaluateConstantExpression(node.argument);
+        if (value === null) return null;
+
+        switch (node.op) {
+          case "plus":
+            return value;
+          case "minus":
+            return -value;
+          case "bitnot":
+            return ~this.toInt32(value);
+        }
+        break;
+      }
+      case "binary": {
+        const left = this.evaluateConstantExpression(node.left);
+        const right = this.evaluateConstantExpression(node.right);
+        if (left === null || right === null) return null;
+
+        switch (node.op) {
+          case "add":
+            return left + right;
+          case "sub":
+            return left - right;
+          case "mul":
+            return left * right;
+          case "div":
+            return right === 0 ? null : left / right;
+          case "mod":
+            return right === 0 ? null : left % right;
+          case "lshift":
+            return this.toInt32(left) << (this.toInt32(right) & 0x1f);
+          case "rshift":
+            return this.toInt32(left) >> (this.toInt32(right) & 0x1f);
+          case "and":
+            return this.toInt32(left) & this.toInt32(right);
+          case "xor":
+            return this.toInt32(left) ^ this.toInt32(right);
+          case "or":
+            return this.toInt32(left) | this.toInt32(right);
+        }
+        break;
+      }
+    }
+
+    return null;
   }
 
   private applyPseudoTemplate(template: string, tokens: string[]): string {
