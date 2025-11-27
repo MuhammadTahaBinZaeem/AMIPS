@@ -7,6 +7,7 @@ import { describe, test } from "node:test";
 import { Assembler } from "../../src/core/assembler/Assembler";
 import {
   buildPseudoOpDocumentation,
+  getMacroSymbolDocumentation,
   getPseudoOpDocumentation,
   loadPseudoOpTable,
   parsePseudoOpsFile,
@@ -241,6 +242,15 @@ describe("Pseudo-op documentation", () => {
       resetPseudoOpCacheForTesting();
     }
   });
+
+  test("exposes macro symbol documentation", () => {
+    const macros = getMacroSymbolDocumentation();
+    const broff = macros.find((entry) => entry.symbol === "BROFFnm");
+
+    assert.ok(macros.length > 0);
+    assert.ok(broff);
+    assert.match(broff?.description ?? "", /delayed branching/i);
+  });
 });
 
 describe("Pseudo-op macro substitutions", () => {
@@ -261,5 +271,17 @@ describe("Pseudo-op macro substitutions", () => {
 
     const substituted = (assembler as any).applyPseudoTemplate("addi RG1, $zero, IMM", tokens) as string;
     assert.strictEqual(substituted, "addi $t0, $zero, 42");
+  });
+
+  test("BROFF selects offsets based on delayed branching setting", () => {
+    const tokens = (new Assembler() as any).tokenizeExample("beq $t0, $t1, label");
+
+    const delayedAssembler = new Assembler({ delayedBranchingEnabled: true });
+    const delayedSubstitution = (delayedAssembler as any).applyPseudoTemplate("beq RG1, RG2, BROFF12", tokens) as string;
+    assert.strictEqual(delayedSubstitution, "beq $t0, $t1, 2");
+
+    const nonDelayedAssembler = new Assembler({ delayedBranchingEnabled: false });
+    const nonDelayedSubstitution = (nonDelayedAssembler as any).applyPseudoTemplate("beq RG1, RG2, BROFF12", tokens) as string;
+    assert.strictEqual(nonDelayedSubstitution, "beq $t0, $t1, 1");
   });
 });
