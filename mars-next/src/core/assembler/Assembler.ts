@@ -99,6 +99,8 @@ export interface AssemblerOptions extends IncludeProcessOptions {
   includeResolver?: IncludeResolver | null;
   /** Whether pseudo-instructions should be expanded during assembly. Enabled by default. */
   enablePseudoInstructions?: boolean;
+  /** Whether delayed branching semantics are enabled (affects DBNOP and BROFF macros). Enabled by default. */
+  delayedBranchingEnabled?: boolean;
 }
 
 export class Assembler {
@@ -155,6 +157,9 @@ export class Assembler {
   private readonly defaultEnablePseudoInstructions: boolean;
   private enablePseudoInstructions: boolean;
 
+  private readonly defaultDelayedBranchingEnabled: boolean;
+  private delayedBranchingEnabled: boolean;
+
   private sourceLines: string[] = [];
 
   private readonly includeProcessor: IncludeProcessor;
@@ -172,6 +177,9 @@ export class Assembler {
 
     this.defaultEnablePseudoInstructions = options.enablePseudoInstructions ?? true;
     this.enablePseudoInstructions = this.defaultEnablePseudoInstructions;
+
+    this.defaultDelayedBranchingEnabled = options.delayedBranchingEnabled ?? true;
+    this.delayedBranchingEnabled = this.defaultDelayedBranchingEnabled;
   }
 
   getPseudoOpTable(): PseudoOpTable {
@@ -186,6 +194,7 @@ export class Assembler {
 
   assemble(source: string, options: AssemblerOptions = {}): BinaryImage {
     this.enablePseudoInstructions = options.enablePseudoInstructions ?? this.defaultEnablePseudoInstructions;
+    this.delayedBranchingEnabled = options.delayedBranchingEnabled ?? this.defaultDelayedBranchingEnabled;
 
     const includeOptions: IncludeProcessOptions = {
       baseDir: options.baseDir ?? this.defaultIncludeOptions.baseDir,
@@ -1201,9 +1210,11 @@ export class Assembler {
       case "COMPACT":
         return "";
       case "DBNOP":
-        return "nop";
+        return this.delayedBranchingEnabled ? "nop" : "";
       case "BROFF":
-        return String(macro.disabledOffset ?? "");
+        return String(
+          (this.delayedBranchingEnabled ? macro.enabledOffset : macro.disabledOffset) ?? macro.disabledOffset ?? "",
+        );
       case "LAB":
         return tokens[tokens.length - 1] ?? "";
       case "LHL":

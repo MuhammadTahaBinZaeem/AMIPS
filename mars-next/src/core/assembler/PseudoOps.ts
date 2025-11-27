@@ -16,6 +16,85 @@ export interface PseudoOpDocumentation {
   forms: Array<{ syntax: string; expansions: string[]; description?: string }>;
 }
 
+export interface MacroSymbolDocumentation {
+  symbol: string;
+  description: string;
+}
+
+const macroSymbolDocs: MacroSymbolDocumentation[] = [
+  { symbol: "RGn", description: "Substitute the register from source token n." },
+  { symbol: "NRn", description: "Substitute the next higher register after the one in token n." },
+  { symbol: "OPn", description: "Substitute the raw text of token n." },
+  {
+    symbol: "IMM",
+    description: "Substitute the first immediate token from the source statement (or the last token if none found).",
+  },
+  { symbol: "LLn", description: "Low-order 16 bits of the label address in token n." },
+  { symbol: "LLnU", description: "Unsigned low-order 16 bits of the label address in token n." },
+  { symbol: "LLnPm", description: "Low-order 16 bits of the label address in token n after adding m (1–4)." },
+  {
+    symbol: "LHn",
+    description: "High-order 16 bits of the label address in token n; add 1 if address bit 15 is 1.",
+  },
+  {
+    symbol: "LHnPm",
+    description: "High-order 16 bits of the label address in token n after adding m (1–4); then add 1 if bit 15 is 1.",
+  },
+  { symbol: "VLn", description: "Low-order 16 bits of the 32-bit value in token n." },
+  { symbol: "VLnU", description: "Unsigned low-order 16 bits of the 32-bit value in token n." },
+  { symbol: "VLnPm", description: "Low-order 16 bits of the 32-bit value in token n after adding m (1–4)." },
+  {
+    symbol: "VLnPmU",
+    description: "Unsigned low-order 16 bits of the 32-bit value in token n after adding m (1–4).",
+  },
+  {
+    symbol: "VHLn",
+    description: "High-order 16 bits of the 32-bit value in token n; pair with VLnU when combining halves.",
+  },
+  {
+    symbol: "VHn",
+    description: "High-order 16 bits of the 32-bit value in token n; add 1 if the value's bit 15 is 1.",
+  },
+  {
+    symbol: "VHLnPm",
+    description: "High-order 16 bits of the 32-bit value in token n after adding m (1–4); pair with VLnU when combining halves.",
+  },
+  {
+    symbol: "VHnPm",
+    description: "High-order 16 bits of the 32-bit value in token n after adding m (1–4); then add 1 if bit 15 is 1.",
+  },
+  {
+    symbol: "LLP",
+    description: "Low-order 16 bits of a label-plus-immediate expression (immediate added before truncation).",
+  },
+  {
+    symbol: "LLPU",
+    description: "Unsigned low-order 16 bits of a label-plus-immediate expression (immediate added before truncation).",
+  },
+  {
+    symbol: "LLPPm",
+    description: "Low-order 16 bits of a label-plus-immediate expression after applying the m (1–4) addend before truncation.",
+  },
+  { symbol: "LHPA", description: "High-order 16 bits of a label-plus-immediate expression." },
+  {
+    symbol: "LHPN",
+    description: "High-order 16 bits of a label-plus-immediate expression used by la; do not add 1 for bit 15 because ori resolves it.",
+  },
+  {
+    symbol: "LHPAPm",
+    description: "High-order 16 bits of a label-plus-immediate expression after applying the m (1–4) addend.",
+  },
+  { symbol: "LHL", description: "High-order 16 bits from the label address in token 2 of an la statement." },
+  { symbol: "LAB", description: "Substitute the textual label from the last token of the source statement." },
+  { symbol: "S32", description: "Substitute 32 minus the constant in the last token (used by ror/rol)." },
+  { symbol: "DBNOP", description: "Insert a delayed-branching NOP when delayed branching is enabled." },
+  {
+    symbol: "BROFFnm",
+    description: "Substitute n if delayed branching is disabled; substitute m if delayed branching is enabled (branch offsets in words).",
+  },
+  { symbol: "COMPACT", description: "Separator between the default template and an optional 16-bit optimized template." },
+];
+
 export type PseudoOpTable = Map<string, PseudoOpDefinition[]>;
 
 let cachedPseudoOps: PseudoOpTable | null = null;
@@ -139,6 +218,10 @@ export function getPseudoOpDocumentation(): PseudoOpDocumentation[] {
 
   cachedPseudoOpDocumentation = buildPseudoOpDocumentation();
   return cachedPseudoOpDocumentation;
+}
+
+export function getMacroSymbolDocumentation(): MacroSymbolDocumentation[] {
+  return macroSymbolDocs.map((entry) => ({ ...entry }));
 }
 
 /**
