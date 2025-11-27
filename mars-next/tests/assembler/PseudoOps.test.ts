@@ -251,6 +251,19 @@ describe("Pseudo-op documentation", () => {
     assert.ok(broff);
     assert.match(broff?.description ?? "", /delayed branching/i);
   });
+
+  test("documents unsigned and addend macro variants", () => {
+    const macros = getMacroSymbolDocumentation();
+
+    const llpu = macros.find((entry) => entry.symbol === "LLPU");
+    const vhlAddend = macros.find((entry) => entry.symbol === "VHLnPm");
+
+    assert.ok(llpu, "expected LLPU macro documentation");
+    assert.match(llpu?.description ?? "", /unsigned low-order 16 bits/i);
+
+    assert.ok(vhlAddend, "expected VHLnPm macro documentation");
+    assert.match(vhlAddend?.description ?? "", /after adding m/i);
+  });
 });
 
 describe("Pseudo-op macro substitutions", () => {
