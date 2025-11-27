@@ -6,8 +6,10 @@ export function registerClzInstruction(): void {
     const opcode = (instruction >>> 26) & 0x3f;
     if (opcode !== 0x1c) return null;
 
+    const rt = (instruction >>> 16) & 0x1f;
+    const shamt = (instruction >>> 6) & 0x1f;
     const funct = instruction & 0x3f;
-    if (funct !== 0x20) return null;
+    if (funct !== 0x20 || rt !== 0 || shamt !== 0) return null;
 
     const rd = (instruction >>> 11) & 0x1f;
     const rs = (instruction >>> 21) & 0x1f;
