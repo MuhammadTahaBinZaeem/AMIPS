@@ -1295,34 +1295,6 @@ export function decodeInstruction(instruction: number, pc: number): DecodedInstr
         return makeMultiplySubtract("msub", decoded, false);
       case 0x05:
         return makeMultiplySubtract("msubu", decoded, true);
-      case 0x20: {
-        const { rd, rs } = decoded;
-        return {
-          name: "clz",
-          execute: (state: MachineState) => {
-            const value = state.getRegister(rs) >>> 0;
-            let count = 0;
-            for (let bit = 31; bit >= 0 && ((value >>> bit) & 1) === 0; bit--) {
-              count++;
-            }
-            state.setRegister(rd, count);
-          },
-        };
-      }
-      case 0x21: {
-        const { rd, rs } = decoded;
-        return {
-          name: "clo",
-          execute: (state: MachineState) => {
-            const value = state.getRegister(rs) >>> 0;
-            let count = 0;
-            for (let bit = 31; bit >= 0 && ((value >>> bit) & 1) === 1; bit--) {
-              count++;
-            }
-            state.setRegister(rd, count);
-          },
-        };
-      }
       default:
         return null;
     }
