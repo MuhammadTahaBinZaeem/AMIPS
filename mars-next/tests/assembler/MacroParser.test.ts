@@ -1,7 +1,7 @@
 import assert from "node:assert";
 import { describe, test } from "node:test";
 
-import { parseMacro } from "../../src/core/assembler/MacroParser";
+import { macroPattern, parseMacro } from "../../src/core/assembler/MacroParser";
 
 describe("MacroParser", () => {
   test("parses register- and operand-based macros", () => {
@@ -57,6 +57,18 @@ describe("MacroParser", () => {
       disabledOffset: 20,
       enabledOffset: 0,
     });
+
+    assert.deepStrictEqual(parseMacro("BROFF1234"), {
+      kind: "BROFF",
+      raw: "BROFF1234",
+      disabledOffset: 12,
+      enabledOffset: 34,
+    });
+  });
+
+  test("matches multi-digit macros in pseudo-op templates", () => {
+    const matches = "add RG10,LL12U,BROFF200".match(macroPattern);
+    assert.deepStrictEqual(matches, ["RG10", "LL12U", "BROFF200"]);
   });
 
   test("returns undefined for unknown macros", () => {
