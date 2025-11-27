@@ -1,6 +1,6 @@
 # Legacy vs. mars-next coverage report
 
-This report compares the legacy Java MARS distribution under `legacy/` against the current TypeScript/Electron prototype under `mars-next/`. It summarizes which legacy artifacts already have equivalents and where mars-next still needs to replicate or implement functionality.
+This report compares the legacy Java MARS distribution under `legacy/` against the current TypeScript/Electron prototype under `mars-next/`. It summarizes which legacy artifacts already have equivalents and where mars-next still needs to replicate or implement functionality. Use it alongside [`docs/porting-status.md`](porting-status.md) (current implementation snapshot) and [`docs/mips-syntax-coverage.md`](mips-syntax-coverage.md) (instruction coverage) when planning work.
 
 ## Resource and configuration gaps
 - **Runtime configuration defaults:** The legacy simulator ships default UI/runtime flags (e.g., delayed branching toggle, highlight colors, load exception handler, editor behaviors) in `Settings.properties`, none of which exist in mars-next. These preferences cover assembly-time options, editor affordances, and register/memory highlighting that the new renderer does not yet expose.【F:legacy/Settings.properties†L1-L33】

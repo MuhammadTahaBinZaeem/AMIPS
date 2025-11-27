@@ -11,7 +11,7 @@ This document explains where different kinds of changes belong in the mars-next 
 - **Shared utilities and contracts:** Cross-cutting helpers reside in `src/shared/` (e.g., `src/shared/utils/errorBoundary.tsx`, `src/shared/utils/logger.ts`, `src/shared/utils/eventBus.ts`, and typed adapters in `src/shared/adapters/`). Common types live in `src/shared/types/`.
 - **Core simulation engine:** MIPS assembly parsing, memory, CPU, syscalls, and loader logic live under `src/core/` (e.g., `src/core/assembler`, `src/core/memory`, `src/core/cpu`, `src/core/loader`). Keep UI code out of this layer.
 - **CLI entry point:** `apps/cli/index.ts` is available for command-line tooling that should reuse the core engine without Electron.
-- **Documentation and tests:** Repo-wide docs are under `docs/`; workspace tests live under `tests/` plus per-feature `tests/` folders.
+- **Documentation and tests:** Repo-wide docs are under `docs/`; workspace tests live under `tests/` plus per-feature `tests/` folders. Review [`docs/legacy-comparison.md`](legacy-comparison.md) when touching features that map to legacy behaviors so parity gaps do not widen.
 
 ## Where to add or adjust functionality
 
@@ -41,6 +41,7 @@ This document explains where different kinds of changes belong in the mars-next 
 - **Keep layers separate:** Core simulation code (`src/core`) should stay UI-agnostic. Renderer-facing adapters in `src/shared/adapters` should be the bridge to Electron or Node-only capabilities.
 - **Feature encapsulation:** Do not import another feature's `state/` or `components/` directly; share contracts through `src/shared/types` or new adapters instead.
 - **Scoped tests:** Add or update tests near the change (feature `tests/` folder or root `tests/` for cross-cutting concerns) so regressions remain localized.
+- **Parity check:** Before landing changes that affect legacy-aligned functionality (syscalls, devices, renderer affordances, tool surfaces), cross-reference the open gaps summarized in [`docs/legacy-comparison.md`](legacy-comparison.md) and the active porting snapshot in [`docs/porting-status.md`](porting-status.md).
 - **Incremental commits:** Land one feature or improvement per commit to make rollbacks safe and to keep unrelated areas untouched.
 
 ## Quick references

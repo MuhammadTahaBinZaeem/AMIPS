@@ -9,7 +9,7 @@ The legacy simulator defines 139 unique instruction mnemonics in `InstructionSet
 `abs.d`, `abs.s`, `add.d`, `add.s`, `bc1f`, `bc1t`, `c.eq.d`, `c.eq.s`, `c.le.d`, `c.le.s`, `c.lt.d`, `c.lt.s`, `ceil.w.d`, `ceil.w.s`, `div.d`, `div.s`, `floor.w.d`, `floor.w.s`, `mov.d`, `mov.s`, `movf`, `movf.d`, `movf.s`, `movn.d`, `movn.s`, `movt`, `movt.d`, `movt.s`, `movz.d`, `movz.s`, `mul.d`, `mul.s`, `round.w.d`, `round.w.s`, `sqrt.d`, `sqrt.s`, `sub.d`, `sub.s`, `trunc.w.d`, `trunc.w.s`.
 
 ## Pseudo-instruction coverage
-All 83 pseudo-op mnemonics from `resources/PseudoOps.txt` are parsed and expanded by the assembler, mirroring the legacy PseudoOps table.
+All 83 pseudo-op mnemonics from `resources/PseudoOps.txt` are parsed and expanded by the assembler, mirroring the legacy PseudoOps table. Gaps that still block full feature parity are summarized alongside renderer/tooling differences in [`docs/legacy-comparison.md`](legacy-comparison.md).
 
 ## Directive and expression support
 The assembler parser recognizes `.text`, `.data`, `.ktext`, `.kdata`, `.word`, `.byte`, `.half`, `.float`, `.double`, `.ascii`, `.asciiz`, `.space`, `.align`, `.globl`, `.extern`, `.eqv`, and `.set`. Directive arguments can be raw numbers, labels, or arithmetic/bitwise expressions, and memory operands accept computed or label-backed offsets.
