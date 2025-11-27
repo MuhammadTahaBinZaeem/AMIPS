@@ -1213,7 +1213,8 @@ export class Assembler {
         return this.delayedBranchingEnabled ? "nop" : "";
       case "BROFF":
         return String(
-          (this.delayedBranchingEnabled ? macro.enabledOffset : macro.disabledOffset) ?? macro.disabledOffset ?? "",
+          (this.delayedBranchingEnabled ? macro.enabledOffset ?? macro.disabledOffset : macro.disabledOffset ?? macro.enabledOffset) ??
+            "",
         );
       case "LAB":
         return tokens[tokens.length - 1] ?? "";
