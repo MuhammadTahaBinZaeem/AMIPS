@@ -64,6 +64,20 @@ export function PseudoOpsEditor({ onSaved }: PseudoOpsEditorProps): React.JSX.El
     }
   };
 
+  const handleReloadPseudoOps = (): void => {
+    try {
+      setStatus("Reloading pseudo-ops...");
+      reloadPseudoOpTable();
+      setStatus("Pseudo-op table reloaded");
+      setError(null);
+      onSaved?.();
+    } catch (reloadError) {
+      const message = reloadError instanceof Error ? reloadError.message : String(reloadError);
+      setError(message);
+      setStatus("Failed to reload pseudo-ops");
+    }
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
       <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
@@ -129,6 +143,19 @@ export function PseudoOpsEditor({ onSaved }: PseudoOpsEditorProps): React.JSX.El
           }}
         >
           Reload from disk
+        </button>
+        <button
+          onClick={handleReloadPseudoOps}
+          style={{
+            background: "transparent",
+            color: "#e2e8f0",
+            border: "1px solid #1f2937",
+            borderRadius: "0.375rem",
+            padding: "0.45rem 0.9rem",
+            cursor: "pointer",
+          }}
+        >
+          Reload pseudo-op table
         </button>
         <button
           onClick={handleSave}
