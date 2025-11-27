@@ -3,6 +3,7 @@ import { MachineState } from "../../state/MachineState";
 import { Cpu, DecodedInstruction, InstructionMemory } from "../Cpu";
 import { AccessType } from "../../memory/MemoryMap";
 import { ArithmeticOverflow, SyscallException } from "../../exceptions/ExecutionExceptions";
+import { registerExtendedInstructionPlugins } from "./ExtendedInstructionPlugins";
 
 export type InstructionExecutor = (state: MachineState, memory: InstructionMemory, cpu: Cpu) => void;
 
@@ -21,6 +22,7 @@ type InstructionJsonDefinition = Omit<InstructionDefinition, "execute"> & {
 
 const decodePlugins: InstructionDecodePlugin[] = [];
 const registeredDefinitions: InstructionDefinition[] = [];
+let instructionExtensionsInitialized = false;
 
 interface RTypeFields {
   rs: number;
@@ -165,6 +167,7 @@ function splitToHiLo(value: bigint): { hi: number; lo: number } {
 export function clearInstructionExtensions(): void {
   decodePlugins.length = 0;
   registeredDefinitions.length = 0;
+  instructionExtensionsInitialized = false;
 }
 
 export function registerInstructionPlugin(plugin: InstructionDecodePlugin): void {
@@ -201,6 +204,13 @@ export function registerJsonInstructionDefinitions(
       },
     ]);
   });
+}
+
+function initializeInstructions(): void {
+  if (instructionExtensionsInitialized) return;
+
+  registerExtendedInstructionPlugins();
+  instructionExtensionsInitialized = true;
 }
 
 function decodeWithExtensions(instruction: number, pc: number): DecodedInstruction | null {
@@ -1103,6 +1113,7 @@ const decodeCop1 = (instruction: number, pc: number): DecodedInstruction | null 
 };
 
 export function decodeInstruction(instruction: number, pc: number): DecodedInstruction | null {
+  initializeInstructions();
   const opcode = (instruction >>> 26) & 0x3f;
 
   const pluginDecoded = decodeWithExtensions(instruction, pc);
