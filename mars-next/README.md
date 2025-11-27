@@ -18,6 +18,7 @@ TypeScript/Electron workspace for the next-generation MARS simulator. The reposi
 - [`src/features/`](src/features/): Feature modules for editing, breakpoints/watches, run controls, register/memory tables, and stubs for console I/O, tools, settings, and file management.
 - [`src/core/`](src/core/): Headless simulation engine (assembler, program loader/linker, CPU pipeline, devices, syscalls, debugger engines, and state/memory management).
 - [`docs/`](docs/): Architecture, feature, and porting notes for the TypeScript workspace.
+  - [`docs/macro-symbols.md`](docs/macro-symbols.md): Macro template symbol reference for customizing `PseudoOps.txt`.
 - [`resources/`](resources/): Bundled PseudoOps table imported by the assembler.
 
 See [`docs/troubleshooting.md`](docs/troubleshooting.md) if you run into npm installation errors or Windows cleanup warnings.
