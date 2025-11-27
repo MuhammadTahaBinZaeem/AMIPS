@@ -17,12 +17,15 @@ export function registerInsInstruction(): void {
     const sizeField = (instruction >>> 6) & 0x1f;
 
     const width = sizeField + 1;
+    if (position + width > 32) {
+      throw new RangeError(`ins width (${width}) with position ${position} exceeds register size`);
+    }
     const mask = width >= 32 ? 0xffffffff : (1 << width) - 1;
 
     return {
       name: "ins",
       execute: (state: MachineState) => {
-        const source = state.getRegister(rs);
+        const source = state.getRegister(rs) >>> 0;
         const target = state.getRegister(rt);
         const cleared = target & ~(mask << position);
         const inserted = (source & mask) << position;
