@@ -198,6 +198,31 @@ describe("Assembler pipeline", () => {
     );
   });
 
+  test("normalizes directive aliases in symbol table calculations", () => {
+    const source = [
+      ".data",
+      ".byte 1",
+      ".skip 2",
+      ".balign 2",
+      "alias_label: .byte 2",
+      ".text",
+      ".global main",
+      ".equ CONST, 5",
+      "main:",
+      "  addi $t0, $zero, CONST",
+      ".extern ext_symbol",
+    ].join("\n");
+
+    const image = new Assembler().assemble(source);
+
+    assert.strictEqual(image.symbols["alias_label"], image.dataBase + 4);
+    assert.deepStrictEqual(image.data.slice(0, 5), [1, 0, 0, 0, 2]);
+    assert.strictEqual(image.symbols["CONST"], 5);
+    assert.deepStrictEqual(image.globalSymbols, ["main"]);
+    assert.ok(image.externSymbols?.includes("ext_symbol"));
+    assert.ok(image.undefinedSymbols?.includes("ext_symbol"));
+  });
+
   test("aligns data according to directive requirements", () => {
     const source = [
       ".data",
