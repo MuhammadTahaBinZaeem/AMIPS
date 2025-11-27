@@ -60,7 +60,7 @@ export class MacroProcessor {
         const { macro, startIndex } = macroCall;
         const args = this.splitArguments(line.tokens.slice(startIndex + 1));
         const labelPrefix = this.tokensToText(line.tokens.slice(0, startIndex));
-        const suffix = `_M${this.counter++}`;
+        const suffix = this.nextSuffix();
 
         if (this.callStack.includes(line.line)) {
           const history = [...this.callStack, line.line].join("->");
@@ -158,7 +158,7 @@ export class MacroProcessor {
     const args = this.splitArguments(tokens);
     const params: string[] = [];
     for (const argTokens of args) {
-      if (argTokens.length !== 1 || (argTokens[0].type !== "identifier" && argTokens[0].type !== "register")) {
+      if (argTokens.length !== 1 || !this.tokenIsMacroParameter(argTokens[0])) {
         throw new Error(`Invalid macro parameter at line ${line}`);
       }
       params.push(String(argTokens[0].raw));
@@ -199,25 +199,57 @@ export class MacroProcessor {
       paramMap.set(param, this.tokensToText(args[index] ?? []));
     });
 
-    const substituted = line.tokens.map((token) => {
+    let source = this.reconstructLine(line.tokens);
+    for (let i = line.tokens.length - 1; i >= 0; i--) {
+      const token = line.tokens[i];
       if (paramMap.has(token.raw)) {
-        return paramMap.get(token.raw) as string;
+        source = this.replaceToken(source, token.raw, paramMap.get(token.raw) as string);
+      } else if (macro.labels.has(token.raw)) {
+        source = this.replaceToken(source, token.raw, `${token.raw}${suffix}`);
       }
-      if (macro.labels.has(token.raw)) {
-        return `${token.raw}${suffix}`;
-      }
-      return token.raw;
-    });
+    }
 
-    return substituted.join(" ");
+    return source;
   }
 
   private reconstructLine(tokens: Token[]): string {
     if (tokens.length === 0) return "";
-    return tokens.map((token) => token.raw).join(" ");
+    let line = String(tokens[0].raw);
+    for (let i = 1; i < tokens.length; i++) {
+      const token = tokens[i];
+      const prev = tokens[i - 1];
+      const needsSpace = !this.isPunctuation(token) && !this.isOpenPunctuation(prev) && !this.isClosePunctuation(token);
+      line += `${needsSpace ? " " : ""}${token.raw}`;
+    }
+    return line;
   }
 
   private tokensToText(tokens: Token[]): string {
     return tokens.map((token) => token.raw).join("");
+  }
+
+  private nextSuffix(): string {
+    return `_M${this.counter++}`;
+  }
+
+  private replaceToken(source: string, token: string, substitute: string): string {
+    const pos = source.indexOf(token);
+    return pos < 0 ? source : `${source.substring(0, pos)}${substitute}${source.substring(pos + token.length)}`;
+  }
+
+  private isPunctuation(token: Token): boolean {
+    return ["comma", "colon", "rparen"].includes(token.type);
+  }
+
+  private isOpenPunctuation(token: Token): boolean {
+    return token.type === "lparen";
+  }
+
+  private isClosePunctuation(token: Token): boolean {
+    return token.type === "rparen";
+  }
+
+  private tokenIsMacroParameter(token: Token): boolean {
+    return token.type === "identifier" || token.type === "register";
   }
 }
