@@ -1,4 +1,6 @@
 import { Device, DeviceData, InterruptHandler } from "../devices/Device";
+import { BitmapDisplayDevice } from "../devices/BitmapDisplayDevice";
+import { KeyboardDevice } from "../devices/KeyboardDevice";
 import { PrivilegeViolation } from "../exceptions/AccessExceptions";
 
 export type MemorySegmentName = "text" | "data" | "heap" | "stack" | "mmio" | "ktext" | "kdata";
@@ -73,6 +75,9 @@ const DEFAULT_STACK_BASE = 0x7ffffffc;
 const DEFAULT_STACK_SIZE = 4 * 1024 * 1024;
 const DEFAULT_MMIO_BASE = 0xffff0000;
 const DEFAULT_MMIO_SIZE = 0x00010000;
+const KEYBOARD_START = 0xffff0000;
+const KEYBOARD_SIZE = 0x10;
+const BITMAP_START = 0xffff1000;
 
 export class MemoryMap {
   private readonly segments: MemorySegment[];
@@ -110,7 +115,9 @@ export class MemoryMap {
     this.stackSize = options.stackSize ?? DEFAULT_STACK_SIZE;
     this.mmioBase = options.mmioBase ?? DEFAULT_MMIO_BASE;
     this.mmioSize = options.mmioSize ?? DEFAULT_MMIO_SIZE;
-    this.devices = [...(options.devices ?? [])];
+
+    const builtinDevices = this.createDefaultDevices();
+    this.devices = [...builtinDevices, ...(options.devices ?? [])];
     this.tlb = [];
 
     if (this.heapBase < this.dataBase) {
@@ -176,6 +183,21 @@ export class MemoryMap {
     ];
 
     (options.tlbEntries ?? []).forEach((entry) => this.addTlbEntry(entry));
+  }
+
+  private createDefaultDevices(): DeviceRange[] {
+    const keyboard = new KeyboardDevice();
+    const bitmapDisplay = new BitmapDisplayDevice();
+
+    const keyboardStart = KEYBOARD_START >>> 0;
+    const keyboardEnd = (keyboardStart + KEYBOARD_SIZE - 1) >>> 0;
+    const bitmapStart = BITMAP_START >>> 0;
+    const bitmapEnd = (bitmapStart + bitmapDisplay.byteLength - 1) >>> 0;
+
+    return [
+      { start: keyboardStart, end: keyboardEnd, device: keyboard },
+      { start: bitmapStart, end: bitmapEnd, device: bitmapDisplay },
+    ];
   }
 
   onInterrupt(handler: InterruptHandler): void {
@@ -321,7 +343,14 @@ export class MemoryMap {
   }
 
   private findDeviceRange(address: number): DeviceRange | undefined {
-    return this.devices.find(({ start, end }) => address >= start && address <= end);
+    for (let i = this.devices.length - 1; i >= 0; i--) {
+      const { start, end } = this.devices[i];
+      if (address >= start && address <= end) {
+        return this.devices[i];
+      }
+    }
+
+    return undefined;
   }
 
   private attachInterruptHandler(device: MemoryMappedDevice): void {

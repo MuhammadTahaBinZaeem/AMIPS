@@ -25,6 +25,7 @@ export * from "./loader/ProgramLoader";
 export * from "./loader/ExecutableParser";
 export * from "./loader/Linker";
 export * from "./devices/Device";
+export * from "./devices/BitmapDisplayDevice";
 export * from "./devices/TerminalDevice";
 export * from "./devices/FileDevice";
 export * from "./devices/TimerDevice";
