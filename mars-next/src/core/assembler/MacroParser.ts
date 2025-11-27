@@ -29,7 +29,7 @@ export interface ParsedMacro {
   disabledOffset?: number;
 }
 
-export const macroPattern = /(COMPACT|DBNOP|BROFF\d\d|[A-Z]{2,}[A-Z0-9]+)/g;
+export const macroPattern = /(COMPACT|DBNOP|BROFF\d+|[A-Z]{2,}[A-Z0-9]+)/g;
 
 export function parseMacro(raw: string): ParsedMacro | undefined {
   if (raw === "COMPACT") return { kind: "COMPACT", raw };
@@ -38,10 +38,11 @@ export function parseMacro(raw: string): ParsedMacro | undefined {
   if (raw === "LHL") return { kind: "LHL", raw };
   if (raw === "IMM") return { kind: "IMM", raw };
 
-  if (raw.startsWith("BROFF") && raw.length === 7) {
-    const disabledOffset = Number(raw[5]);
-    const enabledOffset = Number(raw[6]);
-    if (Number.isFinite(disabledOffset) && Number.isFinite(enabledOffset)) {
+  if (raw.startsWith("BROFF")) {
+    const offsets = raw.slice(5);
+    const disabledOffset = Number(offsets.slice(0, -1));
+    const enabledOffset = Number(offsets.at(-1));
+    if (offsets.length >= 2 && Number.isFinite(disabledOffset) && Number.isFinite(enabledOffset)) {
       return { kind: "BROFF", raw, enabledOffset, disabledOffset };
     }
   }

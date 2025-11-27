@@ -62,7 +62,7 @@
 #      LAB means substitute textual label from last token of source statement.  Used for various branches.
 #      S32 means substitute the result of subtracting the constant value in last token from 32.  Used by "ror", "rol".
 #      DBNOP means Delayed Branching NOP - generate a "nop" instruction but only if delayed branching is enabled.  Added in 3.4.1 release.
-#      BROFFnm means substitute n if delayed branching is NOT enabled otherwise substitute m.  n and m are single digit numbers indicating constant branch offset (in words).  Added in 3.4.1 release.
+#      BROFFnm means substitute n if delayed branching is NOT enabled otherwise substitute m.  n and m may be multi-digit numbers indicating constant branch offset (in words).  Added in 3.4.1 release.
 #      COMPACT is a marker to separate the default template from a second template optimized for 16-bit addresses.  See loads and stores having (data) label operands.
 #   Everything else is copied as is into the generated statement (you must use register numbers not mnemonics)
 #   The list of basic instruction templates is optionally followed a description of the instruction for help purposes.
