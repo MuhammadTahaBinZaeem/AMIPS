@@ -7,6 +7,8 @@ import { describe, test } from "node:test";
 import { Assembler } from "../../src/core/assembler/Assembler";
 import {
   buildPseudoOpDocumentation,
+  getMacroSymbolDocumentation,
+  getPseudoOpDocumentation,
   loadPseudoOpTable,
   parsePseudoOpsFile,
   reloadPseudoOpTable,
@@ -210,5 +212,89 @@ describe("Pseudo-op documentation", () => {
     assert.strictEqual(fooDoc?.forms[0]?.description, "load immediate into foo");
     assert.deepStrictEqual(barDoc?.forms[0]?.expansions, ["lui RG1, VHL2", "ori RG1, RG1, VL2U"]);
     assert.strictEqual(barDoc?.forms[0]?.description, "two-step load");
+  });
+
+  test("refreshes documentation after reloading pseudo-ops", () => {
+    const originalCwd = process.cwd();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "pseudoops-docs-"));
+
+    try {
+      const pseudoOpsPath = path.join(tempDir, "PseudoOps.txt");
+      fs.writeFileSync(pseudoOpsPath, "foo $t0\taddi RG1, $zero, 1\t#first description", "utf8");
+
+      process.chdir(tempDir);
+      resetPseudoOpCacheForTesting();
+
+      let docs = getPseudoOpDocumentation();
+      let fooDoc = docs.find((entry) => entry.mnemonic === "foo");
+      assert.strictEqual(fooDoc?.forms[0]?.expansions[0], "addi RG1, $zero, 1");
+      assert.strictEqual(fooDoc?.forms[0]?.description, "first description");
+
+      fs.writeFileSync(pseudoOpsPath, "foo $t0\taddi RG1, $zero, 2\t#second description", "utf8");
+      reloadPseudoOpTable();
+
+      docs = getPseudoOpDocumentation();
+      fooDoc = docs.find((entry) => entry.mnemonic === "foo");
+      assert.strictEqual(fooDoc?.forms[0]?.expansions[0], "addi RG1, $zero, 2");
+      assert.strictEqual(fooDoc?.forms[0]?.description, "second description");
+    } finally {
+      process.chdir(originalCwd);
+      resetPseudoOpCacheForTesting();
+    }
+  });
+
+  test("exposes macro symbol documentation", () => {
+    const macros = getMacroSymbolDocumentation();
+    const broff = macros.find((entry) => entry.symbol === "BROFFnm");
+
+    assert.ok(macros.length > 0);
+    assert.ok(broff);
+    assert.match(broff?.description ?? "", /delayed branching/i);
+  });
+
+  test("documents unsigned and addend macro variants", () => {
+    const macros = getMacroSymbolDocumentation();
+
+    const llpu = macros.find((entry) => entry.symbol === "LLPU");
+    const vhlAddend = macros.find((entry) => entry.symbol === "VHLnPm");
+
+    assert.ok(llpu, "expected LLPU macro documentation");
+    assert.match(llpu?.description ?? "", /unsigned low-order 16 bits/i);
+
+    assert.ok(vhlAddend, "expected VHLnPm macro documentation");
+    assert.match(vhlAddend?.description ?? "", /after adding m/i);
+  });
+});
+
+describe("Pseudo-op macro substitutions", () => {
+  test("supports label high/low halves and LLPP offsets", () => {
+    const assembler = new Assembler();
+    const tokens = (assembler as any).tokenizeExample("bar $t0,label+4($t1)") as string[];
+
+    const withHigh = (assembler as any).applyPseudoTemplate("lui RG1, LH2P1", tokens) as string;
+    assert.strictEqual(withHigh, "lui $t0, (((((label+4) + 1) + 0x8000) >> 16) & 0xffff)");
+
+    const withLow = (assembler as any).applyPseudoTemplate("lwl RG1, LLPP3(RG4)", tokens) as string;
+    assert.strictEqual(withLow, "lwl $t0, (((((label+4) + 3)) << 16) >> 16)($t1)");
+  });
+
+  test("substitutes the first immediate token with IMM", () => {
+    const assembler = new Assembler();
+    const tokens = (assembler as any).tokenizeExample("immtest $t0,42") as string[];
+
+    const substituted = (assembler as any).applyPseudoTemplate("addi RG1, $zero, IMM", tokens) as string;
+    assert.strictEqual(substituted, "addi $t0, $zero, 42");
+  });
+
+  test("BROFF selects offsets based on delayed branching setting", () => {
+    const tokens = (new Assembler() as any).tokenizeExample("beq $t0, $t1, label");
+
+    const delayedAssembler = new Assembler({ delayedBranchingEnabled: true });
+    const delayedSubstitution = (delayedAssembler as any).applyPseudoTemplate("beq RG1, RG2, BROFF12", tokens) as string;
+    assert.strictEqual(delayedSubstitution, "beq $t0, $t1, 2");
+
+    const nonDelayedAssembler = new Assembler({ delayedBranchingEnabled: false });
+    const nonDelayedSubstitution = (nonDelayedAssembler as any).applyPseudoTemplate("beq RG1, RG2, BROFF12", tokens) as string;
+    assert.strictEqual(nonDelayedSubstitution, "beq $t0, $t1, 1");
   });
 });

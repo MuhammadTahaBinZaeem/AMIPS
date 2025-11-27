@@ -1,4 +1,5 @@
 import type { ReadFileSync } from "node:fs";
+import type { MacroKind } from "./MacroParser";
 
 export interface PseudoOpDefinition {
   /** Example syntax split into tokens (operator is token 0; parentheses are tokens, commas are not). */
@@ -16,9 +17,139 @@ export interface PseudoOpDocumentation {
   forms: Array<{ syntax: string; expansions: string[]; description?: string }>;
 }
 
+export interface MacroSymbolDocumentation {
+  symbol: string;
+  description: string;
+}
+
+interface MacroSymbolDocEntry extends MacroSymbolDocumentation {
+  kinds: MacroKind[];
+}
+
+const macroSymbolDocs: MacroSymbolDocEntry[] = [
+  { kinds: ["RG"], symbol: "RGn", description: "Substitute the register from source token n." },
+  { kinds: ["NR"], symbol: "NRn", description: "Substitute the next higher register after the one in token n." },
+  { kinds: ["OP"], symbol: "OPn", description: "Substitute the raw text of token n." },
+  {
+    kinds: ["IMM"],
+    symbol: "IMM",
+    description: "Substitute the first immediate token from the source statement (or the last token if none found).",
+  },
+  { kinds: ["LL"], symbol: "LLn", description: "Low-order 16 bits of the label address in token n." },
+  { kinds: ["LL"], symbol: "LLnU", description: "Unsigned low-order 16 bits of the label address in token n." },
+  { kinds: ["LL"], symbol: "LLnPm", description: "Low-order 16 bits of the label address in token n after adding m (1–4)." },
+  {
+    kinds: ["LH"],
+    symbol: "LHn",
+    description: "High-order 16 bits of the label address in token n; add 1 if address bit 15 is 1.",
+  },
+  {
+    kinds: ["LH"],
+    symbol: "LHnPm",
+    description: "High-order 16 bits of the label address in token n after adding m (1–4); then add 1 if bit 15 is 1.",
+  },
+  { kinds: ["VL"], symbol: "VLn", description: "Low-order 16 bits of the 32-bit value in token n." },
+  { kinds: ["VL"], symbol: "VLnU", description: "Unsigned low-order 16 bits of the 32-bit value in token n." },
+  { kinds: ["VL"], symbol: "VLnPm", description: "Low-order 16 bits of the 32-bit value in token n after adding m (1–4)." },
+  {
+    kinds: ["VL"],
+    symbol: "VLnPmU",
+    description: "Unsigned low-order 16 bits of the 32-bit value in token n after adding m (1–4).",
+  },
+  {
+    kinds: ["VHL"],
+    symbol: "VHLn",
+    description: "High-order 16 bits of the 32-bit value in token n; pair with VLnU when combining halves.",
+  },
+  {
+    kinds: ["VH"],
+    symbol: "VHn",
+    description: "High-order 16 bits of the 32-bit value in token n; add 1 if the value's bit 15 is 1.",
+  },
+  {
+    kinds: ["VHL"],
+    symbol: "VHLnPm",
+    description: "High-order 16 bits of the 32-bit value in token n after adding m (1–4); pair with VLnU when combining halves.",
+  },
+  {
+    kinds: ["VH"],
+    symbol: "VHnPm",
+    description: "High-order 16 bits of the 32-bit value in token n after adding m (1–4); then add 1 if bit 15 is 1.",
+  },
+  {
+    kinds: ["LLP"],
+    symbol: "LLP",
+    description: "Low-order 16 bits of a label-plus-immediate expression (immediate added before truncation).",
+  },
+  {
+    kinds: ["LLP"],
+    symbol: "LLPU",
+    description: "Unsigned low-order 16 bits of a label-plus-immediate expression (immediate added before truncation).",
+  },
+  {
+    kinds: ["LLPP"],
+    symbol: "LLPPm",
+    description: "Low-order 16 bits of a label-plus-immediate expression after applying the m (1–4) addend before truncation.",
+  },
+  { kinds: ["LHPA"], symbol: "LHPA", description: "High-order 16 bits of a label-plus-immediate expression." },
+  {
+    kinds: ["LHPN"],
+    symbol: "LHPN",
+    description: "High-order 16 bits of a label-plus-immediate expression used by la; do not add 1 for bit 15 because ori resolves it.",
+  },
+  {
+    kinds: ["LHPA"],
+    symbol: "LHPAPm",
+    description: "High-order 16 bits of a label-plus-immediate expression after applying the m (1–4) addend.",
+  },
+  { kinds: ["LHL"], symbol: "LHL", description: "High-order 16 bits from the label address in token 2 of an la statement." },
+  { kinds: ["LAB"], symbol: "LAB", description: "Substitute the textual label from the last token of the source statement." },
+  { kinds: ["S32"], symbol: "S32", description: "Substitute 32 minus the constant in the last token (used by ror/rol)." },
+  { kinds: ["DBNOP"], symbol: "DBNOP", description: "Insert a delayed-branching NOP when delayed branching is enabled." },
+  {
+    kinds: ["BROFF"],
+    symbol: "BROFFnm",
+    description: "Substitute n if delayed branching is disabled; substitute m if delayed branching is enabled (branch offsets in words).",
+  },
+  { kinds: ["COMPACT"], symbol: "COMPACT", description: "Separator between the default template and an optional 16-bit optimized template." },
+];
+
+const documentedMacroKinds = new Set<MacroKind>();
+const allMacroKinds: MacroKind[] = [
+  "COMPACT",
+  "DBNOP",
+  "BROFF",
+  "LAB",
+  "LHL",
+  "IMM",
+  "RG",
+  "NR",
+  "OP",
+  "LLP",
+  "LLPP",
+  "LL",
+  "LHPA",
+  "LHPN",
+  "LH",
+  "VH",
+  "VHL",
+  "VL",
+  "S32",
+];
+
+for (const entry of macroSymbolDocs) {
+  entry.kinds.forEach((kind) => documentedMacroKinds.add(kind));
+}
+
+const undocumentedKinds = allMacroKinds.filter((kind) => !documentedMacroKinds.has(kind));
+if (undocumentedKinds.length > 0) {
+  throw new Error(`Missing macro symbol documentation for kinds: ${undocumentedKinds.join(", ")}`);
+}
+
 export type PseudoOpTable = Map<string, PseudoOpDefinition[]>;
 
 let cachedPseudoOps: PseudoOpTable | null = null;
+let cachedPseudoOpDocumentation: PseudoOpDocumentation[] | null = null;
 
 /**
  * Load and parse the bundled PseudoOps.txt resource into a table keyed by mnemonic.
@@ -49,6 +180,7 @@ export function loadPseudoOpTable(): PseudoOpTable {
 /** Reset the cached pseudo-op table (intended for tests). */
 export function resetPseudoOpCacheForTesting(): void {
   cachedPseudoOps = null;
+  cachedPseudoOpDocumentation = null;
 }
 
 /**
@@ -56,7 +188,11 @@ export function resetPseudoOpCacheForTesting(): void {
  */
 export function reloadPseudoOpTable(): PseudoOpTable {
   cachedPseudoOps = null;
-  return loadPseudoOpTable();
+  cachedPseudoOpDocumentation = null;
+
+  const table = loadPseudoOpTable();
+  cachedPseudoOpDocumentation = buildPseudoOpDocumentation(table);
+  return table;
 }
 
 /**
@@ -123,6 +259,20 @@ export function buildPseudoOpDocumentation(table: PseudoOpTable = loadPseudoOpTa
   }
 
   return docs.sort((a, b) => a.mnemonic.localeCompare(b.mnemonic));
+}
+
+/**
+ * Cached accessor for pseudo-op documentation, suitable for help tabs.
+ */
+export function getPseudoOpDocumentation(): PseudoOpDocumentation[] {
+  if (cachedPseudoOpDocumentation) return cachedPseudoOpDocumentation;
+
+  cachedPseudoOpDocumentation = buildPseudoOpDocumentation();
+  return cachedPseudoOpDocumentation;
+}
+
+export function getMacroSymbolDocumentation(): MacroSymbolDocumentation[] {
+  return macroSymbolDocs.map(({ kinds: _ignored, ...entry }) => ({ ...entry }));
 }
 
 /**

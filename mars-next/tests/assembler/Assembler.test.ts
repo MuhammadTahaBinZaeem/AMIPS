@@ -4,6 +4,7 @@ import { describe, test } from "node:test";
 import { Assembler } from "../../src/core/assembler/Assembler";
 import { Lexer } from "../../src/core/assembler/Lexer";
 import { Parser } from "../../src/core/assembler/Parser";
+import { parsePseudoOpsFile } from "../../src/core/assembler/PseudoOps";
 
 const toHexWords = (words: number[]): string[] => words.map((w) => `0x${(w >>> 0).toString(16)}`);
 
@@ -91,6 +92,32 @@ describe("Assembler pipeline", () => {
     assert.deepStrictEqual(toHexWords(image.text), ["0x20010005", "0x71214002"]);
   });
 
+  test("uses compact pseudo-op templates when operands fit in 16 bits", () => {
+    const assembler = new Assembler();
+    const custom = parsePseudoOpsFile(
+      "foo $t0,100000\tlui RG1, VHL2\tori RG1, RG1, VL2U\tCOMPACT addiu RG1, $0, VL2",
+    );
+    const fooForms = custom.get("foo");
+    assert.ok(fooForms);
+    assembler.getPseudoOpTable().set("foo", fooForms);
+
+    const image = assembler.assemble("foo $t0, 0x1234");
+    assert.deepStrictEqual(toHexWords(image.text), ["0x24081234"]);
+  });
+
+  test("falls back to default pseudo-op templates when operands exceed 16 bits", () => {
+    const assembler = new Assembler();
+    const custom = parsePseudoOpsFile(
+      "foo $t0,100000\tlui RG1, VHL2\tori RG1, RG1, VL2U\tCOMPACT addiu RG1, $0, VL2",
+    );
+    const fooForms = custom.get("foo");
+    assert.ok(fooForms);
+    assembler.getPseudoOpTable().set("foo", fooForms);
+
+    const image = assembler.assemble("foo $t0, 0x12345678");
+    assert.deepStrictEqual(toHexWords(image.text), ["0x3c081234", "0x35085678"]);
+  });
+
   test("throws on unknown instructions", () => {
     const source = "bogus $t0, $t1, $t2";
     const assembler = new Assembler();
@@ -169,6 +196,31 @@ describe("Assembler pipeline", () => {
         0x00,
       ],
     );
+  });
+
+  test("normalizes directive aliases in symbol table calculations", () => {
+    const source = [
+      ".data",
+      ".byte 1",
+      ".skip 2",
+      ".balign 2",
+      "alias_label: .byte 2",
+      ".text",
+      ".global main",
+      ".equ CONST, 5",
+      "main:",
+      "  addi $t0, $zero, CONST",
+      ".extern ext_symbol",
+    ].join("\n");
+
+    const image = new Assembler().assemble(source);
+
+    assert.strictEqual(image.symbols["alias_label"], image.dataBase + 4);
+    assert.deepStrictEqual(image.data.slice(0, 5), [1, 0, 0, 0, 2]);
+    assert.strictEqual(image.symbols["CONST"], 5);
+    assert.deepStrictEqual(image.globalSymbols, ["main"]);
+    assert.ok(image.externSymbols?.includes("ext_symbol"));
+    assert.ok(image.undefinedSymbols?.includes("ext_symbol"));
   });
 
   test("aligns data according to directive requirements", () => {
@@ -299,5 +351,41 @@ describe("Assembler pipeline", () => {
     assert.strictEqual(image.symbols["loop_body_M0"], image.textBase);
     assert.strictEqual(image.symbols["loop_body_M1"], image.textBase + 8);
     assert.deepStrictEqual(toHexWords(image.text), ["0x2108ffff", "0x1500fffe", "0x2129ffff", "0x1520fffe"]);
+  });
+
+  test("supports legacy-style macro parameters and nested label scoping", () => {
+    const source = [
+      ".macro inner %reg",
+      "inner_loop:",
+      "addi %reg, %reg, -1",
+      "bne %reg, $zero, inner_loop",
+      ".end_macro",
+      ".macro outer %reg",
+      "inner %reg",
+      "inner %reg",
+      ".end_macro",
+      ".text",
+      "outer $t0",
+      "outer $t1",
+    ].join("\n");
+
+    const image = new Assembler().assemble(source);
+
+    assert.deepStrictEqual(toHexWords(image.text), [
+      "0x2108ffff",
+      "0x1500fffe",
+      "0x2108ffff",
+      "0x1500fffe",
+      "0x2129ffff",
+      "0x1520fffe",
+      "0x2129ffff",
+      "0x1520fffe",
+    ]);
+    assert.deepStrictEqual(
+      Object.keys(image.symbols)
+        .filter((key) => key.startsWith("inner_loop_M"))
+        .sort(),
+      ["inner_loop_M1", "inner_loop_M2", "inner_loop_M4", "inner_loop_M5"],
+    );
   });
 });

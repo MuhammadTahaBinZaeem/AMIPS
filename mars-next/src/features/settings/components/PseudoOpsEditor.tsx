@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 
-import { reloadPseudoOpTable, validatePseudoOpsText } from "../../core";
+import { getMacroSymbolDocumentation, reloadPseudoOpTable, validatePseudoOpsText } from "../../core";
 import { loadPseudoOpsFile, savePseudoOpsFile } from "../services/pseudoOpsFiles";
 
 interface PseudoOpsEditorProps {
@@ -13,6 +13,7 @@ export function PseudoOpsEditor({ onSaved }: PseudoOpsEditorProps): React.JSX.El
   const [savePath, setSavePath] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const macroDocs = useMemo(() => getMacroSymbolDocumentation(), []);
 
   useEffect(() => {
     try {
@@ -64,6 +65,20 @@ export function PseudoOpsEditor({ onSaved }: PseudoOpsEditorProps): React.JSX.El
     }
   };
 
+  const handleReloadPseudoOps = (): void => {
+    try {
+      setStatus("Reloading pseudo-ops...");
+      reloadPseudoOpTable();
+      setStatus("Pseudo-op table reloaded");
+      setError(null);
+      onSaved?.();
+    } catch (reloadError) {
+      const message = reloadError instanceof Error ? reloadError.message : String(reloadError);
+      setError(message);
+      setStatus("Failed to reload pseudo-ops");
+    }
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
       <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
@@ -72,6 +87,16 @@ export function PseudoOpsEditor({ onSaved }: PseudoOpsEditorProps): React.JSX.El
           Edit the active <code>PseudoOps.txt</code> file. User overrides are saved to the working directory or
           <code>config/PseudoOps.txt</code>.
         </span>
+        <div style={{ color: "#94a3b8", fontSize: "0.9rem", display: "flex", flexDirection: "column", gap: "0.35rem" }}>
+          <span>Template substitutions supported in <code>PseudoOps.txt</code>:</span>
+          <ul style={{ margin: 0, paddingInlineStart: "1.25rem" }}>
+            {macroDocs.map((macro) => (
+              <li key={macro.symbol} style={{ marginBottom: "0.2rem" }}>
+                <code>{macro.symbol}</code>: {macro.description}
+              </li>
+            ))}
+          </ul>
+        </div>
         {sourcePath && (
           <span style={{ color: "#9ca3af", fontSize: "0.85rem" }}>Currently loaded from: {sourcePath}</span>
         )}
@@ -107,6 +132,19 @@ export function PseudoOpsEditor({ onSaved }: PseudoOpsEditorProps): React.JSX.El
           }}
         >
           Reload from disk
+        </button>
+        <button
+          onClick={handleReloadPseudoOps}
+          style={{
+            background: "transparent",
+            color: "#e2e8f0",
+            border: "1px solid #1f2937",
+            borderRadius: "0.375rem",
+            padding: "0.45rem 0.9rem",
+            cursor: "pointer",
+          }}
+        >
+          Reload pseudo-op table
         </button>
         <button
           onClick={handleSave}

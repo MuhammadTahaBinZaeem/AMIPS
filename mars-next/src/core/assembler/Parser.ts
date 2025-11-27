@@ -139,8 +139,9 @@ export class Parser {
     const name = tokens[0].raw.startsWith(".")
       ? tokens[0].raw.toLowerCase()
       : `.${String(tokens[0].value).toLowerCase()}`;
+    const normalizedName = this.normalizeDirectiveName(name);
     const args = this.collectArguments(tokens.slice(1), line, false, true);
-    switch (name) {
+    switch (normalizedName) {
       case ".text":
       case ".ktext":
       case ".data":
@@ -197,6 +198,21 @@ export class Parser {
           throw new Error(`.align expects a single power-of-two argument (line ${line})`);
         }
         break;
+      case ".org":
+        if (args.length !== 1 || (args[0].kind !== "immediate" && args[0].kind !== "label" && args[0].kind !== "expression")) {
+          throw new Error(`.org expects a single address argument (line ${line})`);
+        }
+        break;
+      case ".module":
+        if (args.length !== 1 || args[0].kind !== "label") {
+          throw new Error(`.module expects a single module identifier (line ${line})`);
+        }
+        break;
+      case ".endmodule":
+        if (args.length !== 0) {
+          throw new Error(`.endmodule does not take arguments (line ${line})`);
+        }
+        break;
       case ".globl":
       case ".extern":
         if (args.length < 1) {
@@ -226,7 +242,7 @@ export class Parser {
         throw new Error(`Unknown directive ${name} (line ${line})`);
     }
 
-    return { kind: "directive", name, args, segment, line };
+    return { kind: "directive", name: normalizedName, args, segment, line };
   }
 
   private parseInstruction(tokens: Token[], segment: Segment, line: number): InstructionNode {
@@ -306,6 +322,21 @@ export class Parser {
     }
 
     throw new Error(`Unable to parse operand near '${tokens.map((t) => t.raw).join(" ")}' (line ${line})`);
+  }
+
+  private normalizeDirectiveName(name: string): string {
+    switch (name) {
+      case ".balign":
+        return ".align";
+      case ".skip":
+        return ".space";
+      case ".global":
+        return ".globl";
+      case ".equ":
+        return ".eqv";
+      default:
+        return name;
+    }
   }
 
   private parseMemoryOperand(tokens: Token[], line: number): Operand {

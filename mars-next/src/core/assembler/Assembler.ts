@@ -7,7 +7,17 @@ import {
 } from "./IncludeProcessor";
 import { Lexer } from "./Lexer";
 import { MacroExpander } from "./MacroExpander";
-import { ExpressionNode, InstructionNode, Operand, Parser, ProgramAst, Segment, REGISTER_ALIASES } from "./Parser";
+import { macroPattern, parseMacro, type ParsedMacro } from "./MacroParser";
+import {
+  ExpressionNode,
+  InstructionNode,
+  MemoryOffset,
+  Operand,
+  Parser,
+  ProgramAst,
+  Segment,
+  REGISTER_ALIASES,
+} from "./Parser";
 import { loadPseudoOpTable, type PseudoOpTable } from "./PseudoOps";
 
 export type RelocationType = "MIPS_32" | "MIPS_26" | "MIPS_PC16" | "MIPS_HI16" | "MIPS_LO16";
@@ -64,6 +74,7 @@ interface RelocationContext {
   segment: Segment;
   offset: number;
   relocations: RelocationRecord[];
+  modulePrefix?: string;
 }
 
 interface NormalizedInstruction {
@@ -89,6 +100,8 @@ export interface AssemblerOptions extends IncludeProcessOptions {
   includeResolver?: IncludeResolver | null;
   /** Whether pseudo-instructions should be expanded during assembly. Enabled by default. */
   enablePseudoInstructions?: boolean;
+  /** Whether delayed branching semantics are enabled (affects DBNOP and BROFF macros). Enabled by default. */
+  delayedBranchingEnabled?: boolean;
 }
 
 export class Assembler {
@@ -101,8 +114,15 @@ export class Assembler {
     "addu",
     "mul",
     "sub",
+    "clo",
+    "clz",
     "and",
+    "ext",
+    "ins",
     "or",
+    "rotr",
+    "seb",
+    "seh",
     "slt",
     "sll",
     "slti",
@@ -145,6 +165,9 @@ export class Assembler {
   private readonly defaultEnablePseudoInstructions: boolean;
   private enablePseudoInstructions: boolean;
 
+  private readonly defaultDelayedBranchingEnabled: boolean;
+  private delayedBranchingEnabled: boolean;
+
   private sourceLines: string[] = [];
 
   private readonly includeProcessor: IncludeProcessor;
@@ -162,6 +185,9 @@ export class Assembler {
 
     this.defaultEnablePseudoInstructions = options.enablePseudoInstructions ?? true;
     this.enablePseudoInstructions = this.defaultEnablePseudoInstructions;
+
+    this.defaultDelayedBranchingEnabled = options.delayedBranchingEnabled ?? true;
+    this.delayedBranchingEnabled = this.defaultDelayedBranchingEnabled;
   }
 
   getPseudoOpTable(): PseudoOpTable {
@@ -176,6 +202,7 @@ export class Assembler {
 
   assemble(source: string, options: AssemblerOptions = {}): BinaryImage {
     this.enablePseudoInstructions = options.enablePseudoInstructions ?? this.defaultEnablePseudoInstructions;
+    this.delayedBranchingEnabled = options.delayedBranchingEnabled ?? this.defaultDelayedBranchingEnabled;
 
     const includeOptions: IncludeProcessOptions = {
       baseDir: options.baseDir ?? this.defaultIncludeOptions.baseDir,
@@ -329,16 +356,20 @@ export class Assembler {
     let dataOffset = 0;
     let ktextOffset = 0;
     let kdataOffset = 0;
+    const moduleStack: string[] = [];
     const symbols: SymbolTable = new Map();
     const definedSymbols = new Set<string>();
     const externSymbols = new Set<string>();
     const globalSymbols = new Set<string>();
     const undefinedSymbols = new Set<string>();
-    const eqvDefinitions = new Map<string, { value: Operand; line: number }>();
+    const eqvDefinitions = new Map<string, { value: Operand; line: number; modulePrefix: string }>();
     const resolvedEqvSymbols = new Set<string>();
     const resolvingEqv = new Set<string>();
 
-    const resolveEqv = (name: string, line: number): number => {
+    const currentModulePrefix = (): string =>
+      moduleStack.length === 0 ? "" : `${moduleStack.join("::")}::`;
+
+    const resolveEqv = (name: string, line: number, modulePrefix?: string): number => {
       const existing = symbols.get(name);
       if (existing !== undefined) return existing;
 
@@ -354,7 +385,7 @@ export class Assembler {
       resolvingEqv.add(name);
 
       // Resolve and cache the .eqv value to make it visible during this pass.
-      const resolved = this.resolveValue(eqv.value, symbols, eqv.line, resolveEqv);
+      const resolved = this.resolveValue(eqv.value, symbols, eqv.line, resolveEqv, externSymbols, undefinedSymbols, modulePrefix);
       symbols.set(name, this.toInt32(resolved));
       undefinedSymbols.delete(name);
       resolvedEqvSymbols.add(name);
@@ -363,11 +394,12 @@ export class Assembler {
       return resolved;
     };
 
-    const resolveValue = (operand: Operand, line: number): number =>
-      this.resolveValue(operand, symbols, line, resolveEqv, externSymbols, undefinedSymbols);
+    const resolveValue = (operand: Operand, line: number, modulePrefix?: string): number =>
+      this.resolveValue(operand, symbols, line, resolveEqv, externSymbols, undefinedSymbols, modulePrefix);
 
     for (let i = 0; i < ast.nodes.length; i++) {
       const node = ast.nodes[i];
+      const modulePrefix = currentModulePrefix();
 
       if (
         (node.kind === "directive" || node.kind === "label") &&
@@ -389,25 +421,75 @@ export class Assembler {
           if (node.name === ".data") segment = "data";
           if (node.name === ".kdata") segment = "kdata";
 
+          if (node.name === ".module") {
+            moduleStack.push((node.args[0] as Operand & { kind: "label" }).name);
+            break;
+          }
+
+          if (node.name === ".endmodule") {
+            if (moduleStack.length === 0) {
+              throw new Error(`.endmodule without matching .module at line ${node.line}`);
+            }
+            moduleStack.pop();
+            break;
+          }
+
+          if (node.name === ".org") {
+            const base =
+              segment === "text"
+                ? DEFAULT_TEXT_BASE
+                : segment === "ktext"
+                  ? DEFAULT_KTEXT_BASE
+                  : segment === "kdata"
+                    ? DEFAULT_KDATA_BASE
+                    : DEFAULT_DATA_BASE;
+            const target = resolveValue(node.args[0], node.line, modulePrefix);
+            const nextOffset = target - base;
+            if (nextOffset < 0) {
+              throw new Error(`.org target precedes segment base (line ${node.line})`);
+            }
+
+            switch (segment) {
+              case "text":
+                if (nextOffset < textOffset) throw new Error(`.org cannot move backwards (line ${node.line})`);
+                textOffset = nextOffset;
+                break;
+              case "ktext":
+                if (nextOffset < ktextOffset) throw new Error(`.org cannot move backwards (line ${node.line})`);
+                ktextOffset = nextOffset;
+                break;
+              case "data":
+                if (nextOffset < dataOffset) throw new Error(`.org cannot move backwards (line ${node.line})`);
+                dataOffset = nextOffset;
+                break;
+              case "kdata":
+                if (nextOffset < kdataOffset) throw new Error(`.org cannot move backwards (line ${node.line})`);
+                kdataOffset = nextOffset;
+                break;
+            }
+            break;
+          }
+
           if (node.name === ".globl" || node.name === ".extern") {
             node.args.forEach((arg) => {
               if (arg.kind === "label") {
+                const qualified = this.qualifySymbol(arg.name, modulePrefix);
                 if (node.name === ".globl") {
-                  globalSymbols.add(arg.name);
+                  globalSymbols.add(qualified);
                 } else {
-                  externSymbols.add(arg.name);
-                  undefinedSymbols.add(arg.name);
+                  externSymbols.add(qualified);
+                  undefinedSymbols.add(qualified);
                 }
               }
             });
           }
 
           if (node.name === ".eqv") {
-            const name = (node.args[0] as Operand & { kind: "label" }).name;
+            const name = this.qualifySymbol((node.args[0] as Operand & { kind: "label" }).name, modulePrefix);
             if (definedSymbols.has(name) || eqvDefinitions.has(name)) {
               throw new Error(`Duplicate symbol '${name}' at line ${node.line}`);
             }
-            eqvDefinitions.set(name, { value: node.args[1], line: node.line });
+            eqvDefinitions.set(name, { value: node.args[1], line: node.line, modulePrefix });
           }
 
           if (segment === "data" || segment === "kdata") {
@@ -440,7 +522,7 @@ export class Assembler {
                 else kdataOffset += this.encodeString((node.args[0] as Operand & { kind: "string" }).value).length + 1;
             break;
           case ".space":
-            const spaceSize = resolveValue(node.args[0], node.line);
+            const spaceSize = resolveValue(node.args[0], node.line, modulePrefix);
             if (!Number.isInteger(spaceSize) || spaceSize < 0) {
               throw new Error(`.space size must be a non-negative integer (line ${node.line})`);
             }
@@ -448,7 +530,7 @@ export class Assembler {
             else kdataOffset += spaceSize;
             break;
           case ".align": {
-            const power = resolveValue(node.args[0], node.line) as number;
+            const power = resolveValue(node.args[0], node.line, modulePrefix) as number;
             if (!Number.isInteger(power) || power < 0) {
               throw new Error(`.align expects a non-negative integer (line ${node.line})`);
             }
@@ -467,6 +549,7 @@ export class Assembler {
           break;
         }
         case "label": {
+          const qualifiedName = this.qualifySymbol(node.name, modulePrefix);
           const base =
             segment === "text"
               ? DEFAULT_TEXT_BASE
@@ -484,12 +567,12 @@ export class Assembler {
                   ? kdataOffset
                   : dataOffset;
           const address = this.toUint32(base + offset);
-          if (definedSymbols.has(node.name)) {
-            throw new Error(`Duplicate label '${node.name}' at line ${node.line}`);
+          if (definedSymbols.has(qualifiedName)) {
+            throw new Error(`Duplicate label '${qualifiedName}' at line ${node.line}`);
           }
-          symbols.set(node.name, address | 0);
-          definedSymbols.add(node.name);
-          undefinedSymbols.delete(node.name);
+          symbols.set(qualifiedName, address | 0);
+          definedSymbols.add(qualifiedName);
+          undefinedSymbols.delete(qualifiedName);
           break;
         }
         case "instruction": {
@@ -504,7 +587,7 @@ export class Assembler {
       }
     }
 
-    for (const [name, { value, line }] of eqvDefinitions) {
+    for (const [name, { value, line, modulePrefix }] of eqvDefinitions) { 
       if (symbols.has(name)) {
         if (resolvedEqvSymbols.has(name)) continue;
         throw new Error(`Duplicate symbol '${name}' at line ${line}`);
@@ -512,7 +595,7 @@ export class Assembler {
       if (definedSymbols.has(name)) {
         throw new Error(`Duplicate symbol '${name}' at line ${line}`);
       }
-      const resolved = this.resolveValue(value, symbols, line, resolveEqv);
+      const resolved = this.resolveValue(value, symbols, line, resolveEqv, externSymbols, undefinedSymbols, modulePrefix);
       symbols.set(name, this.toInt32(resolved));
       undefinedSymbols.delete(name);
       resolvedEqvSymbols.add(name);
@@ -555,10 +638,14 @@ export class Assembler {
     let kdataOffset = 0;
     let textOffset = 0;
     let ktextOffset = 0;
+    const moduleStack: string[] = [];
+    const currentModulePrefix = (): string =>
+      moduleStack.length === 0 ? "" : `${moduleStack.join("::")}::`;
     const sourceMap: SourceMapEntry[] = [];
 
     for (let i = 0; i < ast.nodes.length; i++) {
       const node = ast.nodes[i];
+      const modulePrefix = currentModulePrefix();
 
       if (
         (node.kind === "directive" || node.kind === "label") &&
@@ -591,6 +678,53 @@ export class Assembler {
           case ".kdata":
             segment = "kdata";
             continue;
+          case ".module":
+            moduleStack.push((node.args[0] as Operand & { kind: "label" }).name);
+            continue;
+          case ".endmodule":
+            if (moduleStack.length === 0) {
+              throw new Error(`.endmodule without matching .module at line ${node.line}`);
+            }
+            moduleStack.pop();
+            continue;
+          case ".org": {
+            const base =
+              segment === "text"
+                ? DEFAULT_TEXT_BASE
+                : segment === "ktext"
+                  ? DEFAULT_KTEXT_BASE
+                  : segment === "kdata"
+                    ? DEFAULT_KDATA_BASE
+                    : DEFAULT_DATA_BASE;
+            const target = this.resolveValue(node.args[0], symbols, node.line, undefined, undefined, undefined, modulePrefix);
+            const nextOffset = target - base;
+            if (nextOffset < 0) throw new Error(`.org target precedes segment base (line ${node.line})`);
+            const padValue = 0;
+            if (segment === "text") {
+              if (nextOffset < textOffset) throw new Error(`.org cannot move backwards (line ${node.line})`);
+              const wordPad = (nextOffset - textOffset) / 4;
+              for (let pad = 0; pad < wordPad; pad++) text.push(padValue);
+              textOffset = nextOffset;
+              pc = this.toUint32(DEFAULT_TEXT_BASE + textOffset);
+            } else if (segment === "ktext") {
+              if (nextOffset < ktextOffset) throw new Error(`.org cannot move backwards (line ${node.line})`);
+              const wordPad = (nextOffset - ktextOffset) / 4;
+              for (let pad = 0; pad < wordPad; pad++) ktext.push(padValue);
+              ktextOffset = nextOffset;
+              pc = this.toUint32(DEFAULT_KTEXT_BASE + ktextOffset);
+            } else if (segment === "data") {
+              if (nextOffset < dataOffset) throw new Error(`.org cannot move backwards (line ${node.line})`);
+              const padding = nextOffset - dataOffset;
+              for (let pad = 0; pad < padding; pad++) data.push(0);
+              dataOffset = nextOffset;
+            } else if (segment === "kdata") {
+              if (nextOffset < kdataOffset) throw new Error(`.org cannot move backwards (line ${node.line})`);
+              const padding = nextOffset - kdataOffset;
+              for (let pad = 0; pad < padding; pad++) kdata.push(0);
+              kdataOffset = nextOffset;
+            }
+            continue;
+          }
           case ".word": {
             if (segment !== "data" && segment !== "kdata") {
               throw new Error(`.word directive encountered outside .data/.kdata at line ${node.line}`);
@@ -601,11 +735,11 @@ export class Assembler {
               if (arg.kind !== "immediate" && arg.kind !== "label" && arg.kind !== "expression") {
                 throw new Error(`.word expects numeric arguments (line ${node.line})`);
               }
-              const value = this.resolveValue(arg, symbols, node.line, undefined, undefined, undefined);
+              const value = this.resolveValue(arg, symbols, node.line, undefined, undefined, undefined, modulePrefix);
               if (arg.kind === "label") {
                 this.recordRelocation(
                   { segment, offset: segment === "data" ? dataOffset : kdataOffset, relocations },
-                  arg.name,
+                  this.qualifySymbol(arg.name, modulePrefix),
                   "MIPS_32",
                   0,
                 );
@@ -626,7 +760,7 @@ export class Assembler {
               if (arg.kind !== "immediate" && arg.kind !== "label" && arg.kind !== "expression") {
                 throw new Error(`.byte expects numeric arguments (line ${node.line})`);
               }
-              const value = this.resolveValue(arg, symbols, node.line);
+              const value = this.resolveValue(arg, symbols, node.line, undefined, undefined, undefined, modulePrefix);
               target.push(value & 0xff);
               if (segment === "data") dataOffset += 1;
               else kdataOffset += 1;
@@ -642,7 +776,7 @@ export class Assembler {
               if (arg.kind !== "immediate" && arg.kind !== "label" && arg.kind !== "expression") {
                 throw new Error(`.half expects numeric arguments (line ${node.line})`);
               }
-              const value = this.resolveValue(arg, symbols, node.line);
+              const value = this.resolveValue(arg, symbols, node.line, undefined, undefined, undefined, modulePrefix);
               this.pushHalfBytes(value, target);
               if (segment === "data") dataOffset += 2;
               else kdataOffset += 2;
@@ -658,7 +792,7 @@ export class Assembler {
               if (arg.kind !== "immediate" && arg.kind !== "expression") {
                 throw new Error(`.float expects numeric arguments (line ${node.line})`);
               }
-              const value = this.resolveValue(arg, symbols, node.line);
+              const value = this.resolveValue(arg, symbols, node.line, undefined, undefined, undefined, modulePrefix);
               this.pushFloatBytes(value, target);
               if (segment === "data") dataOffset += 4;
               else kdataOffset += 4;
@@ -674,7 +808,7 @@ export class Assembler {
               if (arg.kind !== "immediate" && arg.kind !== "expression") {
                 throw new Error(`.double expects numeric arguments (line ${node.line})`);
               }
-              const value = this.resolveValue(arg, symbols, node.line);
+              const value = this.resolveValue(arg, symbols, node.line, undefined, undefined, undefined, modulePrefix);
               this.pushDoubleBytes(value, target);
               if (segment === "data") dataOffset += 8;
               else kdataOffset += 8;
@@ -709,7 +843,7 @@ export class Assembler {
             if (segment !== "data" && segment !== "kdata") {
               throw new Error(`.space directive encountered outside .data/.kdata at line ${node.line}`);
             }
-            const count = this.resolveValue(node.args[0], symbols, node.line);
+            const count = this.resolveValue(node.args[0], symbols, node.line, undefined, undefined, undefined, modulePrefix);
             if (!Number.isInteger(count) || count < 0) {
               throw new Error(`.space size must be a non-negative integer (line ${node.line})`);
             }
@@ -723,7 +857,7 @@ export class Assembler {
             if (segment !== "data" && segment !== "kdata") {
               throw new Error(`.align directive encountered outside .data/.kdata at line ${node.line}`);
             }
-            const power = this.resolveValue(node.args[0], symbols, node.line);
+            const power = this.resolveValue(node.args[0], symbols, node.line, undefined, undefined, undefined, modulePrefix);
             if (!Number.isInteger(power) || power < 0) {
               throw new Error(`.align expects a non-negative integer (line ${node.line})`);
             }
@@ -765,8 +899,9 @@ export class Assembler {
             segment,
             offset: segment === "text" ? textOffset : ktextOffset,
             relocations,
+            modulePrefix,
           };
-          const encoded = this.encodeInstruction(inst, pc, symbols, relocationContext);
+          const encoded = this.encodeInstruction(inst, pc, symbols, relocationContext, modulePrefix);
           const segmentIndex = targetText.length;
           targetText.push(encoded);
           const location = resolveLocation(inst.line);
@@ -835,7 +970,12 @@ export class Assembler {
   }
 
   private isNonEmittingDirective(name: string): boolean {
-    return name === ".globl" || name === ".extern" || name === ".eqv" || name === ".set";
+    return name === ".globl" || name === ".extern" || name === ".eqv" || name === ".set" || name === ".module" || name === ".endmodule" || name === ".org";
+  }
+
+  private qualifySymbol(name: string, modulePrefix: string | null | undefined): string {
+    if (modulePrefix === null || modulePrefix === undefined || modulePrefix.length === 0) return name;
+    return `${modulePrefix}${name}`;
   }
 
   private recordRelocation(
@@ -844,7 +984,12 @@ export class Assembler {
     type: RelocationType,
     addend?: number,
   ): void {
-    const relocation: RelocationRecord = { segment: context.segment, offset: context.offset, symbol, type };
+    const relocation: RelocationRecord = {
+      segment: context.segment,
+      offset: context.offset,
+      symbol: this.qualifySymbol(symbol, context.modulePrefix),
+      type,
+    };
     if (addend !== undefined) relocation.addend = addend;
     context.relocations.push(relocation);
   }
@@ -857,21 +1002,38 @@ export class Assembler {
     operand: Operand,
     symbols: SymbolTable,
     line: number,
-    eqvResolver?: (name: string, line: number) => number,
+    eqvResolver?: (name: string, line: number, modulePrefix?: string) => number,
     externSymbols?: Set<string>,
     undefinedSymbols?: Set<string>,
+    modulePrefix?: string,
   ): number {
     if (operand.kind === "immediate") return operand.value;
     if (operand.kind === "expression")
-      return this.evaluateExpression(operand.expression, symbols, line, eqvResolver, externSymbols, undefinedSymbols);
+      return this.evaluateExpression(
+        operand.expression,
+        symbols,
+        line,
+        eqvResolver,
+        externSymbols,
+        undefinedSymbols,
+        modulePrefix,
+      );
     if (operand.kind === "label") {
-      const value = symbols.get(operand.name);
+      const qualified = this.qualifySymbol(operand.name, modulePrefix);
+      const value = symbols.get(qualified) ?? symbols.get(operand.name);
       if (value !== undefined) return value;
-      if (externSymbols?.has(operand.name)) {
-        undefinedSymbols?.add(operand.name);
+      if (externSymbols?.has(qualified) || externSymbols?.has(operand.name)) {
+        undefinedSymbols?.add(qualified);
         return 0;
       }
-      if (eqvResolver) return eqvResolver(operand.name, line);
+      if (eqvResolver) {
+        try {
+          return eqvResolver(qualified, line, modulePrefix);
+        } catch {
+          // Fall back to unqualified lookup below.
+        }
+        return eqvResolver(operand.name, line, modulePrefix);
+      }
       throw new Error(`Undefined label '${operand.name}' (line ${line})`);
     }
     throw new Error(`Unsupported operand for immediate value at line ${line}`);
@@ -881,9 +1043,10 @@ export class Assembler {
     node: ExpressionNode,
     symbols: SymbolTable,
     line: number,
-    eqvResolver?: (name: string, line: number) => number,
+    eqvResolver?: (name: string, line: number, modulePrefix?: string) => number,
     externSymbols?: Set<string>,
     undefinedSymbols?: Set<string>,
+    modulePrefix?: string,
   ): number {
     switch (node.type) {
       case "number":
@@ -896,9 +1059,18 @@ export class Assembler {
           eqvResolver,
           externSymbols,
           undefinedSymbols,
+          modulePrefix,
         );
       case "unary": {
-        const value = this.evaluateExpression(node.argument, symbols, line, eqvResolver, externSymbols, undefinedSymbols);
+        const value = this.evaluateExpression(
+          node.argument,
+          symbols,
+          line,
+          eqvResolver,
+          externSymbols,
+          undefinedSymbols,
+          modulePrefix,
+        );
         switch (node.op) {
           case "plus":
             return value;
@@ -910,8 +1082,24 @@ export class Assembler {
         break;
       }
       case "binary": {
-        const left = this.evaluateExpression(node.left, symbols, line, eqvResolver, externSymbols, undefinedSymbols);
-        const right = this.evaluateExpression(node.right, symbols, line, eqvResolver, externSymbols, undefinedSymbols);
+        const left = this.evaluateExpression(
+          node.left,
+          symbols,
+          line,
+          eqvResolver,
+          externSymbols,
+          undefinedSymbols,
+          modulePrefix,
+        );
+        const right = this.evaluateExpression(
+          node.right,
+          symbols,
+          line,
+          eqvResolver,
+          externSymbols,
+          undefinedSymbols,
+          modulePrefix,
+        );
         switch (node.op) {
           case "add":
             return left + right;
@@ -993,6 +1181,7 @@ export class Assembler {
     if (!pseudoForms || pseudoForms.length === 0) return null;
 
     const sourceTokens = instruction.tokens ?? this.tokenizeSourceLine(instruction.line);
+    const operandsFitCompact = this.operandsFitSigned16(instruction.operands);
 
     for (const form of pseudoForms) {
       if (!this.matchesPseudoForm(sourceTokens, form.tokens)) continue;
@@ -1011,7 +1200,9 @@ export class Assembler {
       }
       if (current.length > 0) templateGroups.push(current);
 
-      const selectedTemplates = templateGroups[0] ?? [];
+      const defaultTemplates = templateGroups[0] ?? [];
+      const compactTemplates = templateGroups[1] ?? [];
+      const selectedTemplates = operandsFitCompact && compactTemplates.length > 0 ? compactTemplates : defaultTemplates;
       if (selectedTemplates.length === 0) continue;
 
       const substituted = selectedTemplates.map((template) => this.applyPseudoTemplate(template, sourceTokens));
@@ -1089,86 +1280,176 @@ export class Assembler {
     return Number.isFinite(value);
   }
 
-  private applyPseudoTemplate(template: string, tokens: string[]): string {
-    const macroPattern =
-      /(RG\d+|NR\d+|OP\d+|LLPP\d|LLP[AU]?|LLP\d|LL\d+P?\d?U?|LHPA|LHPN|LHPAP\d|LHL|VH\d+P?\d?|VHL\d+P?\d?|VL\d+P?\d?U?|LAB|S32|DBNOP|BROFF\d\d)/g;
+  private operandsFitSigned16(operands: Operand[]): boolean {
+    for (const operand of operands) {
+      if (operand.kind === "register" || operand.kind === "string") continue;
 
-    return template.replace(macroPattern, (macro) => this.expandMacro(macro, tokens));
+      const value = this.extractOperandValue(operand);
+      if (value === null) return false;
+      if (!this.fitsSigned16(value)) return false;
+    }
+
+    return true;
   }
 
-  private expandMacro(macro: string, tokens: string[]): string {
-    if (macro === "COMPACT") return "";
-    if (macro === "DBNOP") return "nop";
-    if (macro.startsWith("BROFF") && macro.length === 7) return macro.substring(5, 6);
-    if (macro === "LAB") return tokens[tokens.length - 1] ?? "";
-    if (macro === "LHL") return this.high16(tokens[2] ?? "", false);
+  private extractOperandValue(operand: Operand): number | null {
+    switch (operand.kind) {
+      case "immediate":
+        return operand.value;
+      case "expression":
+        return this.evaluateConstantExpression(operand.expression);
+      case "label":
+        return null;
+      case "memory":
+        return this.extractMemoryOffsetValue(operand.offset);
+      default:
+        return null;
+    }
+  }
 
-    const rg = macro.match(/^RG(\d+)$/);
-    if (rg) return tokens[Number(rg[1])] ?? "";
+  private extractMemoryOffsetValue(offset: MemoryOffset): number | null {
+    if (offset.kind === "immediate") return offset.value;
+    if (offset.kind === "expression") return this.evaluateConstantExpression(offset.expression);
+    return null;
+  }
 
-    const nr = macro.match(/^NR(\d+)$/);
-    if (nr) {
-      const index = Number(nr[1]);
-      const register = tokens[index];
-      const number = this.parseRegister(register);
-      return `$${number + 1}`;
+  private evaluateConstantExpression(node: ExpressionNode): number | null {
+    switch (node.type) {
+      case "number":
+        return node.value;
+      case "symbol":
+        return null;
+      case "unary": {
+        const value = this.evaluateConstantExpression(node.argument);
+        if (value === null) return null;
+
+        switch (node.op) {
+          case "plus":
+            return value;
+          case "minus":
+            return -value;
+          case "bitnot":
+            return ~this.toInt32(value);
+        }
+        break;
+      }
+      case "binary": {
+        const left = this.evaluateConstantExpression(node.left);
+        const right = this.evaluateConstantExpression(node.right);
+        if (left === null || right === null) return null;
+
+        switch (node.op) {
+          case "add":
+            return left + right;
+          case "sub":
+            return left - right;
+          case "mul":
+            return left * right;
+          case "div":
+            return right === 0 ? null : left / right;
+          case "mod":
+            return right === 0 ? null : left % right;
+          case "lshift":
+            return this.toInt32(left) << (this.toInt32(right) & 0x1f);
+          case "rshift":
+            return this.toInt32(left) >> (this.toInt32(right) & 0x1f);
+          case "and":
+            return this.toInt32(left) & this.toInt32(right);
+          case "xor":
+            return this.toInt32(left) ^ this.toInt32(right);
+          case "or":
+            return this.toInt32(left) | this.toInt32(right);
+        }
+        break;
+      }
     }
 
-    const op = macro.match(/^OP(\d+)$/);
-    if (op) return tokens[Number(op[1])] ?? "";
+    return null;
+  }
 
-    const llpNoIndex = macro.match(/^LLP(P(\d))?(U)?$/);
-    if (llpNoIndex) {
-      const addend = llpNoIndex[2] ? Number(llpNoIndex[2]) : 0;
-      const unsigned = llpNoIndex[3] !== undefined;
-      return this.low16(tokens[2] ?? "", !unsigned, addend);
+  private applyPseudoTemplate(template: string, tokens: string[]): string {
+    return template.replace(macroPattern, (macro) => {
+      const parsed = parseMacro(macro);
+      return parsed ? this.expandMacro(parsed, tokens) : macro;
+    });
+  }
+
+  private expandMacro(macro: ParsedMacro, tokens: string[]): string {
+    switch (macro.kind) {
+      case "COMPACT":
+        return "";
+      case "DBNOP":
+        return this.delayedBranchingEnabled ? "nop" : "";
+      case "BROFF":
+        return String(
+          (this.delayedBranchingEnabled ? macro.enabledOffset ?? macro.disabledOffset : macro.disabledOffset ?? macro.enabledOffset) ??
+            "",
+        );
+      case "LAB":
+        return tokens[tokens.length - 1] ?? "";
+      case "LHL":
+        return this.high16(this.labelExpression(tokens, 2), false);
+      case "IMM":
+        return this.findImmediateToken(tokens);
+      case "RG":
+        return tokens[macro.index ?? 0] ?? "";
+      case "NR": {
+        const register = tokens[macro.index ?? 0];
+        const number = this.parseRegister(register);
+        return `$${number + 1}`;
+      }
+      case "OP":
+        return tokens[macro.index ?? 0] ?? "";
+      case "LLP":
+        return this.low16(this.labelExpression(tokens, 2), !macro.unsigned, macro.addend ?? 0);
+      case "LLPP":
+        return this.low16(this.labelExpression(tokens, 2), true, macro.addend ?? 0);
+      case "LL":
+        return this.low16(this.labelExpression(tokens, macro.index ?? 0), !macro.unsigned, macro.addend ?? 0);
+      case "LHPA":
+        return this.high16(this.labelExpression(tokens, 2), true, macro.addend ?? 0);
+      case "LHPN":
+        return this.high16(this.labelExpression(tokens, 2), false);
+      case "LH":
+        return this.high16(this.labelExpression(tokens, macro.index ?? 0), true, macro.addend ?? 0);
+      case "VH":
+        return this.high16(this.labelExpression(tokens, macro.index ?? 0), true, macro.addend ?? 0);
+      case "VHL":
+        return this.high16(this.labelExpression(tokens, macro.index ?? 0), false, macro.addend ?? 0);
+      case "VL":
+        return this.low16(this.labelExpression(tokens, macro.index ?? 0), !macro.unsigned, macro.addend ?? 0);
+      case "S32": {
+        const last = tokens[tokens.length - 1] ?? "0";
+        const value = Number(last);
+        return String(32 - (Number.isFinite(value) ? value : 0));
+      }
+      default:
+        return macro.raw;
+    }
+  }
+
+  private findImmediateToken(tokens: string[]): string {
+    for (let i = 1; i < tokens.length; i++) {
+      if (this.isNumericToken(tokens[i])) return tokens[i];
     }
 
-    const ll = macro.match(/^LL(\d+)(P(\d))?(U)?$/);
-    if (ll) {
-      const index = Number(ll[1]);
-      const addend = ll[3] ? Number(ll[3]) : 0;
-      const unsigned = ll[4] !== undefined;
-      return this.low16(tokens[index] ?? "", !unsigned, addend);
+    return tokens[tokens.length - 1] ?? "";
+  }
+
+  private labelExpression(tokens: string[], index: number): string {
+    let base = tokens[index] ?? "";
+    const sign = tokens[index + 1];
+    const offset = tokens[index + 2];
+
+    if ((sign === "+" || sign === "-") && offset) {
+      return `(${base} ${sign} ${offset})`;
     }
 
-    const lhpa = macro.match(/^LHPA(P(\d))?$/);
-    if (lhpa) {
-      const addend = lhpa[2] ? Number(lhpa[2]) : 0;
-      return this.high16(tokens[2] ?? "", true, addend);
+    if (/[+-]/.test(base)) {
+      base = `(${base})`;
     }
 
-    if (macro === "LHPN") return this.high16(tokens[2] ?? "", false);
-
-    const vh = macro.match(/^VH(\d+)(P(\d))?$/);
-    if (vh) {
-      const index = Number(vh[1]);
-      const addend = vh[3] ? Number(vh[3]) : 0;
-      return this.high16(tokens[index] ?? "", true, addend);
-    }
-
-    const vhl = macro.match(/^VHL(\d+)(P(\d))?$/);
-    if (vhl) {
-      const index = Number(vhl[1]);
-      const addend = vhl[3] ? Number(vhl[3]) : 0;
-      return this.high16(tokens[index] ?? "", false, addend);
-    }
-
-    const vl = macro.match(/^VL(\d+)(P(\d))?(U)?$/);
-    if (vl) {
-      const index = Number(vl[1]);
-      const addend = vl[3] ? Number(vl[3]) : 0;
-      const unsigned = vl[4] !== undefined;
-      return this.low16(tokens[index] ?? "", !unsigned, addend);
-    }
-
-    if (macro === "S32") {
-      const last = tokens[tokens.length - 1] ?? "0";
-      const value = Number(last);
-      return String(32 - (Number.isFinite(value) ? value : 0));
-    }
-
-    return macro;
+    return base;
   }
 
   private low16(source: string, signed: boolean, addend = 0): string {
@@ -1301,8 +1582,10 @@ export class Assembler {
     pc: number,
     symbols: SymbolTable,
     context: RelocationContext,
+    modulePrefix?: string,
   ): number {
     const { name, operands, line } = instruction;
+    const prefix = modulePrefix ?? context.modulePrefix;
     switch (name) {
       case "addi":
       case "addiu":
@@ -1315,13 +1598,15 @@ export class Assembler {
           line,
           symbols,
           context,
+          true,
+          prefix,
         );
       case "ori":
         this.expectOperands(name, operands, ["register", "register", "immediate|label"], line);
-        return this.encodeOri(operands[1], operands[0], operands[2], line, symbols, context);
+        return this.encodeOri(operands[1], operands[0], operands[2], line, symbols, context, prefix);
       case "lui":
         this.expectOperands(name, operands, ["register", "immediate|label"], line);
-        return this.encodeLui(operands[0], operands[1], line, symbols, context);
+        return this.encodeLui(operands[0], operands[1], line, symbols, context, prefix);
       case "add":
         this.expectOperands(name, operands, ["register", "register", "register"], line);
         return this.encodeR(0x20, operands[1], operands[2], operands[0], line);
@@ -1369,20 +1654,20 @@ export class Assembler {
           sh: 0x29,
           sw: 0x2b,
         };
-        return this.encodeMemoryInstruction(opcodeMap[name], operands[0], memory, line, symbols, context);
+        return this.encodeMemoryInstruction(opcodeMap[name], operands[0], memory, line, symbols, context, prefix);
       }
       case "beq":
         this.expectOperands(name, operands, ["register", "register", "label|immediate"], line);
-        return this.encodeBranch(0x04, operands[0], operands[1], operands[2], pc, symbols, context, line);
+        return this.encodeBranch(0x04, operands[0], operands[1], operands[2], pc, symbols, context, line, prefix);
       case "bne":
         this.expectOperands(name, operands, ["register", "register", "label|immediate"], line);
-        return this.encodeBranch(0x05, operands[0], operands[1], operands[2], pc, symbols, context, line);
+        return this.encodeBranch(0x05, operands[0], operands[1], operands[2], pc, symbols, context, line, prefix);
       case "j":
         this.expectOperands(name, operands, ["label|immediate"], line);
-        return this.encodeJump(0x02, operands[0], symbols, context, line);
+        return this.encodeJump(0x02, operands[0], symbols, context, line, prefix);
       case "jal":
         this.expectOperands(name, operands, ["label|immediate"], line);
-        return this.encodeJump(0x03, operands[0], symbols, context, line);
+        return this.encodeJump(0x03, operands[0], symbols, context, line, prefix);
       case "jr":
         this.expectOperands(name, operands, ["register"], line);
         return this.encodeR(0x08, operands[0], { kind: "register", name: "$zero", register: 0 }, { kind: "register", name: "$zero", register: 0 }, line);
@@ -1415,9 +1700,10 @@ export class Assembler {
     line: number,
     symbols: SymbolTable,
     context: RelocationContext,
+    modulePrefix?: string,
   ): number {
     const baseRegister: Operand = { kind: "register", name: `$${memory.base}`, register: memory.base };
-    return this.encodeI(opcode, baseRegister, rt, memory.offset, line, symbols, context);
+    return this.encodeI(opcode, baseRegister, rt, memory.offset, line, symbols, context, true, modulePrefix);
   }
 
   private encodeI(
@@ -1429,13 +1715,14 @@ export class Assembler {
     symbols: SymbolTable,
     context: RelocationContext,
     signed = true,
+    modulePrefix?: string,
   ): number {
     const rsNum = this.requireRegister(rs, line);
     const rtNum = this.requireRegister(rt, line);
     const immValue =
       immediate.kind === "label"
-        ? this.resolveImmediateWithRelocation(immediate, symbols, line, context, "MIPS_LO16", signed)
-        : this.resolveImmediate(immediate, symbols, line, signed);
+        ? this.resolveImmediateWithRelocation(immediate, symbols, line, context, "MIPS_LO16", signed, modulePrefix)
+        : this.resolveImmediate(immediate, symbols, line, signed, modulePrefix ?? context.modulePrefix);
     return (opcode << 26) | (rsNum << 21) | (rtNum << 16) | (immValue & 0xffff);
   }
 
@@ -1445,12 +1732,13 @@ export class Assembler {
     line: number,
     symbols: SymbolTable,
     context: RelocationContext,
+    modulePrefix?: string,
   ): number {
     const rtNum = this.requireRegister(rt, line);
     const imm =
       immediate.kind === "label"
-        ? this.resolveImmediateWithRelocation(immediate, symbols, line, context, "MIPS_HI16", false)
-        : this.resolveImmediate(immediate, symbols, line, false);
+        ? this.resolveImmediateWithRelocation(immediate, symbols, line, context, "MIPS_HI16", false, modulePrefix)
+        : this.resolveImmediate(immediate, symbols, line, false, modulePrefix ?? context.modulePrefix);
     return (0x0f << 26) | (rtNum << 16) | (imm & 0xffff);
   }
 
@@ -1461,13 +1749,14 @@ export class Assembler {
     line: number,
     symbols: SymbolTable,
     context: RelocationContext,
+    modulePrefix?: string,
   ): number {
     const rsNum = this.requireRegister(rs, line);
     const rtNum = this.requireRegister(rt, line);
     const imm =
       immediate.kind === "label"
-        ? this.resolveImmediateWithRelocation(immediate, symbols, line, context, "MIPS_LO16", false)
-        : this.resolveImmediate(immediate, symbols, line, false);
+        ? this.resolveImmediateWithRelocation(immediate, symbols, line, context, "MIPS_LO16", false, modulePrefix)
+        : this.resolveImmediate(immediate, symbols, line, false, modulePrefix ?? context.modulePrefix);
     return (0x0d << 26) | (rsNum << 21) | (rtNum << 16) | (imm & 0xffff);
   }
 
@@ -1480,17 +1769,18 @@ export class Assembler {
     symbols: SymbolTable,
     context: RelocationContext,
     line: number,
+    modulePrefix?: string,
   ): number {
     const rsNum = this.requireRegister(rs, line);
     const rtNum = this.requireRegister(rt, line);
     if (target.kind === "label") {
-      const address = this.toInt32(this.resolveLabelOrImmediate(target, symbols, line));
+      const address = this.toInt32(this.resolveLabelOrImmediate(target, symbols, line, modulePrefix ?? context.modulePrefix));
       const offset = ((address - (this.toInt32(pc) + 4)) / 4) | 0;
       this.recordRelocation(context, target.name, "MIPS_PC16", 0);
       return (opcode << 26) | (rsNum << 21) | (rtNum << 16) | (offset & 0xffff);
     }
 
-    const address = this.toInt32(this.resolveLabelOrImmediate(target, symbols, line));
+    const address = this.toInt32(this.resolveLabelOrImmediate(target, symbols, line, modulePrefix ?? context.modulePrefix));
     const offset = ((address - (this.toInt32(pc) + 4)) / 4) | 0;
     if (offset < -32768 || offset > 32767) {
       throw new Error(`Branch target out of range at line ${line}`);
@@ -1504,15 +1794,16 @@ export class Assembler {
     symbols: SymbolTable,
     context: RelocationContext,
     line: number,
+    modulePrefix?: string,
   ): number {
     if (target.kind === "label") {
-      const address = this.resolveLabelOrImmediate(target, symbols, line);
+      const address = this.resolveLabelOrImmediate(target, symbols, line, modulePrefix ?? context.modulePrefix);
       const field = (address >>> 2) & 0x03ffffff;
       this.recordRelocation(context, target.name, "MIPS_26", 0);
       return (opcode << 26) | field;
     }
 
-    const address = this.resolveLabelOrImmediate(target, symbols, line);
+    const address = this.resolveLabelOrImmediate(target, symbols, line, modulePrefix ?? context.modulePrefix);
     const field = (address >>> 2) & 0x03ffffff;
     return (opcode << 26) | field;
   }
@@ -1538,18 +1829,25 @@ export class Assembler {
     context: RelocationContext,
     type: RelocationType,
     signed: boolean,
+    modulePrefix?: string,
   ): number {
     if (operand.kind === "label") {
-      const value = this.resolveImmediate(operand, symbols, line, signed);
+      const value = this.resolveImmediate(operand, symbols, line, signed, modulePrefix ?? context.modulePrefix);
       this.recordRelocation(context, operand.name, type, 0);
       return value;
     }
 
-    return this.resolveImmediate(operand, symbols, line, signed);
+    return this.resolveImmediate(operand, symbols, line, signed, modulePrefix ?? context.modulePrefix);
   }
 
-  private resolveImmediate(operand: Operand, symbols: SymbolTable, line: number, signed: boolean): number {
-    const value = this.resolveValue(operand, symbols, line);
+  private resolveImmediate(
+    operand: Operand,
+    symbols: SymbolTable,
+    line: number,
+    signed: boolean,
+    modulePrefix?: string,
+  ): number {
+    const value = this.resolveValue(operand, symbols, line, undefined, undefined, undefined, modulePrefix);
     if (signed && (value < -32768 || value > 32767)) {
       throw new Error(`Immediate out of range at line ${line}`);
     }
@@ -1559,9 +1857,14 @@ export class Assembler {
     return value;
   }
 
-  private resolveLabelOrImmediate(operand: Operand, symbols: SymbolTable, line: number): number {
+  private resolveLabelOrImmediate(
+    operand: Operand,
+    symbols: SymbolTable,
+    line: number,
+    modulePrefix?: string,
+  ): number {
     if (operand.kind === "immediate" || operand.kind === "label" || operand.kind === "expression") {
-      return this.resolveValue(operand, symbols, line);
+      return this.resolveValue(operand, symbols, line, undefined, undefined, undefined, modulePrefix);
     }
     throw new Error(`Expected immediate or label at line ${line}`);
   }

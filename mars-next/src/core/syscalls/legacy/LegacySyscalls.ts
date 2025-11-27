@@ -262,6 +262,51 @@ export function registerLegacySyscalls(
   register(57, (state) => handleMessageDialog(state, memory, devices, handlers, "float"));
   register(58, (state) => handleMessageDialog(state, memory, devices, handlers, "double"));
   register(59, (state) => handleMessageDialog(state, memory, devices, handlers, "string"));
+
+  register(60, (state) => {
+    const ready = memory.readByte(KEYBOARD_CONTROL_ADDRESS) & READY_FLAG_MASK;
+    const low = memory.readByte(KEYBOARD_DATA_ADDRESS);
+    const high = memory.readByte(KEYBOARD_DATA_EXTENDED_ADDRESS);
+    const value = (high << 8) | low;
+    state.setRegister(2, value | 0);
+    state.setRegister(3, ready ? 1 : 0);
+  });
+
+  register(61, (state) => {
+    const source = state.getRegister(4) >>> 0;
+    const offset = state.getRegister(5) >>> 0;
+    const length = state.getRegister(6) >>> 0;
+
+    const framebufferStart = (BITMAP_BASE_ADDRESS + BITMAP_FRAMEBUFFER_OFFSET) >>> 0;
+    const maxBytes = memory.readWord(BITMAP_BASE_ADDRESS) * memory.readWord(BITMAP_BASE_ADDRESS + 4) * 4;
+    const writable = Math.max(0, Math.min(length, maxBytes - offset));
+
+    for (let i = 0; i < writable; i++) {
+      const byte = memory.readByte(source + i);
+      memory.writeByte(framebufferStart + offset + i, byte);
+    }
+
+    state.setRegister(2, writable);
+  });
+
+  register(62, (state) => {
+    const streamIndex = state.getRegister(4);
+    const buffer = state.getRegister(5) >>> 0;
+    const length = state.getRegister(6) >>> 0;
+    const stream = getRandomStream(randomStreams, streamIndex);
+
+    for (let i = 0; i < length; i++) {
+      const byteIndex = i % 4;
+      if (byteIndex === 0) {
+        cachedRandomWord = stream.nextInt() >>> 0;
+      }
+      const shift = 24 - byteIndex * 8;
+      const byte = (cachedRandomWord >>> shift) & 0xff;
+      memory.writeByte(buffer + i, byte);
+    }
+
+    state.setRegister(2, length);
+  });
 }
 
 function tryHandler(name: string, handlers: HandlerMap, ...args: unknown[]): boolean {
@@ -407,6 +452,16 @@ function getRandomStream(map: Map<number, RandomStream>, index: number): RandomS
   map.set(index, created);
   return created;
 }
+
+const READY_FLAG_MASK = 0x1;
+const KEYBOARD_CONTROL_ADDRESS = 0xffff0000;
+const KEYBOARD_DATA_ADDRESS = 0xffff0004;
+const KEYBOARD_DATA_EXTENDED_ADDRESS = 0xffff0006;
+
+const BITMAP_BASE_ADDRESS = 0xffff1000;
+const BITMAP_FRAMEBUFFER_OFFSET = 16;
+
+let cachedRandomWord = 0;
 
 function handleInputDialog(
   state: MachineState,
