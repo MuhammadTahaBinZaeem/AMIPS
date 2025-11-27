@@ -132,8 +132,17 @@ export class Lexer {
       }
 
       if (char === "%") {
-        tokens.push({ type: "percent", value: "%", line: lineNumber, column, raw: "%" });
-        i++;
+        // Macro parameters in legacy MARS can begin with '%'. Treat a sequence starting
+        // with '%' followed by an identifier character as a single identifier token;
+        // otherwise, fall back to the standalone percent token.
+        if (/[A-Za-z_%]/.test(cleaned[i + 1] ?? "")) {
+          const { token, length } = this.readWordToken("identifier", cleaned, i, lineNumber, column);
+          tokens.push(token);
+          i += length;
+        } else {
+          tokens.push({ type: "percent", value: "%", line: lineNumber, column, raw: "%" });
+          i++;
+        }
         continue;
       }
 

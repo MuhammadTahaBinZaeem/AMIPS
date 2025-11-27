@@ -327,4 +327,40 @@ describe("Assembler pipeline", () => {
     assert.strictEqual(image.symbols["loop_body_M1"], image.textBase + 8);
     assert.deepStrictEqual(toHexWords(image.text), ["0x2108ffff", "0x1500fffe", "0x2129ffff", "0x1520fffe"]);
   });
+
+  test("supports legacy-style macro parameters and nested label scoping", () => {
+    const source = [
+      ".macro inner %reg",
+      "inner_loop:",
+      "addi %reg, %reg, -1",
+      "bne %reg, $zero, inner_loop",
+      ".end_macro",
+      ".macro outer %reg",
+      "inner %reg",
+      "inner %reg",
+      ".end_macro",
+      ".text",
+      "outer $t0",
+      "outer $t1",
+    ].join("\n");
+
+    const image = new Assembler().assemble(source);
+
+    assert.deepStrictEqual(toHexWords(image.text), [
+      "0x2108ffff",
+      "0x1500fffe",
+      "0x2108ffff",
+      "0x1500fffe",
+      "0x2129ffff",
+      "0x1520fffe",
+      "0x2129ffff",
+      "0x1520fffe",
+    ]);
+    assert.deepStrictEqual(
+      Object.keys(image.symbols)
+        .filter((key) => key.startsWith("inner_loop_M"))
+        .sort(),
+      ["inner_loop_M1", "inner_loop_M2", "inner_loop_M4", "inner_loop_M5"],
+    );
+  });
 });
