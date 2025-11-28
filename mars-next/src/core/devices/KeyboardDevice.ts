@@ -41,11 +41,9 @@ export class KeyboardDevice implements Device {
     }
 
     const numeric = Number(value) & 0xff;
-    if (offset === CONTROL_END) {
-      const interruptEnabled = (numeric & INTERRUPT_ENABLE_MASK) !== 0;
-      this.setInterruptEnabled(interruptEnabled);
-      this.maybeInterrupt();
-    }
+    const interruptEnabled = (numeric & INTERRUPT_ENABLE_MASK) !== 0;
+    this.setInterruptEnabled(interruptEnabled);
+    this.maybeInterrupt();
   }
 
   queueInput(...values: Array<number | string>): void {
