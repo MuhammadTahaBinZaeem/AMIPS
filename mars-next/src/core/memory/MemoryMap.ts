@@ -1,6 +1,9 @@
 import { Device, DeviceData, InterruptHandler } from "../devices/Device";
+import { AudioDevice } from "../devices/AudioDevice";
 import { BitmapDisplayDevice } from "../devices/BitmapDisplayDevice";
 import { KeyboardDevice } from "../devices/KeyboardDevice";
+import { RealTimeClockDevice } from "../devices/RealTimeClockDevice";
+import { SevenSegmentDisplayDevice } from "../devices/SevenSegmentDisplayDevice";
 import { PrivilegeViolation } from "../exceptions/AccessExceptions";
 
 export type MemorySegmentName = "text" | "data" | "heap" | "stack" | "mmio" | "ktext" | "kdata";
@@ -79,6 +82,12 @@ const KEYBOARD_START = 0xffff0000;
 const KEYBOARD_SIZE = 0x10;
 const BITMAP_START = 0xffff0100;
 const BITMAP_END = 0xffff01ff;
+const REAL_TIME_CLOCK_START = 0xffff0010;
+const REAL_TIME_CLOCK_SIZE = 0x8;
+const SEVEN_SEGMENT_START = 0xffff0018;
+const SEVEN_SEGMENT_SIZE = 0x2;
+const AUDIO_START = 0xffff0020;
+const AUDIO_SIZE = 0x10;
 
 export class MemoryMap {
   private readonly segments: MemorySegment[];
@@ -189,15 +198,27 @@ export class MemoryMap {
   private createDefaultDevices(): DeviceRange[] {
     const keyboard = new KeyboardDevice();
     const bitmapDisplay = new BitmapDisplayDevice();
+    const realTimeClock = new RealTimeClockDevice();
+    const sevenSegmentDisplay = new SevenSegmentDisplayDevice();
+    const audioDevice = new AudioDevice();
 
     const keyboardStart = KEYBOARD_START >>> 0;
     const keyboardEnd = (keyboardStart + KEYBOARD_SIZE - 1) >>> 0;
     const bitmapStart = BITMAP_START >>> 0;
     const bitmapEnd = BITMAP_END >>> 0;
+    const realTimeClockStart = REAL_TIME_CLOCK_START >>> 0;
+    const realTimeClockEnd = (realTimeClockStart + REAL_TIME_CLOCK_SIZE - 1) >>> 0;
+    const sevenSegmentStart = SEVEN_SEGMENT_START >>> 0;
+    const sevenSegmentEnd = (sevenSegmentStart + SEVEN_SEGMENT_SIZE - 1) >>> 0;
+    const audioStart = AUDIO_START >>> 0;
+    const audioEnd = (audioStart + AUDIO_SIZE - 1) >>> 0;
 
     return [
       { start: keyboardStart, end: keyboardEnd, device: keyboard },
       { start: bitmapStart, end: bitmapEnd, device: bitmapDisplay },
+      { start: realTimeClockStart, end: realTimeClockEnd, device: realTimeClock },
+      { start: sevenSegmentStart, end: sevenSegmentEnd, device: sevenSegmentDisplay },
+      { start: audioStart, end: audioEnd, device: audioDevice },
     ];
   }
 
