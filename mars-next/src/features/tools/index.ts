@@ -5,3 +5,4 @@ export * from "./services/cacheSimulatorAdapter";
 export * from "./data-viewer";
 export * from "./text-viewer";
 export * from "./register-viewer";
+export * from "./bitmap-display/BitmapDisplayWindow";
