@@ -5,9 +5,45 @@ import { EditorPane } from "../features/editor";
 import { BreakpointManagerPanel, BreakpointList, BreakpointSpec, WatchManagerPanel, WatchSpec } from "../features/breakpoints";
 import { resolveInstructionIndex, toggleBreakpoint } from "../features/breakpoints/services/breakpointService";
 import { SettingsDialog } from "../features/settings";
-import { DataSegmentWindow, MemoryConfiguration, RegistersWindow, TextSegmentWindow } from "../features/tools";
+import { DataSegmentWindow, MemoryConfiguration, RegistersWindow, TextSegmentWindow, BitmapDisplayWindow } from "../features/tools";
 import { publishCpuState } from "../features/tools/register-viewer";
-import { BinaryImage, CoreEngine, MachineState, SourceMapEntry, assembleAndLoad, reloadPseudoOpTable } from "../core";
+import {
+  AudioDevice,
+  BinaryImage,
+  BitmapDisplayDevice,
+  CoreEngine,
+  DisplayDevice,
+  KeyboardDevice,
+  MachineState,
+  Memory,
+  MemoryMap,
+  RealTimeClockDevice,
+  SevenSegmentDisplayDevice,
+  SourceMapEntry,
+  assembleAndLoad,
+  reloadPseudoOpTable,
+  type DirtyRegion,
+} from "../core";
+
+const KEYBOARD_START = 0xffff0000;
+const KEYBOARD_SIZE = 0x8;
+const DISPLAY_START = KEYBOARD_START + KEYBOARD_SIZE;
+const DISPLAY_SIZE = 0x8;
+const BITMAP_START = 0xffff0100;
+const BITMAP_END = 0xffff01ff;
+const REAL_TIME_CLOCK_START = 0xffff0010;
+const REAL_TIME_CLOCK_SIZE = 0x8;
+const SEVEN_SEGMENT_START = 0xffff0018;
+const SEVEN_SEGMENT_SIZE = 0x2;
+const AUDIO_START = 0xffff0020;
+const AUDIO_SIZE = 0x10;
+
+interface BitmapDisplayState {
+  width: number;
+  height: number;
+  buffer: Uint8Array;
+  dirtyRegions: DirtyRegion[];
+}
 
 const SAMPLE_PROGRAM = `# Simple hello-style program
 .data
@@ -41,7 +77,9 @@ export function App(): React.JSX.Element {
   const [enablePseudoInstructions, setEnablePseudoInstructions] = useState(true);
   const [isDataViewerOpen, setIsDataViewerOpen] = useState(false);
   const [isTextViewerOpen, setIsTextViewerOpen] = useState(false);
+  const [isBitmapDisplayOpen, setIsBitmapDisplayOpen] = useState(false);
   const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
+  const [bitmapDisplay, setBitmapDisplay] = useState<BitmapDisplayState | null>(null);
 
   const handleToggleEditorBreakpoint = useCallback(
     (line: number): void => {
@@ -148,8 +186,55 @@ export function App(): React.JSX.Element {
     setActiveFile(null);
     try {
       setStatus("Assembling...");
+      const bitmapDevice = new BitmapDisplayDevice({
+        onFlush: (regions, buffer) => {
+          setBitmapDisplay({
+            width: bitmapDevice.width,
+            height: bitmapDevice.height,
+            buffer: new Uint8Array(buffer),
+            dirtyRegions: regions.map((region) => ({ ...region })),
+          });
+        },
+      });
+
+      const customMemory = new Memory({
+        map: new MemoryMap({
+          devices: [
+            { start: KEYBOARD_START, end: KEYBOARD_START + KEYBOARD_SIZE - 1, device: new KeyboardDevice() },
+            { start: DISPLAY_START, end: DISPLAY_START + DISPLAY_SIZE - 1, device: new DisplayDevice() },
+            { start: BITMAP_START, end: BITMAP_END, device: bitmapDevice },
+            {
+              start: REAL_TIME_CLOCK_START,
+              end: REAL_TIME_CLOCK_START + REAL_TIME_CLOCK_SIZE - 1,
+              device: new RealTimeClockDevice(),
+            },
+            {
+              start: SEVEN_SEGMENT_START,
+              end: SEVEN_SEGMENT_START + SEVEN_SEGMENT_SIZE - 1,
+              device: new SevenSegmentDisplayDevice(),
+            },
+            { start: AUDIO_START, end: AUDIO_START + AUDIO_SIZE - 1, device: new AudioDevice() },
+          ],
+        }),
+      });
+
+      setBitmapDisplay({
+        width: bitmapDevice.width,
+        height: bitmapDevice.height,
+        buffer: new Uint8Array(bitmapDevice.getBuffer()),
+        dirtyRegions: [
+          {
+            x: 0,
+            y: 0,
+            width: bitmapDevice.width,
+            height: bitmapDevice.height,
+          },
+        ],
+      });
+
       const { engine: loadedEngine, layout, image } = assembleAndLoad(source, {
         assemblerOptions: { enablePseudoInstructions },
+        memory: customMemory,
       });
       setEngine(loadedEngine);
       setSymbolTable(layout.symbols);
@@ -274,6 +359,15 @@ export function App(): React.JSX.Element {
                   }}
                 >
                   Text Segment Viewer
+                </button>
+                <button
+                  style={toolsMenuItemStyle}
+                  onClick={() => {
+                    setIsBitmapDisplayOpen(true);
+                    setToolsMenuOpen(false);
+                  }}
+                >
+                  Bitmap Display
                 </button>
               </div>
             )}
@@ -403,6 +497,15 @@ export function App(): React.JSX.Element {
       )}
       {isTextViewerOpen && (
         <TextSegmentWindow program={program} sourceMap={sourceMap} onClose={() => setIsTextViewerOpen(false)} />
+      )}
+      {isBitmapDisplayOpen && bitmapDisplay && (
+        <BitmapDisplayWindow
+          width={bitmapDisplay.width}
+          height={bitmapDisplay.height}
+          buffer={bitmapDisplay.buffer}
+          dirtyRegions={bitmapDisplay.dirtyRegions}
+          onClose={() => setIsBitmapDisplayOpen(false)}
+        />
       )}
     </main>
   );
