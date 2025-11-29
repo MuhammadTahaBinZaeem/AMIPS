@@ -1,9 +1,12 @@
 import assert from "node:assert";
 import { describe, test } from "node:test";
 
+import { DisplayDevice } from "../../src/core/devices/DisplayDevice";
 import { FileDevice } from "../../src/core/devices/FileDevice";
+import { KeyboardDevice } from "../../src/core/devices/KeyboardDevice";
 import { TerminalDevice } from "../../src/core/devices/TerminalDevice";
 import { Memory } from "../../src/core/memory/Memory";
+import { MemoryMap } from "../../src/core/memory/MemoryMap";
 import { MachineState } from "../../src/core/state/MachineState";
 import { createDefaultSyscallHandlers, SyscallDevices } from "../../src/core/syscalls/SyscallHandlers";
 import { SyscallTable } from "../../src/core/syscalls/SyscallTable";
@@ -161,5 +164,37 @@ describe("Legacy syscall coverage", () => {
     );
 
     assert.strictEqual(contents, "Hi!!!");
+  });
+
+  test("read_char pulls from the keyboard device when ready", () => {
+    const map = new MemoryMap({ devices: [] });
+    const keyboard = new KeyboardDevice();
+    map.registerDevice(map.mmioBase, 8, keyboard);
+    keyboard.queueInput("Z");
+
+    const memory = new Memory({ map });
+    const table = buildTable(memory, {});
+    const state = new MachineState();
+
+    table.handle(12, state);
+
+    assert.strictEqual(state.getRegister(2), "Z".charCodeAt(0));
+  });
+
+  test("writes to the display device through syscall 63", () => {
+    const map = new MemoryMap({ devices: [] });
+    const log: string[] = [];
+    const display = new DisplayDevice((char) => log.push(char));
+    map.registerDevice(map.mmioBase + 8, 8, display);
+
+    const memory = new Memory({ map });
+    const table = buildTable(memory, {});
+    const state = new MachineState();
+
+    state.setRegister(4, "A".charCodeAt(0));
+    table.handle(63, state);
+
+    assert.deepStrictEqual(log, ["A"]);
+    assert.strictEqual(state.getRegister(2), 1);
   });
 });

@@ -1,6 +1,7 @@
 import { Device, DeviceData, InterruptHandler } from "../devices/Device";
 import { AudioDevice } from "../devices/AudioDevice";
 import { BitmapDisplayDevice } from "../devices/BitmapDisplayDevice";
+import { DisplayDevice } from "../devices/DisplayDevice";
 import { KeyboardDevice } from "../devices/KeyboardDevice";
 import { RealTimeClockDevice } from "../devices/RealTimeClockDevice";
 import { SevenSegmentDisplayDevice } from "../devices/SevenSegmentDisplayDevice";
@@ -79,7 +80,9 @@ const DEFAULT_STACK_SIZE = 4 * 1024 * 1024;
 const DEFAULT_MMIO_BASE = 0xffff0000;
 const DEFAULT_MMIO_SIZE = 0x00010000;
 const KEYBOARD_START = 0xffff0000;
-const KEYBOARD_SIZE = 0x10;
+const KEYBOARD_SIZE = 0x8;
+const DISPLAY_START = KEYBOARD_START + KEYBOARD_SIZE;
+const DISPLAY_SIZE = 0x8;
 const BITMAP_START = 0xffff0100;
 const BITMAP_END = 0xffff01ff;
 const REAL_TIME_CLOCK_START = 0xffff0010;
@@ -197,6 +200,7 @@ export class MemoryMap {
 
   private createDefaultDevices(): DeviceRange[] {
     const keyboard = new KeyboardDevice();
+    const display = new DisplayDevice();
     const bitmapDisplay = new BitmapDisplayDevice();
     const realTimeClock = new RealTimeClockDevice();
     const sevenSegmentDisplay = new SevenSegmentDisplayDevice();
@@ -204,6 +208,8 @@ export class MemoryMap {
 
     const keyboardStart = KEYBOARD_START >>> 0;
     const keyboardEnd = (keyboardStart + KEYBOARD_SIZE - 1) >>> 0;
+    const displayStart = DISPLAY_START >>> 0;
+    const displayEnd = (displayStart + DISPLAY_SIZE - 1) >>> 0;
     const bitmapStart = BITMAP_START >>> 0;
     const bitmapEnd = BITMAP_END >>> 0;
     const realTimeClockStart = REAL_TIME_CLOCK_START >>> 0;
@@ -215,6 +221,7 @@ export class MemoryMap {
 
     return [
       { start: keyboardStart, end: keyboardEnd, device: keyboard },
+      { start: displayStart, end: displayEnd, device: display },
       { start: bitmapStart, end: bitmapEnd, device: bitmapDisplay },
       { start: realTimeClockStart, end: realTimeClockEnd, device: realTimeClock },
       { start: sevenSegmentStart, end: sevenSegmentEnd, device: sevenSegmentDisplay },

@@ -120,6 +120,12 @@ export function registerLegacySyscalls(
   });
 
   register(12, (state) => {
+    const keyboardCode = readCharFromKeyboard(memory);
+    if (keyboardCode !== null) {
+      state.setRegister(2, keyboardCode);
+      return;
+    }
+
     const code = coerceNumber(readFromHandler("read_char", handlers) ?? readCharFromTerminal(devices));
     state.setRegister(2, code);
   });
@@ -264,10 +270,8 @@ export function registerLegacySyscalls(
   register(59, (state) => handleMessageDialog(state, memory, devices, handlers, "string"));
 
   register(60, (state) => {
-    const ready = memory.readByte(KEYBOARD_CONTROL_ADDRESS) & READY_FLAG_MASK;
-    const low = memory.readByte(KEYBOARD_DATA_ADDRESS);
-    const high = memory.readByte(KEYBOARD_DATA_EXTENDED_ADDRESS);
-    const value = (high << 8) | low;
+    const ready = isKeyboardReady(memory);
+    const value = ready ? readKeyboardValue(memory) : 0;
     state.setRegister(2, value | 0);
     state.setRegister(3, ready ? 1 : 0);
   });
@@ -306,6 +310,12 @@ export function registerLegacySyscalls(
     }
 
     state.setRegister(2, length);
+  });
+
+  register(63, (state) => {
+    const value = state.getRegister(4) & 0xff;
+    const written = writeToDisplayDevice(memory, value);
+    state.setRegister(2, written ? 1 : 0);
   });
 }
 
@@ -388,6 +398,14 @@ function readCharFromTerminal(devices: SyscallDevices): number {
   return value.length > 0 ? value.charCodeAt(0) : -1;
 }
 
+function readCharFromKeyboard(memory: Memory): number | null {
+  if (!isKeyboardReady(memory)) {
+    return null;
+  }
+
+  return readKeyboardValue(memory);
+}
+
 function translateFileMode(flags: number): "r" | "w" | "a" | null {
   switch (flags) {
     case 0:
@@ -453,12 +471,45 @@ function getRandomStream(map: Map<number, RandomStream>, index: number): RandomS
   return created;
 }
 
+function isKeyboardReady(memory: Memory): boolean {
+  try {
+    return (memory.readByte(KEYBOARD_CONTROL_READY_ADDRESS) & READY_FLAG_MASK) !== 0;
+  } catch {
+    return false;
+  }
+}
+
+function readKeyboardValue(memory: Memory): number {
+  const high = memory.readByte(KEYBOARD_DATA_HIGH_ADDRESS);
+  const low = memory.readByte(KEYBOARD_DATA_LOW_ADDRESS);
+  return ((high << 8) | low) | 0;
+}
+
+function writeToDisplayDevice(memory: Memory, value: number): boolean {
+  try {
+    const control = memory.readByte(DISPLAY_CONTROL_ADDRESS);
+    if ((control & READY_FLAG_MASK) === 0) {
+      return false;
+    }
+
+    memory.writeByte(DISPLAY_DATA_ADDRESS, value & 0xff);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 const READY_FLAG_MASK = 0x1;
 const KEYBOARD_CONTROL_ADDRESS = 0xffff0000;
+const KEYBOARD_CONTROL_READY_ADDRESS = KEYBOARD_CONTROL_ADDRESS + 3;
 const KEYBOARD_DATA_ADDRESS = 0xffff0004;
-const KEYBOARD_DATA_EXTENDED_ADDRESS = 0xffff0006;
+const KEYBOARD_DATA_HIGH_ADDRESS = KEYBOARD_DATA_ADDRESS + 2;
+const KEYBOARD_DATA_LOW_ADDRESS = KEYBOARD_DATA_ADDRESS + 3;
 
-const BITMAP_BASE_ADDRESS = 0xffff1000;
+const DISPLAY_CONTROL_ADDRESS = 0xffff0008;
+const DISPLAY_DATA_ADDRESS = 0xffff000c;
+
+const BITMAP_BASE_ADDRESS = 0xffff0100;
 const BITMAP_FRAMEBUFFER_OFFSET = 16;
 
 let cachedRandomWord = 0;
