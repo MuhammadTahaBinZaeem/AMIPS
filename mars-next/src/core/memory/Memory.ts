@@ -140,6 +140,10 @@ export class Memory {
       .map((address) => ({ address, value: this.readByteFromBacking(address) }));
   }
 
+  getMemoryMap(): MemoryMap {
+    return this.memoryMap;
+  }
+
   private selectCache(access: AccessType): Cache | null {
     if (access === "execute") {
       return this.instructionCache ?? this.dataCache;

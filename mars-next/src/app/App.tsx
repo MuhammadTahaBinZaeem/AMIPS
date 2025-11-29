@@ -6,6 +6,7 @@ import { EditorPane } from "../features/editor";
 import { BreakpointManagerPanel, BreakpointList, BreakpointSpec, WatchManagerPanel, WatchSpec } from "../features/breakpoints";
 import { resolveInstructionIndex, toggleBreakpoint } from "../features/breakpoints/services/breakpointService";
 import { SettingsDialog } from "../features/settings";
+import { DataSegmentWindow, MemoryConfiguration } from "../features/tools";
 import { BinaryImage, CoreEngine, MachineState, SourceMapEntry, assembleAndLoad, reloadPseudoOpTable } from "../core";
 
 const SAMPLE_PROGRAM = `# Simple hello-style program
@@ -30,6 +31,7 @@ export function App(): React.JSX.Element {
   const [lo, setLo] = useState(0);
   const [pc, setPc] = useState(0);
   const [memoryEntries, setMemoryEntries] = useState<Array<{ address: number; value: number }>>([]);
+  const [memoryConfiguration, setMemoryConfiguration] = useState<MemoryConfiguration | null>(null);
   const [symbolTable, setSymbolTable] = useState<Record<string, number>>({});
   const [breakpoints, setBreakpoints] = useState<BreakpointSpec[]>([]);
   const [watches, setWatches] = useState<WatchSpec[]>([]);
@@ -41,6 +43,8 @@ export function App(): React.JSX.Element {
   const [activeLine, setActiveLine] = useState<number | null>(null);
   const [activeFile, setActiveFile] = useState<string | null>(null);
   const [enablePseudoInstructions, setEnablePseudoInstructions] = useState(true);
+  const [isDataViewerOpen, setIsDataViewerOpen] = useState(false);
+  const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
 
   const handleToggleEditorBreakpoint = useCallback(
     (line: number): void => {
@@ -162,11 +166,13 @@ export function App(): React.JSX.Element {
       loadedEngine.run(2_000);
 
       const state = loadedEngine.getState();
+      const memory = loadedEngine.getMemory();
       setRegisters(Array.from({ length: MachineState.REGISTER_COUNT }, (_, index) => state.getRegister(index)));
       setHi(state.getHi());
       setLo(state.getLo());
       setPc(state.getProgramCounter());
-      setMemoryEntries(loadedEngine.getMemory().entries());
+      setMemoryEntries(memory.entries());
+      setMemoryConfiguration(MemoryConfiguration.fromMemoryMap(memory.getMemoryMap()));
 
       const currentLocation = layout.sourceMap.find((entry) => entry.address === state.getProgramCounter());
       setActiveLine(currentLocation?.line ?? null);
@@ -199,6 +205,40 @@ export function App(): React.JSX.Element {
     }
   };
 
+  const toolsButtonStyle: React.CSSProperties = {
+    backgroundColor: "#1f2937",
+    color: "#e5e7eb",
+    border: "1px solid #374151",
+    borderRadius: "0.5rem",
+    padding: "0.4rem 0.75rem",
+    cursor: "pointer",
+  };
+
+  const toolsMenuStyle: React.CSSProperties = {
+    position: "absolute",
+    right: 0,
+    top: "100%",
+    marginTop: "0.25rem",
+    backgroundColor: "#0f172a",
+    border: "1px solid #1f2937",
+    borderRadius: "0.5rem",
+    boxShadow: "0 10px 25px rgba(0, 0, 0, 0.35)",
+    padding: "0.25rem",
+    minWidth: "200px",
+    zIndex: 10,
+  };
+
+  const toolsMenuItemStyle: React.CSSProperties = {
+    width: "100%",
+    textAlign: "left",
+    backgroundColor: "transparent",
+    color: "#e5e7eb",
+    border: "none",
+    padding: "0.5rem 0.75rem",
+    borderRadius: "0.4rem",
+    cursor: "pointer",
+  };
+
   return (
     <main
       style={{
@@ -211,7 +251,27 @@ export function App(): React.JSX.Element {
     >
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem" }}>
         <h1 style={{ margin: 0 }}>MARS Next – Prototype</h1>
-        <span style={{ color: "#9ca3af" }}>Dark mode by default</span>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", position: "relative" }}>
+          <div style={{ position: "relative" }}>
+            <button style={toolsButtonStyle} onClick={() => setToolsMenuOpen((open) => !open)}>
+              Tools ▾
+            </button>
+            {toolsMenuOpen && (
+              <div style={toolsMenuStyle}>
+                <button
+                  style={toolsMenuItemStyle}
+                  onClick={() => {
+                    setIsDataViewerOpen(true);
+                    setToolsMenuOpen(false);
+                  }}
+                >
+                  Data Segment Viewer
+                </button>
+              </div>
+            )}
+          </div>
+          <span style={{ color: "#9ca3af" }}>Dark mode by default</span>
+        </div>
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
@@ -326,6 +386,13 @@ export function App(): React.JSX.Element {
           <MemoryTable entries={memoryEntries} />
         </div>
       </div>
+      {isDataViewerOpen && (
+        <DataSegmentWindow
+          entries={memoryEntries}
+          configuration={memoryConfiguration}
+          onClose={() => setIsDataViewerOpen(false)}
+        />
+      )}
     </main>
   );
 }
