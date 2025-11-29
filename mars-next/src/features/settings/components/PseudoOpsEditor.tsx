@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 
-import { getMacroSymbolDocumentation, reloadPseudoOpTable, validatePseudoOpsText } from "../../core";
+import { getMacroSymbolDocumentation, reloadPseudoOpTable, validatePseudoOpsText } from "../../../core";
 import { loadPseudoOpsFile, savePseudoOpsFile } from "../services/pseudoOpsFiles";
 
 interface PseudoOpsEditorProps {
