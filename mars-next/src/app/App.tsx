@@ -6,7 +6,7 @@ import { EditorPane } from "../features/editor";
 import { BreakpointManagerPanel, BreakpointList, BreakpointSpec, WatchManagerPanel, WatchSpec } from "../features/breakpoints";
 import { resolveInstructionIndex, toggleBreakpoint } from "../features/breakpoints/services/breakpointService";
 import { SettingsDialog } from "../features/settings";
-import { DataSegmentWindow, MemoryConfiguration } from "../features/tools";
+import { DataSegmentWindow, MemoryConfiguration, TextSegmentWindow } from "../features/tools";
 import { BinaryImage, CoreEngine, MachineState, SourceMapEntry, assembleAndLoad, reloadPseudoOpTable } from "../core";
 
 const SAMPLE_PROGRAM = `# Simple hello-style program
@@ -44,6 +44,7 @@ export function App(): React.JSX.Element {
   const [activeFile, setActiveFile] = useState<string | null>(null);
   const [enablePseudoInstructions, setEnablePseudoInstructions] = useState(true);
   const [isDataViewerOpen, setIsDataViewerOpen] = useState(false);
+  const [isTextViewerOpen, setIsTextViewerOpen] = useState(false);
   const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
 
   const handleToggleEditorBreakpoint = useCallback(
@@ -267,6 +268,15 @@ export function App(): React.JSX.Element {
                 >
                   Data Segment Viewer
                 </button>
+                <button
+                  style={toolsMenuItemStyle}
+                  onClick={() => {
+                    setIsTextViewerOpen(true);
+                    setToolsMenuOpen(false);
+                  }}
+                >
+                  Text Segment Viewer
+                </button>
               </div>
             )}
           </div>
@@ -392,6 +402,9 @@ export function App(): React.JSX.Element {
           configuration={memoryConfiguration}
           onClose={() => setIsDataViewerOpen(false)}
         />
+      )}
+      {isTextViewerOpen && (
+        <TextSegmentWindow program={program} sourceMap={sourceMap} onClose={() => setIsTextViewerOpen(false)} />
       )}
     </main>
   );
