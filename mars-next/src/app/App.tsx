@@ -1,12 +1,12 @@
 import React, { useCallback, useState } from "react";
 import { MemoryTable } from "../features/memory-view";
-import { RegisterTable } from "../features/register-view";
 import { RunToolbar } from "../features/run-control";
 import { EditorPane } from "../features/editor";
 import { BreakpointManagerPanel, BreakpointList, BreakpointSpec, WatchManagerPanel, WatchSpec } from "../features/breakpoints";
 import { resolveInstructionIndex, toggleBreakpoint } from "../features/breakpoints/services/breakpointService";
 import { SettingsDialog } from "../features/settings";
-import { DataSegmentWindow, MemoryConfiguration, TextSegmentWindow } from "../features/tools";
+import { DataSegmentWindow, MemoryConfiguration, RegistersWindow, TextSegmentWindow } from "../features/tools";
+import { publishCpuState } from "../features/tools/register-viewer";
 import { BinaryImage, CoreEngine, MachineState, SourceMapEntry, assembleAndLoad, reloadPseudoOpTable } from "../core";
 
 const SAMPLE_PROGRAM = `# Simple hello-style program
@@ -26,10 +26,6 @@ export function App(): React.JSX.Element {
   const [source, setSource] = useState(SAMPLE_PROGRAM);
   const [status, setStatus] = useState("Ready");
   const [error, setError] = useState<string | null>(null);
-  const [registers, setRegisters] = useState<number[]>(() => Array(MachineState.REGISTER_COUNT).fill(0));
-  const [hi, setHi] = useState(0);
-  const [lo, setLo] = useState(0);
-  const [pc, setPc] = useState(0);
   const [memoryEntries, setMemoryEntries] = useState<Array<{ address: number; value: number }>>([]);
   const [memoryConfiguration, setMemoryConfiguration] = useState<MemoryConfiguration | null>(null);
   const [symbolTable, setSymbolTable] = useState<Record<string, number>>({});
@@ -168,10 +164,12 @@ export function App(): React.JSX.Element {
 
       const state = loadedEngine.getState();
       const memory = loadedEngine.getMemory();
-      setRegisters(Array.from({ length: MachineState.REGISTER_COUNT }, (_, index) => state.getRegister(index)));
-      setHi(state.getHi());
-      setLo(state.getLo());
-      setPc(state.getProgramCounter());
+      publishCpuState({
+        registers: Array.from({ length: MachineState.REGISTER_COUNT }, (_, index) => state.getRegister(index)),
+        hi: state.getHi(),
+        lo: state.getLo(),
+        pc: state.getProgramCounter(),
+      });
       setMemoryEntries(memory.entries());
       setMemoryConfiguration(MemoryConfiguration.fromMemoryMap(memory.getMemoryMap()));
 
@@ -392,7 +390,7 @@ export function App(): React.JSX.Element {
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "1rem" }}>
-          <RegisterTable registers={registers} hi={hi} lo={lo} pc={pc} />
+          <RegistersWindow />
           <MemoryTable entries={memoryEntries} />
         </div>
       </div>
