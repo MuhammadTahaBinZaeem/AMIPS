@@ -5,6 +5,8 @@ import { MachineState, DEFAULT_TEXT_BASE } from "../state/MachineState";
 import { BreakpointEngine } from "../debugger/BreakpointEngine";
 import { WatchEngine } from "../debugger/WatchEngine";
 import { InterruptController } from "../interrupts/InterruptController";
+import { Memory } from "../memory/Memory";
+import { publishRuntimeSnapshot, type RuntimeStatus } from "../tools/runtimeEvents";
 
 export interface PerformanceCounters {
   cycleCount: number;
@@ -388,10 +390,12 @@ export class Pipeline {
 
   halt(): void {
     this.halted = true;
+    this.publishRuntimeState("halted", this.cpu.getState(), this.cpu.getMemory());
   }
 
   resume(): void {
     this.halted = false;
+    this.publishRuntimeState("running", this.cpu.getState(), this.cpu.getMemory());
   }
 
   addBreakpoint(address: number): void {
@@ -406,15 +410,16 @@ export class Pipeline {
     this.breakpoints?.clearAll();
   }
 
-  executeCycle(): "running" | "breakpoint" | "halted" | "terminated" {
+  executeCycle(): RuntimeStatus {
     return this.step();
   }
 
-  step(): "running" | "breakpoint" | "halted" | "terminated" {
-    if (this.halted) return "halted";
-
+  step(): RuntimeStatus {
     const state = this.cpu.getState();
     const memory = this.cpu.getMemory();
+
+    if (this.halted) return this.publishRuntimeState("halted", state, memory);
+
     const decoder = this.cpu.getDecoder();
 
     let contextPc = state.getProgramCounter();
@@ -433,9 +438,9 @@ export class Pipeline {
         this.clearPipeline();
         if (state.isTerminated()) {
           this.halted = true;
-          return "terminated";
+          return this.publishRuntimeState("terminated", state, memory);
         }
-        return "running";
+        return this.publishRuntimeState("running", state, memory);
       }
 
       const decoding = this.ifId.getCurrent();
@@ -479,7 +484,7 @@ export class Pipeline {
       // Evaluate breakpoints for the next fetch address after branch resolution.
       const fetchPc = state.getProgramCounter();
       const instructionIndex = ((fetchPc - this.textBase) / 4) | 0;
-        const breakpointHit = this.breakpoints?.checkForHit(fetchPc, instructionIndex, state) ?? false;
+      const breakpointHit = this.breakpoints?.checkForHit(fetchPc, instructionIndex, state) ?? false;
 
       // IF/ID stage fetches the next instruction unless halted or terminated.
       const canFetch =
@@ -504,28 +509,28 @@ export class Pipeline {
         this.clearPipeline();
         if (state.isTerminated()) {
           this.halted = true;
-          return "terminated";
+          return this.publishRuntimeState("terminated", state, memory);
         }
-        return "running";
+        return this.publishRuntimeState("running", state, memory);
       }
 
       if (state.isTerminated()) {
         this.halted = true;
         this.clearPipeline();
-        return "terminated";
+        return this.publishRuntimeState("terminated", state, memory);
       }
 
       if (breakpointHit) {
         this.halted = true;
-        return "breakpoint";
+        return this.publishRuntimeState("breakpoint", state, memory);
       }
 
       if (this.isPipelineEmpty() && !this.canFetchInstruction(state.getProgramCounter())) {
         this.halted = true;
-        return "halted";
+        return this.publishRuntimeState("halted", state, memory);
       }
 
-      return "running";
+      return this.publishRuntimeState("running", state, memory);
     } catch (error) {
       if (error instanceof SyscallException) {
         this.interrupts.requestSyscallInterrupt(error.code, contextPc);
@@ -534,9 +539,9 @@ export class Pipeline {
         this.clearPipeline();
         if (state.isTerminated()) {
           this.halted = true;
-          return "terminated";
+          return this.publishRuntimeState("terminated", state, memory);
         }
-        return "running";
+        return this.publishRuntimeState("running", state, memory);
       }
 
       this.interrupts.requestException(error, contextPc);
@@ -545,9 +550,9 @@ export class Pipeline {
         this.clearPipeline();
         if (state.isTerminated()) {
           this.halted = true;
-          return "terminated";
+          return this.publishRuntimeState("terminated", state, memory);
         }
-        return "running";
+        return this.publishRuntimeState("running", state, memory);
       }
 
       throw normalizeCpuException(error, contextPc);
@@ -604,6 +609,16 @@ export class Pipeline {
     this.idEx.clear();
     this.exMem.clear();
     this.memWb.clear();
+  }
+
+  private publishRuntimeState(status: RuntimeStatus, state: MachineState, memory: InstructionMemory): RuntimeStatus {
+    publishRuntimeSnapshot({
+      status,
+      state,
+      memory: memory instanceof Memory ? memory : undefined,
+    });
+
+    return status;
   }
 
   private servicePendingInterrupts(
