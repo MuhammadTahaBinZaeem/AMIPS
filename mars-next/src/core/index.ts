@@ -46,6 +46,7 @@ export * from "./exceptions/ExecutionExceptions";
 export * from "./interrupts/InterruptController";
 export * from "./tools/MarsTool";
 export * from "./tools/runtimeEvents";
+export * from "./tools/pipelineEvents";
 
 export interface CoreEngineOptions {
   decoder?: InstructionDecoder;
@@ -245,6 +246,22 @@ export class CoreEngine {
 
   resetPerformanceCounters(): void {
     this.pipeline.resetPerformanceCounters();
+  }
+
+  setForwardingEnabled(enabled: boolean): void {
+    this.pipeline.setForwardingEnabled(enabled);
+  }
+
+  setHazardDetectionEnabled(enabled: boolean): void {
+    this.pipeline.setHazardDetectionEnabled(enabled);
+  }
+
+  getForwardingEnabled(): boolean {
+    return this.pipeline.getForwardingEnabled();
+  }
+
+  getHazardDetectionEnabled(): boolean {
+    return this.pipeline.getHazardDetectionEnabled();
   }
 }
 

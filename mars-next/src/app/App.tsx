@@ -175,8 +175,9 @@ export function App(): React.JSX.Element {
       memoryConfiguration,
       bitmapDisplay,
       keyboardDevice,
+      runtime: engine,
     }),
-    [bitmapDisplay, keyboardDevice, memoryConfiguration, memoryEntries, program, sourceMap],
+    [bitmapDisplay, engine, keyboardDevice, memoryConfiguration, memoryEntries, program, sourceMap],
   );
 
   const openTool = useCallback((toolId: string): void => {

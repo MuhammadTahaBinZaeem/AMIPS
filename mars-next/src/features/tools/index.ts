@@ -8,3 +8,4 @@ export * from "./register-viewer";
 export * from "./bitmap-display/BitmapDisplayWindow";
 export * from "./keyboard-view/KeyboardWindow";
 export * from "./toolRegistry";
+export * from "../pipeline-view";
