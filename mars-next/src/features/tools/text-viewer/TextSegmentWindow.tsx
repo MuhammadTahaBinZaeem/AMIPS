@@ -1,6 +1,7 @@
 import React, { useMemo } from "react";
 import { BinaryImage, DEFAULT_TEXT_BASE, SourceMapEntry } from "../../../core";
 import { disassembleInstruction } from "../../../core/debugger/Disassembler";
+import { MarsTool, MarsToolContext } from "../../../core/tools/MarsTool";
 
 export interface TextSegmentWindowProps {
   program?: BinaryImage | null;
@@ -148,6 +149,19 @@ export function TextSegmentWindow({ program, sourceMap, onClose }: TextSegmentWi
     </div>
   );
 }
+
+type TextSegmentToolContext = MarsToolContext & {
+  program?: BinaryImage | null;
+  sourceMap?: SourceMapEntry[] | undefined;
+};
+
+export const TextSegmentTool: MarsTool<TextSegmentToolContext> = {
+  getName: () => "Text Segment Viewer",
+  getFile: () => "text-viewer/TextSegmentWindow.tsx",
+  go: ({ context, onClose }) => (
+    <TextSegmentWindow program={context.program ?? null} sourceMap={context.sourceMap} onClose={onClose} />
+  ),
+};
 
 const overlayStyle: React.CSSProperties = {
   position: "fixed",

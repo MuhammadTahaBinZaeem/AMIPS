@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { MarsTool, MarsToolContext } from "../../../core/tools/MarsTool";
 import { MemoryConfiguration, type MemorySegmentDescriptor } from "./MemoryConfiguration";
 
 const VALUES_PER_ROW = 8;
@@ -198,6 +199,23 @@ export function DataSegmentWindow({ entries, configuration, onClose }: DataSegme
     </div>
   );
 }
+
+type DataSegmentToolContext = MarsToolContext & {
+  memoryEntries: Array<{ address: number; value: number }>;
+  memoryConfiguration: MemoryConfiguration | null;
+};
+
+export const DataSegmentTool: MarsTool<DataSegmentToolContext> = {
+  getName: () => "Data Segment Viewer",
+  getFile: () => "data-viewer/DataSegmentWindow.tsx",
+  go: ({ context, onClose }) => (
+    <DataSegmentWindow
+      entries={context.memoryEntries ?? []}
+      configuration={context.memoryConfiguration}
+      onClose={onClose}
+    />
+  ),
+};
 
 const overlayStyle: React.CSSProperties = {
   position: "fixed",

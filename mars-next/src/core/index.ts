@@ -44,6 +44,7 @@ export * from "./state/MachineState";
 export * from "./exceptions/AccessExceptions";
 export * from "./exceptions/ExecutionExceptions";
 export * from "./interrupts/InterruptController";
+export * from "./tools/MarsTool";
 
 export interface CoreEngineOptions {
   decoder?: InstructionDecoder;

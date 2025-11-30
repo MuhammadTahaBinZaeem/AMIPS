@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { MemoryTable } from "../features/memory-view";
 import { RunToolbar } from "../features/run-control";
 import { EditorPane } from "../features/editor";
@@ -6,12 +6,9 @@ import { BreakpointManagerPanel, BreakpointList, BreakpointSpec, WatchManagerPan
 import { resolveInstructionIndex, toggleBreakpoint } from "../features/breakpoints/services/breakpointService";
 import { SettingsDialog } from "../features/settings";
 import {
-  BitmapDisplayWindow,
-  DataSegmentWindow,
-  KeyboardWindow,
   MemoryConfiguration,
   RegistersWindow,
-  TextSegmentWindow,
+  TOOL_REGISTRY,
 } from "../features/tools";
 import { publishCpuState } from "../features/tools/register-viewer";
 import {
@@ -29,8 +26,8 @@ import {
   SourceMapEntry,
   assembleAndLoad,
   reloadPseudoOpTable,
-  type DirtyRegion,
 } from "../core";
+import { BitmapDisplayState, type MarsToolContext } from "../core/tools/MarsTool";
 
 const KEYBOARD_START = 0xffff0000;
 const KEYBOARD_SIZE = 0x8;
@@ -44,13 +41,6 @@ const SEVEN_SEGMENT_START = 0xffff0018;
 const SEVEN_SEGMENT_SIZE = 0x2;
 const AUDIO_START = 0xffff0020;
 const AUDIO_SIZE = 0x10;
-
-interface BitmapDisplayState {
-  width: number;
-  height: number;
-  buffer: Uint8Array;
-  dirtyRegions: DirtyRegion[];
-}
 
 const SAMPLE_PROGRAM = `# Simple hello-style program
 .data
@@ -82,10 +72,7 @@ export function App(): React.JSX.Element {
   const [activeLine, setActiveLine] = useState<number | null>(null);
   const [activeFile, setActiveFile] = useState<string | null>(null);
   const [enablePseudoInstructions, setEnablePseudoInstructions] = useState(true);
-  const [isDataViewerOpen, setIsDataViewerOpen] = useState(false);
-  const [isTextViewerOpen, setIsTextViewerOpen] = useState(false);
-  const [isBitmapDisplayOpen, setIsBitmapDisplayOpen] = useState(false);
-  const [isKeyboardWindowOpen, setIsKeyboardWindowOpen] = useState(false);
+  const [openTools, setOpenTools] = useState<string[]>([]);
   const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
   const [bitmapDisplay, setBitmapDisplay] = useState<BitmapDisplayState | null>(null);
   const [keyboardDevice, setKeyboardDevice] = useState<KeyboardDevice | null>(null);
@@ -175,6 +162,26 @@ export function App(): React.JSX.Element {
     });
     setWatchValues(snapshot);
   };
+
+  const toolContext = useMemo<MarsToolContext>(
+    () => ({
+      program,
+      sourceMap,
+      memoryEntries,
+      memoryConfiguration,
+      bitmapDisplay,
+      keyboardDevice,
+    }),
+    [bitmapDisplay, keyboardDevice, memoryConfiguration, memoryEntries, program, sourceMap],
+  );
+
+  const openTool = useCallback((toolId: string): void => {
+    setOpenTools((current) => (current.includes(toolId) ? current : [...current, toolId]));
+  }, []);
+
+  const closeTool = useCallback((toolId: string): void => {
+    setOpenTools((current) => current.filter((id) => id !== toolId));
+  }, []);
 
   const handleReloadPseudoOps = (): void => {
     setError(null);
@@ -355,42 +362,29 @@ export function App(): React.JSX.Element {
             </button>
             {toolsMenuOpen && (
               <div style={toolsMenuStyle}>
-                <button
-                  style={toolsMenuItemStyle}
-                  onClick={() => {
-                    setIsDataViewerOpen(true);
-                    setToolsMenuOpen(false);
-                  }}
-                >
-                  Data Segment Viewer
-                </button>
-                <button
-                  style={toolsMenuItemStyle}
-                  onClick={() => {
-                    setIsTextViewerOpen(true);
-                    setToolsMenuOpen(false);
-                  }}
-                >
-                  Text Segment Viewer
-                </button>
-                <button
-                  style={toolsMenuItemStyle}
-                  onClick={() => {
-                    setIsBitmapDisplayOpen(true);
-                    setToolsMenuOpen(false);
-                  }}
-                >
-                  Bitmap Display
-                </button>
-                <button
-                  style={toolsMenuItemStyle}
-                  onClick={() => {
-                    setIsKeyboardWindowOpen(true);
-                    setToolsMenuOpen(false);
-                  }}
-                >
-                  Keyboard Input
-                </button>
+                {TOOL_REGISTRY.map((tool) => {
+                  const toolId = tool.getFile();
+                  const isEnabled = tool.isAvailable ? tool.isAvailable(toolContext) : true;
+                  const menuItemStyle: React.CSSProperties = {
+                    ...toolsMenuItemStyle,
+                    ...(isEnabled ? {} : { opacity: 0.6, cursor: "not-allowed" }),
+                  };
+
+                  return (
+                    <button
+                      key={toolId}
+                      style={menuItemStyle}
+                      disabled={!isEnabled}
+                      onClick={() => {
+                        if (!isEnabled) return;
+                        openTool(toolId);
+                        setToolsMenuOpen(false);
+                      }}
+                    >
+                      {tool.getName()}
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -510,26 +504,22 @@ export function App(): React.JSX.Element {
           <MemoryTable entries={memoryEntries} />
         </div>
       </div>
-      {isDataViewerOpen && (
-        <DataSegmentWindow
-          entries={memoryEntries}
-          configuration={memoryConfiguration}
-          onClose={() => setIsDataViewerOpen(false)}
-        />
-      )}
-      {isTextViewerOpen && (
-        <TextSegmentWindow program={program} sourceMap={sourceMap} onClose={() => setIsTextViewerOpen(false)} />
-      )}
-      {isKeyboardWindowOpen && <KeyboardWindow device={keyboardDevice} onClose={() => setIsKeyboardWindowOpen(false)} />}
-      {isBitmapDisplayOpen && bitmapDisplay && (
-        <BitmapDisplayWindow
-          width={bitmapDisplay.width}
-          height={bitmapDisplay.height}
-          buffer={bitmapDisplay.buffer}
-          dirtyRegions={bitmapDisplay.dirtyRegions}
-          onClose={() => setIsBitmapDisplayOpen(false)}
-        />
-      )}
+      {openTools.map((toolId) => {
+        const tool = TOOL_REGISTRY.find((entry) => entry.getFile() === toolId);
+        if (!tool) return null;
+        if (tool.isAvailable && !tool.isAvailable(toolContext)) {
+          return null;
+        }
+
+        return (
+          <React.Fragment key={toolId}>
+            {tool.go({
+              context: toolContext,
+              onClose: () => closeTool(toolId),
+            })}
+          </React.Fragment>
+        );
+      })}
     </main>
   );
 }
