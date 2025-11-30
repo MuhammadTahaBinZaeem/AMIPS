@@ -16,6 +16,7 @@ export interface MemoryOptions {
 export class Memory {
   private readonly blocks = new Map<number, Uint8Array>();
   private readonly writtenAddresses = new Set<number>();
+  private readonly modifiedInstructionLines = new Set<number>();
   private readonly memoryMap: MemoryMap;
   private readonly dataCache: Cache | null;
   private readonly instructionCache: Cache | null;
@@ -35,6 +36,7 @@ export class Memory {
   reset(): void {
     this.blocks.clear();
     this.writtenAddresses.clear();
+    this.modifiedInstructionLines.clear();
     this.dataCache?.reset();
     this.instructionCache?.reset();
   }
@@ -47,6 +49,7 @@ export class Memory {
   flushCaches(): void {
     this.dataCache?.flush((address, data) => this.writeBackLine(address, data));
     this.instructionCache?.flush((address, data) => this.writeBackLine(address, data));
+    this.modifiedInstructionLines.clear();
   }
 
   loadWord(address: number): number {
@@ -185,7 +188,7 @@ export class Memory {
     block[normalizedAddress & BLOCK_MASK] = value & 0xff;
     this.writtenAddresses.add(normalizedAddress);
     if (this.isExecutableAddress(normalizedAddress)) {
-      this.invalidateInstructionCache(normalizedAddress);
+      this.markInstructionCacheDirty(normalizedAddress);
     }
   }
 
@@ -206,12 +209,19 @@ export class Memory {
     return address >>> 0;
   }
 
-  private invalidateInstructionCache(address: number): void {
+  private markInstructionCacheDirty(address: number): void {
     if (!this.instructionCache || !this.isExecutableAddress(address)) {
       return;
     }
 
-    this.instructionCache.invalidateLine(address >>> 0);
+    const lineSize = this.instructionCache.getLineSize();
+    const lineBase = address - (address % lineSize);
+    if (this.modifiedInstructionLines.has(lineBase)) {
+      return;
+    }
+
+    this.instructionCache.invalidateLine(lineBase >>> 0);
+    this.modifiedInstructionLines.add(lineBase);
   }
 
   private validateWordAddress(address: number, access: AccessType): number {
