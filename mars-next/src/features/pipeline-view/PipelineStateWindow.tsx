@@ -74,6 +74,10 @@ export function PipelineStateWindow({ runtime, onClose }: PipelineStateWindowPro
     return summaries;
   }, [snapshot.branchRegistered, snapshot.loadUseHazard, snapshot.structuralHazard]);
 
+  const stats = snapshot.statistics;
+  const cpi = stats.instructionCount === 0 ? "—" : stats.cpi.toFixed(2);
+  const bubblePct = stats.bubbleRate === 0 ? "0%" : `${(stats.bubbleRate * 100).toFixed(1)}%`;
+
   const stageOrder = [
     { key: "ifId", label: "IF/ID" },
     { key: "idEx", label: "ID/EX" },
@@ -135,11 +139,58 @@ export function PipelineStateWindow({ runtime, onClose }: PipelineStateWindowPro
         </div>
 
         <div style={gridStyle}>
+          <StatCard
+            title="Cycles"
+            value={stats.cycleCount.toLocaleString()}
+            description="Total cycles executed by the pipeline"
+          />
+          <StatCard
+            title="Retired"
+            value={stats.instructionCount.toLocaleString()}
+            description="Instructions completed"
+          />
+          <StatCard title="CPI" value={cpi} description="Cycles per instruction" />
+          <StatCard
+            title="Stalls"
+            value={stats.stallCount.toLocaleString()}
+            description={`${stats.loadUseStalls} load-use · ${stats.structuralStalls} structural`}
+          />
+          <StatCard
+            title="Bubbles"
+            value={stats.bubbleCount.toLocaleString()}
+            description={`Average ${bubblePct} idle slots`}
+          />
+          <StatCard
+            title="Flushes"
+            value={stats.flushCount.toLocaleString()}
+            description="Pipeline clears from interrupts or halts"
+          />
+        </div>
+
+        <div style={{ ...gridStyle, marginTop: "-0.25rem" }}>
           {stageOrder.map((entry) => (
             <StagePanel key={entry.key} title={entry.label} stage={snapshot.registers[entry.key]} />
           ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+interface StatCardProps {
+  title: string;
+  value: string;
+  description?: string;
+}
+
+function StatCard({ title, value, description }: StatCardProps): React.JSX.Element {
+  return (
+    <div style={statCardStyle}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ color: "#9ca3af", fontSize: "0.85rem", fontWeight: 600 }}>{title}</div>
+      </div>
+      <div style={{ fontSize: "1.5rem", fontWeight: 800, marginTop: "0.15rem", letterSpacing: "-0.02em" }}>{value}</div>
+      {description && <div style={{ color: "#9ca3af", marginTop: "0.2rem", fontSize: "0.85rem" }}>{description}</div>}
     </div>
   );
 }
@@ -174,6 +225,18 @@ const windowStyle: React.CSSProperties = {
   display: "flex",
   flexDirection: "column",
   gap: "0.75rem",
+};
+
+const statCardStyle: React.CSSProperties = {
+  backgroundColor: "#0f172a",
+  border: "1px solid #1f2937",
+  borderRadius: "0.65rem",
+  padding: "0.75rem 0.9rem",
+  minHeight: "4.5rem",
+  boxShadow: "0 8px 20px rgba(0,0,0,0.18)",
+  display: "flex",
+  flexDirection: "column",
+  gap: "0.1rem",
 };
 
 const headerStyle: React.CSSProperties = {
