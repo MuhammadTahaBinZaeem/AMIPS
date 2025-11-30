@@ -79,6 +79,8 @@ export class Memory {
 
   writeWord(address: number, value: number): void {
     const normalizedAddress = this.validateWordAddress(address, "write");
+    const mapping = this.memoryMap.resolve(normalizedAddress, "write");
+    this.markInstructionCacheDirty(mapping.physicalAddress >>> 0);
 
     for (let i = 0; i < 4; i++) {
       const shift = 24 - 8 * i;
@@ -116,6 +118,7 @@ export class Memory {
 
     const targetCache = this.selectCache("write");
     const physical = mapping.physicalAddress >>> 0;
+    this.markInstructionCacheDirty(physical);
     if (!targetCache) {
       this.writeByteToBacking(physical, value);
       return;
@@ -215,13 +218,11 @@ export class Memory {
     }
 
     const lineSize = this.instructionCache.getLineSize();
-    const lineBase = address - (address % lineSize);
-    if (this.modifiedInstructionLines.has(lineBase)) {
-      return;
+    const lineBase = (address - (address % lineSize)) >>> 0;
+    const invalidated = this.instructionCache.invalidateLine(lineBase >>> 0);
+    if (!this.modifiedInstructionLines.has(lineBase) || invalidated) {
+      this.modifiedInstructionLines.add(lineBase);
     }
-
-    this.instructionCache.invalidateLine(lineBase >>> 0);
-    this.modifiedInstructionLines.add(lineBase);
   }
 
   private validateWordAddress(address: number, access: AccessType): number {
