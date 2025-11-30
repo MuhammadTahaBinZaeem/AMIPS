@@ -15,6 +15,7 @@ import { SyscallException } from "./exceptions/ExecutionExceptions";
 import { InterruptController, InterruptControllerOptions } from "./interrupts/InterruptController";
 import { createEmptyPipelineSnapshot, publishPipelineSnapshot } from "./tools/pipelineEvents";
 import { publishRuntimeSnapshot, type RuntimeStatus } from "./tools/runtimeEvents";
+import { createStatisticsSnapshotFromCounters } from "./pipeline/PipelineStatistics";
 
 export * from "./cpu/Cpu";
 export * from "./cpu/Pipeline";
@@ -388,6 +389,7 @@ export class CoreEngine {
         cycle: this.sequentialPerformanceCounters.cycleCount,
         forwardingEnabled: this.pipeline.getForwardingEnabled(),
         hazardDetectionEnabled: this.pipeline.getHazardDetectionEnabled(),
+        statistics: createStatisticsSnapshotFromCounters(this.sequentialPerformanceCounters),
       }),
     );
   }

@@ -1,4 +1,5 @@
 import type { PipelineRegisterPayload } from "../pipeline/PipelineTypes";
+import type { PipelineStatisticsSnapshot } from "../pipeline/PipelineStatistics";
 
 export interface PipelineStageState {
   pc: number | null;
@@ -22,6 +23,7 @@ export interface PipelineSnapshot {
   branchRegistered: boolean;
   forwardingEnabled: boolean;
   hazardDetectionEnabled: boolean;
+  statistics: PipelineStatisticsSnapshot;
 }
 
 type PipelineListener = (snapshot: PipelineSnapshot) => void;
@@ -55,11 +57,24 @@ function createEmptySnapshot(): PipelineSnapshot {
     branchRegistered: false,
     forwardingEnabled: true,
     hazardDetectionEnabled: true,
+    statistics: {
+      cycleCount: 0,
+      instructionCount: 0,
+      stallCount: 0,
+      loadUseStalls: 0,
+      structuralStalls: 0,
+      bubbleCount: 0,
+      flushCount: 0,
+      cpi: 0,
+      bubbleRate: 0,
+    },
   };
 }
 
 export function createEmptyPipelineSnapshot(
-  overrides: Partial<Pick<PipelineSnapshot, "cycle" | "forwardingEnabled" | "hazardDetectionEnabled">> = {},
+  overrides: Partial<
+    Pick<PipelineSnapshot, "cycle" | "forwardingEnabled" | "hazardDetectionEnabled" | "statistics">
+  > = {},
 ): PipelineSnapshot {
   const snapshot = createEmptySnapshot();
   return {

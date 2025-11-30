@@ -1,9 +1,9 @@
 export {
   PipelineSimulator as Pipeline,
   ProgramMemory,
-  type PerformanceCounters,
   type PipelineOptions,
 } from "../pipeline/PipelineSimulator";
+export type { PerformanceCounters, PipelineStatisticsSnapshot } from "../pipeline/PipelineStatistics";
 
 export { PipelineRegister } from "../pipeline/PipelineRegister";
 export type { PipelineRegisterPayload } from "../pipeline/PipelineTypes";

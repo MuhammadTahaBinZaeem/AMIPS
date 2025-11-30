@@ -16,12 +16,7 @@ import { EXStage } from "./EXStage";
 import { MEMStage } from "./MEMStage";
 import { WBStage } from "./WBStage";
 import type { PipelineRegisterPayload } from "./PipelineTypes";
-
-export interface PerformanceCounters {
-  cycleCount: number;
-  instructionCount: number;
-  stallCount: number;
-}
+import { PipelineStatistics, type PerformanceCounters } from "./PipelineStatistics";
 
 export interface PipelineOptions {
   memory?: InstructionMemory;
@@ -136,14 +131,11 @@ export class PipelineSimulator {
   private readonly exStage = new EXStage();
   private readonly memStage = new MEMStage();
   private readonly wbStage = new WBStage();
+  private readonly statistics = new PipelineStatistics();
   private forwardingEnabled: boolean;
   private hazardDetectionEnabled: boolean;
   private halted = false;
   private textBase = DEFAULT_TEXT_BASE;
-
-  private cycleCount = 0;
-  private instructionCount = 0;
-  private stallCount = 0;
 
   constructor(options: PipelineOptions) {
     const decoder = options.decoder ?? ({
@@ -179,17 +171,16 @@ export class PipelineSimulator {
   }
 
   getPerformanceCounters(): PerformanceCounters {
+    const snapshot = this.statistics.getSnapshot();
     return {
-      cycleCount: this.cycleCount,
-      instructionCount: this.instructionCount,
-      stallCount: this.stallCount,
+      cycleCount: snapshot.cycleCount,
+      instructionCount: snapshot.instructionCount,
+      stallCount: snapshot.stallCount,
     };
   }
 
   resetPerformanceCounters(): void {
-    this.cycleCount = 0;
-    this.instructionCount = 0;
-    this.stallCount = 0;
+    this.statistics.reset();
   }
 
   setForwardingEnabled(enabled: boolean): void {
@@ -267,14 +258,11 @@ export class PipelineSimulator {
     if (this.halted) return finalize("halted");
 
     const decoder = this.cpu.getDecoder();
+    const retiringInstruction = this.memWb.getCurrent() !== null;
 
     let contextPc = state.getProgramCounter();
 
-    this.cycleCount += 1;
-
-    if (this.memWb.getCurrent()) {
-      this.instructionCount += 1;
-    }
+    this.statistics.beginCycle(retiringInstruction);
 
     try {
       this.watchEngine?.beginStep();
@@ -303,7 +291,7 @@ export class PipelineSimulator {
 
       if (loadUseHazard || structuralHazard) {
         snapshotContext.stalledStages = { ...snapshotContext.stalledStages, ifId: true };
-        this.stallCount += 1;
+        this.statistics.recordStall({ loadUse: loadUseHazard, structural: structuralHazard });
       }
 
       const wbPayload = this.wbStage.run(this.exMem.getCurrent());
@@ -442,6 +430,17 @@ export class PipelineSimulator {
     const flushed = context.pipelineCleared ?? false;
     const stalledStages = context.stalledStages ?? {};
 
+    const registerPayloads: Record<"ifId" | "idEx" | "exMem" | "memWb", PipelineRegisterPayload> = {
+      ifId: this.ifId.getCurrent(),
+      idEx: this.idEx.getCurrent(),
+      exMem: this.exMem.getCurrent(),
+      memWb: this.memWb.getCurrent(),
+    };
+
+    if (this.statistics.getCycleCount() > 0) {
+      this.statistics.observePipeline(registerPayloads, { pipelineCleared: flushed });
+    }
+
     const toStageState = (payload: PipelineRegisterPayload, stalled?: boolean): PipelineStageState => ({
       pc: payload?.pc ?? null,
       instruction: payload?.instruction ?? null,
@@ -452,18 +451,19 @@ export class PipelineSimulator {
     });
 
     publishPipelineSnapshot({
-      cycle: this.cycleCount,
+      cycle: this.statistics.getCycleCount(),
       registers: {
-        ifId: toStageState(this.ifId.getCurrent(), stalledStages.ifId),
-        idEx: toStageState(this.idEx.getCurrent(), stalledStages.idEx),
-        exMem: toStageState(this.exMem.getCurrent(), stalledStages.exMem),
-        memWb: toStageState(this.memWb.getCurrent(), stalledStages.memWb),
+        ifId: toStageState(registerPayloads.ifId, stalledStages.ifId),
+        idEx: toStageState(registerPayloads.idEx, stalledStages.idEx),
+        exMem: toStageState(registerPayloads.exMem, stalledStages.exMem),
+        memWb: toStageState(registerPayloads.memWb, stalledStages.memWb),
       },
       loadUseHazard: context.loadUseHazard ?? false,
       structuralHazard: context.structuralHazard ?? false,
       branchRegistered: context.branchRegistered ?? false,
       forwardingEnabled: this.forwardingEnabled,
       hazardDetectionEnabled: this.hazardDetectionEnabled,
+      statistics: this.statistics.getSnapshot(),
     });
   }
 
