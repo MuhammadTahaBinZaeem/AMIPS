@@ -1,4 +1,4 @@
-import { Device, DeviceData } from "./Device";
+import { Device, DeviceData, InterruptHandler } from "./Device";
 
 export interface DirtyRegion {
   x: number;
@@ -11,6 +11,7 @@ export interface BitmapDisplayOptions {
   width?: number;
   height?: number;
   onFlush?: (regions: DirtyRegion[], pixels: Uint8Array) => void;
+  onInterrupt?: InterruptHandler;
 }
 
 const CONTROL_WIDTH_OFFSET = 0;
@@ -28,7 +29,14 @@ export class BitmapDisplayDevice implements Device {
   private dirtyRegion: DirtyRegion | null = null;
   private readonly onFlush?: (regions: DirtyRegion[], pixels: Uint8Array) => void;
 
-  constructor(options: BitmapDisplayOptions = {}) {
+  private readonly interruptHandler: InterruptHandler | null;
+
+  constructor(widthOrOptions: number | BitmapDisplayOptions = {}, height?: number, onInterrupt?: InterruptHandler) {
+    const options: BitmapDisplayOptions =
+      typeof widthOrOptions === "number"
+        ? { width: widthOrOptions, height, onInterrupt }
+        : widthOrOptions ?? {};
+
     this.width = Math.max(1, options.width ?? 10);
     this.height = Math.max(1, options.height ?? 6);
 
@@ -42,6 +50,7 @@ export class BitmapDisplayDevice implements Device {
 
     this.pixels = new Uint8Array(bufferLength);
     this.onFlush = options.onFlush;
+    this.interruptHandler = options.onInterrupt ?? null;
   }
 
   get byteLength(): number {
@@ -122,6 +131,7 @@ export class BitmapDisplayDevice implements Device {
     const regions = [...this.dirtyRegions];
     this.dirtyRegions.length = 0;
     this.onFlush?.(regions, this.pixels);
+    this.signalInterrupt();
   }
 
   private markDirty(bufferIndex: number): void {
@@ -153,5 +163,9 @@ export class BitmapDisplayDevice implements Device {
 
     this.dirtyRegions.push(this.dirtyRegion);
     this.dirtyRegion = { x, y, width: 1, height: 1 };
+  }
+
+  private signalInterrupt(): void {
+    this.interruptHandler?.(this);
   }
 }
