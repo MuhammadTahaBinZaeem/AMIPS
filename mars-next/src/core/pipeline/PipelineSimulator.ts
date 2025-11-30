@@ -6,6 +6,7 @@ import { BreakpointEngine } from "../debugger/BreakpointEngine";
 import { WatchEngine } from "../debugger/WatchEngine";
 import { InterruptController } from "../interrupts/InterruptController";
 import { Memory } from "../memory/Memory";
+import { publishPipelineSnapshot, type PipelineSnapshot, type PipelineStageState } from "../tools/pipelineEvents";
 import { publishRuntimeSnapshot, type RuntimeStatus } from "../tools/runtimeEvents";
 import { PipelineRegister } from "./PipelineRegister";
 import { HazardUnit, decodeHazardInfo, EMPTY_HAZARD } from "./HazardUnit";
@@ -32,6 +33,14 @@ export interface PipelineOptions {
   interrupts?: InterruptController;
   forwardingEnabled?: boolean;
   hazardDetectionEnabled?: boolean;
+}
+
+interface PipelineSnapshotContext {
+  loadUseHazard?: boolean;
+  structuralHazard?: boolean;
+  branchRegistered?: boolean;
+  stalledStages?: Partial<Record<keyof PipelineSnapshot["registers"], boolean>>;
+  pipelineCleared?: boolean;
 }
 
 export class ProgramMemory implements InstructionMemory {
@@ -127,8 +136,8 @@ export class PipelineSimulator {
   private readonly exStage = new EXStage();
   private readonly memStage = new MEMStage();
   private readonly wbStage = new WBStage();
-  private readonly forwardingEnabled: boolean;
-  private readonly hazardDetectionEnabled: boolean;
+  private forwardingEnabled: boolean;
+  private hazardDetectionEnabled: boolean;
   private halted = false;
   private textBase = DEFAULT_TEXT_BASE;
 
@@ -155,6 +164,8 @@ export class PipelineSimulator {
     this.memWb = new PipelineRegister<PipelineRegisterPayload>(null);
     this.forwardingEnabled = options.forwardingEnabled ?? true;
     this.hazardDetectionEnabled = options.hazardDetectionEnabled ?? true;
+
+    this.publishPipelineState();
   }
 
   setTextBase(address: number): void {
@@ -177,6 +188,24 @@ export class PipelineSimulator {
     this.cycleCount = 0;
     this.instructionCount = 0;
     this.stallCount = 0;
+  }
+
+  setForwardingEnabled(enabled: boolean): void {
+    this.forwardingEnabled = enabled;
+    this.publishPipelineState();
+  }
+
+  setHazardDetectionEnabled(enabled: boolean): void {
+    this.hazardDetectionEnabled = enabled;
+    this.publishPipelineState();
+  }
+
+  getForwardingEnabled(): boolean {
+    return this.forwardingEnabled;
+  }
+
+  getHazardDetectionEnabled(): boolean {
+    return this.hazardDetectionEnabled;
   }
 
   isHalted(): boolean {
@@ -213,7 +242,25 @@ export class PipelineSimulator {
     const state = this.cpu.getState();
     const memory = this.cpu.getMemory();
 
-    if (this.halted) return this.publishRuntimeState("halted", state, memory);
+    const snapshotContext: PipelineSnapshotContext = {
+      loadUseHazard: false,
+      structuralHazard: false,
+      branchRegistered: false,
+      stalledStages: {},
+      pipelineCleared: false,
+    };
+
+    const finalize = (status: RuntimeStatus): RuntimeStatus => {
+      this.publishPipelineState(snapshotContext);
+      return this.publishRuntimeState(status, state, memory);
+    };
+
+    const clearPipelineWithContext = (): void => {
+      snapshotContext.pipelineCleared = true;
+      this.clearPipeline();
+    };
+
+    if (this.halted) return finalize("halted");
 
     const decoder = this.cpu.getDecoder();
 
@@ -230,12 +277,12 @@ export class PipelineSimulator {
 
       if (this.servicePendingInterrupts(state, memory, contextPc)) {
         this.watchEngine?.completeStep();
-        this.clearPipeline();
+        clearPipelineWithContext();
         if (state.isTerminated()) {
           this.halted = true;
-          return this.publishRuntimeState("terminated", state, memory);
+          return finalize("terminated");
         }
-        return this.publishRuntimeState("running", state, memory);
+        return finalize("running");
       }
 
       const decoding = this.ifId.getCurrent();
@@ -247,7 +294,11 @@ export class PipelineSimulator {
           })
         : { loadUseHazard: false, structuralHazard: false };
 
+      snapshotContext.loadUseHazard = loadUseHazard;
+      snapshotContext.structuralHazard = structuralHazard;
+
       if (loadUseHazard || structuralHazard) {
+        snapshotContext.stalledStages = { ...snapshotContext.stalledStages, ifId: true };
         this.stallCount += 1;
       }
 
@@ -259,6 +310,7 @@ export class PipelineSimulator {
         contextPc = executing.pc;
       }
       const { executed, branchRegistered } = this.exStage.run({ executing, state, memory, cpu: this.cpu });
+      snapshotContext.branchRegistered = branchRegistered;
       this.exMem.setNext(this.memStage.run(executed));
 
       state.finalizeDelayedBranch();
@@ -294,55 +346,56 @@ export class PipelineSimulator {
       this.watchEngine?.completeStep();
 
       if (this.servicePendingInterrupts(state, memory, contextPc)) {
-        this.clearPipeline();
+        clearPipelineWithContext();
         if (state.isTerminated()) {
           this.halted = true;
-          return this.publishRuntimeState("terminated", state, memory);
+          return finalize("terminated");
         }
-        return this.publishRuntimeState("running", state, memory);
+        return finalize("running");
       }
 
       if (state.isTerminated()) {
         this.halted = true;
-        this.clearPipeline();
-        return this.publishRuntimeState("terminated", state, memory);
+        clearPipelineWithContext();
+        return finalize("terminated");
       }
 
       if (breakpointHit) {
         this.halted = true;
-        return this.publishRuntimeState("breakpoint", state, memory);
+        return finalize("breakpoint");
       }
 
       if (this.isPipelineEmpty() && !this.canFetchInstruction(state.getProgramCounter())) {
         this.halted = true;
-        return this.publishRuntimeState("halted", state, memory);
+        return finalize("halted");
       }
 
-      return this.publishRuntimeState("running", state, memory);
+      return finalize("running");
     } catch (error) {
       if (error instanceof SyscallException) {
         this.interrupts.requestSyscallInterrupt(error.code, contextPc);
         this.servicePendingInterrupts(state, memory, contextPc);
         this.watchEngine?.completeStep();
-        this.clearPipeline();
+        clearPipelineWithContext();
         if (state.isTerminated()) {
           this.halted = true;
-          return this.publishRuntimeState("terminated", state, memory);
+          return finalize("terminated");
         }
-        return this.publishRuntimeState("running", state, memory);
+        return finalize("running");
       }
 
       this.interrupts.requestException(error, contextPc);
       if (this.servicePendingInterrupts(state, memory, contextPc)) {
         this.watchEngine?.completeStep();
-        this.clearPipeline();
+        clearPipelineWithContext();
         if (state.isTerminated()) {
           this.halted = true;
-          return this.publishRuntimeState("terminated", state, memory);
+          return finalize("terminated");
         }
-        return this.publishRuntimeState("running", state, memory);
+        return finalize("running");
       }
 
+      this.publishPipelineState(snapshotContext);
       throw normalizeCpuException(error, contextPc);
     }
   }
@@ -379,6 +432,35 @@ export class PipelineSimulator {
     this.idEx.clear();
     this.exMem.clear();
     this.memWb.clear();
+  }
+
+  private publishPipelineState(context: PipelineSnapshotContext = {}): void {
+    const flushed = context.pipelineCleared ?? false;
+    const stalledStages = context.stalledStages ?? {};
+
+    const toStageState = (payload: PipelineRegisterPayload, stalled?: boolean): PipelineStageState => ({
+      pc: payload?.pc ?? null,
+      instruction: payload?.instruction ?? null,
+      decodedName: payload?.decoded?.name ?? null,
+      bubble: payload === null,
+      stalled: stalled ?? false,
+      flushed,
+    });
+
+    publishPipelineSnapshot({
+      cycle: this.cycleCount,
+      registers: {
+        ifId: toStageState(this.ifId.getCurrent(), stalledStages.ifId),
+        idEx: toStageState(this.idEx.getCurrent(), stalledStages.idEx),
+        exMem: toStageState(this.exMem.getCurrent(), stalledStages.exMem),
+        memWb: toStageState(this.memWb.getCurrent(), stalledStages.memWb),
+      },
+      loadUseHazard: context.loadUseHazard ?? false,
+      structuralHazard: context.structuralHazard ?? false,
+      branchRegistered: context.branchRegistered ?? false,
+      forwardingEnabled: this.forwardingEnabled,
+      hazardDetectionEnabled: this.hazardDetectionEnabled,
+    });
   }
 
   private publishRuntimeState(status: RuntimeStatus, state: MachineState, memory: InstructionMemory): RuntimeStatus {
