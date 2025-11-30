@@ -309,6 +309,15 @@ export function App(): React.JSX.Element {
     }
   };
 
+  const handleFlushInstructionCache = (): void => {
+    if (!engine) return;
+
+    const memory = engine.getMemory();
+    memory.flushCaches();
+    setMemoryEntries(memory.entries());
+    setStatus("Instruction cache flushed");
+  };
+
   const toolsButtonStyle: React.CSSProperties = {
     backgroundColor: "#1f2937",
     color: "#e5e7eb",
@@ -398,7 +407,12 @@ export function App(): React.JSX.Element {
           onTogglePseudoInstructions={setEnablePseudoInstructions}
           onReloadPseudoOps={handleReloadPseudoOps}
         />
-        <RunToolbar onRun={handleRun} status={status} />
+        <RunToolbar
+          onRun={handleRun}
+          status={status}
+          onFlushInstructionCache={handleFlushInstructionCache}
+          flushEnabled={engine !== null}
+        />
         {activeLine !== null && (
           <div style={{ color: "#a5b4fc", fontWeight: 600 }}>
             Current instruction: {activeFile ?? "<input>"}:{activeLine}
