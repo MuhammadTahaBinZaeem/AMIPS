@@ -184,6 +184,7 @@ export class Memory {
 
     block[normalizedAddress & BLOCK_MASK] = value & 0xff;
     this.writtenAddresses.add(normalizedAddress);
+    this.invalidateInstructionCache(normalizedAddress);
   }
 
   private getOrCreateBlock(index: number): Uint8Array {
@@ -201,6 +202,24 @@ export class Memory {
     }
 
     return address >>> 0;
+  }
+
+  private invalidateInstructionCache(address: number): void {
+    if (!this.instructionCache) {
+      return;
+    }
+
+    const textStart = this.memoryMap.textBase >>> 0;
+    const textEnd = (textStart + this.memoryMap.textSize - 1) >>> 0;
+    const ktextStart = this.memoryMap.ktextBase >>> 0;
+    const ktextEnd = (ktextStart + this.memoryMap.ktextSize - 1) >>> 0;
+
+    const withinText = address >= textStart && address <= textEnd;
+    const withinKText = address >= ktextStart && address <= ktextEnd;
+
+    if (withinText || withinKText) {
+      this.instructionCache.invalidateLine(address);
+    }
   }
 
   private validateWordAddress(address: number, access: AccessType): number {
