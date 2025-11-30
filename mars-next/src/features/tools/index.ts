@@ -6,3 +6,4 @@ export * from "./data-viewer";
 export * from "./text-viewer";
 export * from "./register-viewer";
 export * from "./bitmap-display/BitmapDisplayWindow";
+export * from "./keyboard-view/KeyboardWindow";

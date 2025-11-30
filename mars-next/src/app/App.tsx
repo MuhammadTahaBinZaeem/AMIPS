@@ -5,7 +5,14 @@ import { EditorPane } from "../features/editor";
 import { BreakpointManagerPanel, BreakpointList, BreakpointSpec, WatchManagerPanel, WatchSpec } from "../features/breakpoints";
 import { resolveInstructionIndex, toggleBreakpoint } from "../features/breakpoints/services/breakpointService";
 import { SettingsDialog } from "../features/settings";
-import { DataSegmentWindow, MemoryConfiguration, RegistersWindow, TextSegmentWindow, BitmapDisplayWindow } from "../features/tools";
+import {
+  BitmapDisplayWindow,
+  DataSegmentWindow,
+  KeyboardWindow,
+  MemoryConfiguration,
+  RegistersWindow,
+  TextSegmentWindow,
+} from "../features/tools";
 import { publishCpuState } from "../features/tools/register-viewer";
 import {
   AudioDevice,
@@ -78,8 +85,10 @@ export function App(): React.JSX.Element {
   const [isDataViewerOpen, setIsDataViewerOpen] = useState(false);
   const [isTextViewerOpen, setIsTextViewerOpen] = useState(false);
   const [isBitmapDisplayOpen, setIsBitmapDisplayOpen] = useState(false);
+  const [isKeyboardWindowOpen, setIsKeyboardWindowOpen] = useState(false);
   const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
   const [bitmapDisplay, setBitmapDisplay] = useState<BitmapDisplayState | null>(null);
+  const [keyboardDevice, setKeyboardDevice] = useState<KeyboardDevice | null>(null);
 
   const handleToggleEditorBreakpoint = useCallback(
     (line: number): void => {
@@ -184,6 +193,7 @@ export function App(): React.JSX.Element {
     setError(null);
     setActiveLine(null);
     setActiveFile(null);
+    setKeyboardDevice(null);
     try {
       setStatus("Assembling...");
       const bitmapDevice = new BitmapDisplayDevice({
@@ -197,10 +207,12 @@ export function App(): React.JSX.Element {
         },
       });
 
+      const keyboardDeviceInstance = new KeyboardDevice();
+
       const customMemory = new Memory({
         map: new MemoryMap({
           devices: [
-            { start: KEYBOARD_START, end: KEYBOARD_START + KEYBOARD_SIZE - 1, device: new KeyboardDevice() },
+            { start: KEYBOARD_START, end: KEYBOARD_START + KEYBOARD_SIZE - 1, device: keyboardDeviceInstance },
             { start: DISPLAY_START, end: DISPLAY_START + DISPLAY_SIZE - 1, device: new DisplayDevice() },
             { start: BITMAP_START, end: BITMAP_END, device: bitmapDevice },
             {
@@ -236,6 +248,7 @@ export function App(): React.JSX.Element {
         assemblerOptions: { enablePseudoInstructions },
         memory: customMemory,
       });
+      setKeyboardDevice(keyboardDeviceInstance);
       setEngine(loadedEngine);
       setSymbolTable(layout.symbols);
       setProgram(image);
@@ -369,6 +382,15 @@ export function App(): React.JSX.Element {
                 >
                   Bitmap Display
                 </button>
+                <button
+                  style={toolsMenuItemStyle}
+                  onClick={() => {
+                    setIsKeyboardWindowOpen(true);
+                    setToolsMenuOpen(false);
+                  }}
+                >
+                  Keyboard Input
+                </button>
               </div>
             )}
           </div>
@@ -498,6 +520,7 @@ export function App(): React.JSX.Element {
       {isTextViewerOpen && (
         <TextSegmentWindow program={program} sourceMap={sourceMap} onClose={() => setIsTextViewerOpen(false)} />
       )}
+      {isKeyboardWindowOpen && <KeyboardWindow device={keyboardDevice} onClose={() => setIsKeyboardWindowOpen(false)} />}
       {isBitmapDisplayOpen && bitmapDisplay && (
         <BitmapDisplayWindow
           width={bitmapDisplay.width}
