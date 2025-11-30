@@ -1,4 +1,4 @@
-import { MachineState } from "../../../core";
+import { MachineState, subscribeToRuntimeSnapshots } from "../../../core";
 
 export interface CpuStateSnapshot {
   registers: number[];
@@ -14,12 +14,16 @@ let latestSnapshot: CpuStateSnapshot = createInitialSnapshot();
 
 function createInitialSnapshot(): CpuStateSnapshot {
   const state = new MachineState();
-  return normalizeSnapshot({
+  return normalizeSnapshot(snapshotFromState(state));
+}
+
+function snapshotFromState(state: MachineState): CpuStateSnapshot {
+  return {
     registers: Array.from({ length: MachineState.REGISTER_COUNT }, (_, index) => state.getRegister(index)),
     hi: state.getHi(),
     lo: state.getLo(),
     pc: state.getProgramCounter(),
-  });
+  };
 }
 
 function normalizeSnapshot(snapshot: CpuStateSnapshot): CpuStateSnapshot {
@@ -46,4 +50,8 @@ export function subscribeToCpuState(listener: CpuStateListener): () => void {
 export function getLatestCpuState(): CpuStateSnapshot {
   return latestSnapshot;
 }
+
+subscribeToRuntimeSnapshots((snapshot) => {
+  publishCpuState(snapshotFromState(snapshot.state));
+});
 
