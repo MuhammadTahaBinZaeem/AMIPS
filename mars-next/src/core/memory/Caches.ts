@@ -73,7 +73,7 @@ export class Cache {
     }
   }
 
-  invalidateLine(address: number): void {
+  invalidateLine(address: number): boolean {
     const { setIndex, tag } = this.indexAddress(address);
     const set = this.sets[setIndex];
     const line = this.findLine(set, tag);
@@ -81,7 +81,10 @@ export class Cache {
     if (line) {
       line.valid = false;
       line.dirty = false;
+      return true;
     }
+
+    return false;
   }
 
   readByte(
