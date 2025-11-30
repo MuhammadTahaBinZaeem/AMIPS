@@ -202,15 +202,26 @@ export class HazardUnit {
     decodingHazard: HazardInfo,
     executing: PipelineRegisterPayload,
     memoryStage: PipelineRegisterPayload,
+    options?: { forwardingEnabled?: boolean },
   ): { loadUseHazard: boolean; structuralHazard: boolean } {
     const executingHazard = executing ? decodeHazardInfo(executing.instruction) : EMPTY_HAZARD;
     const memoryHazard = memoryStage ? decodeHazardInfo(memoryStage.instruction) : EMPTY_HAZARD;
 
-    const loadUseHazard =
-      executingHazard.isLoad &&
+    const forwardingEnabled = options?.forwardingEnabled ?? true;
+
+    const executingDependency =
       executingHazard.destination !== null &&
       executingHazard.destination !== 0 &&
       decodingHazard.sources.some((source) => source === executingHazard.destination);
+
+    const memoryDependency =
+      memoryHazard.destination !== null &&
+      memoryHazard.destination !== 0 &&
+      decodingHazard.sources.some((source) => source === memoryHazard.destination);
+
+    const loadUseHazard = forwardingEnabled
+      ? executingHazard.isLoad && executingDependency
+      : executingDependency || memoryDependency;
 
     const structuralHazard = memoryHazard.isLoad || memoryHazard.isStore;
 

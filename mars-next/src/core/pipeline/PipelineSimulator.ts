@@ -30,6 +30,8 @@ export interface PipelineOptions {
   breakpoints?: BreakpointEngine;
   watchEngine?: WatchEngine;
   interrupts?: InterruptController;
+  forwardingEnabled?: boolean;
+  hazardDetectionEnabled?: boolean;
 }
 
 export class ProgramMemory implements InstructionMemory {
@@ -125,6 +127,8 @@ export class PipelineSimulator {
   private readonly exStage = new EXStage();
   private readonly memStage = new MEMStage();
   private readonly wbStage = new WBStage();
+  private readonly forwardingEnabled: boolean;
+  private readonly hazardDetectionEnabled: boolean;
   private halted = false;
   private textBase = DEFAULT_TEXT_BASE;
 
@@ -149,6 +153,8 @@ export class PipelineSimulator {
     this.idEx = new PipelineRegister<PipelineRegisterPayload>(null);
     this.exMem = new PipelineRegister<PipelineRegisterPayload>(null);
     this.memWb = new PipelineRegister<PipelineRegisterPayload>(null);
+    this.forwardingEnabled = options.forwardingEnabled ?? true;
+    this.hazardDetectionEnabled = options.hazardDetectionEnabled ?? true;
   }
 
   setTextBase(address: number): void {
@@ -233,12 +239,13 @@ export class PipelineSimulator {
       }
 
       const decoding = this.ifId.getCurrent();
-      const decodingHazard = decoding ? decodeHazardInfo(decoding.instruction) : EMPTY_HAZARD;
-      const { loadUseHazard, structuralHazard } = this.hazardUnit.detect(
-        decodingHazard,
-        this.idEx.getCurrent(),
-        this.exMem.getCurrent(),
-      );
+      const decodingHazard =
+        this.hazardDetectionEnabled && decoding ? decodeHazardInfo(decoding.instruction) : EMPTY_HAZARD;
+      const { loadUseHazard, structuralHazard } = this.hazardDetectionEnabled
+        ? this.hazardUnit.detect(decodingHazard, this.idEx.getCurrent(), this.exMem.getCurrent(), {
+            forwardingEnabled: this.forwardingEnabled,
+          })
+        : { loadUseHazard: false, structuralHazard: false };
 
       if (loadUseHazard || structuralHazard) {
         this.stallCount += 1;
