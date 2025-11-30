@@ -203,6 +203,13 @@ export class PipelineSimulator {
     return this.hazardDetectionEnabled;
   }
 
+  synchronizeWithCpuState(status: RuntimeStatus = "running"): void {
+    this.halted = status !== "running";
+    this.clearPipeline();
+    this.publishPipelineState({ pipelineCleared: true });
+    this.publishRuntimeState(status, this.cpu.getState(), this.cpu.getMemory());
+  }
+
   isHalted(): boolean {
     return this.halted;
   }

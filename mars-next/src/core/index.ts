@@ -311,7 +311,19 @@ export class CoreEngine {
     if (mode === "sequential") {
       this.sequentialHalted = false;
       this.publishSequentialRuntimeSnapshot("running");
+      return;
     }
+
+    const breakpointHit = this.breakpoints?.getHitInfo();
+    const runtimeStatus: RuntimeStatus = this.state.isTerminated()
+      ? "terminated"
+      : this.sequentialHalted
+        ? breakpointHit
+          ? "breakpoint"
+          : "halted"
+        : "running";
+
+    this.pipeline.synchronizeWithCpuState(runtimeStatus);
   }
 
   getExecutionMode(): ExecutionMode {

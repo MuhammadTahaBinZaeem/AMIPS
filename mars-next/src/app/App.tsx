@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { MemoryTable } from "../features/memory-view";
 import { RunToolbar } from "../features/run-control";
 import { EditorPane } from "../features/editor";
@@ -27,6 +27,7 @@ import {
   assembleAndLoad,
   type ExecutionMode,
   reloadPseudoOpTable,
+  subscribeToRuntimeSnapshots,
 } from "../core";
 import { BitmapDisplayState, type MarsToolContext } from "../core/tools/MarsTool";
 
@@ -181,6 +182,61 @@ export function App(): React.JSX.Element {
     }),
     [bitmapDisplay, engine, keyboardDevice, memoryConfiguration, memoryEntries, program, sourceMap],
   );
+
+  useEffect(() => {
+    if (!engine) return undefined;
+
+    const unsubscribe = subscribeToRuntimeSnapshots((snapshot) => {
+      if (snapshot.state !== engine.getState()) return;
+
+      const { state, memory, status: runtimeStatus } = snapshot;
+
+      if (memory) {
+        setMemoryEntries(memory.entries());
+        setMemoryConfiguration(MemoryConfiguration.fromMemoryMap(memory.getMemoryMap()));
+      }
+
+      const currentPc = state.getProgramCounter();
+      const currentLocation = sourceMap?.find((entry) => entry.address === currentPc);
+      setActiveLine(currentLocation?.line ?? null);
+      setActiveFile(currentLocation?.file ?? null);
+
+      const { breakpoints: engineBreakpoints, watchEngine } = engine.getDebuggerEngines();
+      if (watchEngine) {
+        const snapshotValues: Record<string, number | undefined> = {};
+        watchEngine.getWatchValues().forEach((entry) => {
+          snapshotValues[entry.key] = entry.value;
+        });
+        setWatchValues(snapshotValues);
+      }
+
+      if (runtimeStatus === "terminated") {
+        setStatus("Program terminated");
+        return;
+      }
+
+      if (runtimeStatus === "breakpoint") {
+        const hitInfo = engineBreakpoints?.getHitInfo();
+        const location = hitInfo
+          ? hitInfo.type === "instruction"
+            ? sourceMap?.find((entry) => entry.segment === "text" && entry.segmentIndex === hitInfo.value)
+            : sourceMap?.find((entry) => entry.address === hitInfo.value)
+          : currentLocation;
+
+        setStatus(location ? `Paused at ${location.file}:${location.line}` : "Paused on breakpoint");
+        return;
+      }
+
+      if (runtimeStatus === "halted") {
+        setStatus("Execution halted");
+        return;
+      }
+
+      setStatus("Running...");
+    });
+
+    return () => unsubscribe();
+  }, [engine, sourceMap]);
 
   const openTool = useCallback((toolId: string): void => {
     setOpenTools((current) => (current.includes(toolId) ? current : [...current, toolId]));
