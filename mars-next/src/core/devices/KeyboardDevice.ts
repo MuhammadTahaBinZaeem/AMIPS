@@ -23,6 +23,13 @@ export class KeyboardDevice implements Device {
   private activeKey: PendingKey | null = null;
   private interruptHandler: InterruptHandler | null = null;
 
+  getQueueState(): { active: number | null; queued: number[] } {
+    return {
+      active: this.activeKey ? this.activeKey.value : null,
+      queued: [...this.queue],
+    };
+  }
+
   read(offset: number): DeviceData {
     if (offset >= CONTROL_START && offset <= CONTROL_END) {
       return this.readControlByte(offset);
