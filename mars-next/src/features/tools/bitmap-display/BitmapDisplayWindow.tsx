@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef } from "react";
 import type { DirtyRegion } from "../../../core";
+import { BitmapDisplayState, MarsTool, MarsToolContext } from "../../../core/tools/MarsTool";
 
 export interface BitmapDisplayWindowProps {
   width: number;
@@ -81,6 +82,30 @@ export function BitmapDisplayWindow({ width, height, buffer, dirtyRegions, onClo
     </div>
   );
 }
+
+type BitmapDisplayToolContext = MarsToolContext & {
+  bitmapDisplay: BitmapDisplayState | null;
+};
+
+export const BitmapDisplayTool: MarsTool<BitmapDisplayToolContext> = {
+  getName: () => "Bitmap Display",
+  getFile: () => "bitmap-display/BitmapDisplayWindow.tsx",
+  isAvailable: (context) => Boolean(context.bitmapDisplay),
+  go: ({ context, onClose }) => {
+    const bitmap = context.bitmapDisplay;
+    if (!bitmap) return null;
+
+    return (
+      <BitmapDisplayWindow
+        width={bitmap.width}
+        height={bitmap.height}
+        buffer={bitmap.buffer}
+        dirtyRegions={bitmap.dirtyRegions}
+        onClose={onClose}
+      />
+    );
+  },
+};
 
 const overlayStyle: React.CSSProperties = {
   position: "fixed",

@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { KeyboardDevice } from "../../../core";
+import { MarsTool, MarsToolContext } from "../../../core/tools/MarsTool";
 
 export interface KeyboardWindowProps {
   device: KeyboardDevice | null;
@@ -155,6 +156,17 @@ export function KeyboardWindow({ device, onClose }: KeyboardWindowProps): React.
     </div>
   );
 }
+
+type KeyboardToolContext = MarsToolContext & {
+  keyboardDevice: KeyboardDevice | null;
+};
+
+export const KeyboardTool: MarsTool<KeyboardToolContext> = {
+  getName: () => "Keyboard Input",
+  getFile: () => "keyboard-view/KeyboardWindow.tsx",
+  isAvailable: (context) => Boolean(context.keyboardDevice),
+  go: ({ context, onClose }) => <KeyboardWindow device={context.keyboardDevice ?? null} onClose={onClose} />,
+};
 
 const overlayStyle: React.CSSProperties = {
   position: "fixed",
