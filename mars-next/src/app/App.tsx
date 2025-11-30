@@ -25,6 +25,7 @@ import {
   SevenSegmentDisplayDevice,
   SourceMapEntry,
   assembleAndLoad,
+  type ExecutionMode,
   reloadPseudoOpTable,
 } from "../core";
 import { BitmapDisplayState, type MarsToolContext } from "../core/tools/MarsTool";
@@ -76,6 +77,7 @@ export function App(): React.JSX.Element {
   const [enablePseudoInstructions, setEnablePseudoInstructions] = useState(initialSettings.enablePseudoInstructions);
   const [forwardingEnabled, setForwardingEnabled] = useState(initialSettings.forwardingEnabled);
   const [hazardDetectionEnabled, setHazardDetectionEnabled] = useState(initialSettings.hazardDetectionEnabled);
+  const [executionMode, setExecutionMode] = useState<ExecutionMode>(initialSettings.executionMode);
   const [openTools, setOpenTools] = useState<string[]>([]);
   const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
   const [bitmapDisplay, setBitmapDisplay] = useState<BitmapDisplayState | null>(null);
@@ -188,6 +190,21 @@ export function App(): React.JSX.Element {
     setOpenTools((current) => current.filter((id) => id !== toolId));
   }, []);
 
+  const handleToggleForwarding = (enabled: boolean): void => {
+    setForwardingEnabled(enabled);
+    engine?.setForwardingEnabled?.(enabled);
+  };
+
+  const handleToggleHazardDetection = (enabled: boolean): void => {
+    setHazardDetectionEnabled(enabled);
+    engine?.setHazardDetectionEnabled?.(enabled);
+  };
+
+  const handleChangeExecutionMode = (mode: ExecutionMode): void => {
+    setExecutionMode(mode);
+    engine?.setExecutionMode?.(mode);
+  };
+
   const handleReloadPseudoOps = (): void => {
     setError(null);
     try {
@@ -261,6 +278,7 @@ export function App(): React.JSX.Element {
         memory: customMemory,
         forwardingEnabled,
         hazardDetectionEnabled,
+        executionMode,
       });
       setKeyboardDevice(keyboardDeviceInstance);
       setEngine(loadedEngine);
@@ -413,9 +431,11 @@ export function App(): React.JSX.Element {
           enablePseudoInstructions={enablePseudoInstructions}
           forwardingEnabled={forwardingEnabled}
           hazardDetectionEnabled={hazardDetectionEnabled}
+          executionMode={executionMode}
           onTogglePseudoInstructions={setEnablePseudoInstructions}
-          onToggleForwarding={setForwardingEnabled}
-          onToggleHazardDetection={setHazardDetectionEnabled}
+          onToggleForwarding={handleToggleForwarding}
+          onToggleHazardDetection={handleToggleHazardDetection}
+          onChangeExecutionMode={handleChangeExecutionMode}
           onReloadPseudoOps={handleReloadPseudoOps}
         />
         <RunToolbar

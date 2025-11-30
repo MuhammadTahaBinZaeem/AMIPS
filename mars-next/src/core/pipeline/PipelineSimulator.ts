@@ -164,6 +164,8 @@ export class PipelineSimulator {
     this.memWb = new PipelineRegister<PipelineRegisterPayload>(null);
     this.forwardingEnabled = options.forwardingEnabled ?? true;
     this.hazardDetectionEnabled = options.hazardDetectionEnabled ?? true;
+    this.hazardUnit.setForwardingEnabled(this.forwardingEnabled);
+    this.hazardUnit.setHazardDetectionEnabled(this.hazardDetectionEnabled);
 
     this.publishPipelineState();
   }
@@ -192,11 +194,13 @@ export class PipelineSimulator {
 
   setForwardingEnabled(enabled: boolean): void {
     this.forwardingEnabled = enabled;
+    this.hazardUnit.setForwardingEnabled(enabled);
     this.publishPipelineState();
   }
 
   setHazardDetectionEnabled(enabled: boolean): void {
     this.hazardDetectionEnabled = enabled;
+    this.hazardUnit.setHazardDetectionEnabled(enabled);
     this.publishPipelineState();
   }
 

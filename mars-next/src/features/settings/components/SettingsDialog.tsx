@@ -6,9 +6,11 @@ export interface SettingsDialogProps {
   enablePseudoInstructions: boolean;
   forwardingEnabled: boolean;
   hazardDetectionEnabled: boolean;
+  executionMode: "pipeline" | "sequential";
   onTogglePseudoInstructions: (enabled: boolean) => void;
   onToggleForwarding: (enabled: boolean) => void;
   onToggleHazardDetection: (enabled: boolean) => void;
+  onChangeExecutionMode: (mode: "pipeline" | "sequential") => void;
   onReloadPseudoOps: () => void;
 }
 
@@ -16,9 +18,11 @@ export function SettingsDialog({
   enablePseudoInstructions,
   forwardingEnabled,
   hazardDetectionEnabled,
+  executionMode,
   onTogglePseudoInstructions,
   onToggleForwarding,
   onToggleHazardDetection,
+  onChangeExecutionMode,
   onReloadPseudoOps,
 }: SettingsDialogProps): React.JSX.Element {
   const [activeTab, setActiveTab] = useState<"general" | "pseudoOps" | "pipeline">("general");
@@ -122,8 +126,10 @@ export function SettingsDialog({
         <PipelineSettings
           forwardingEnabled={forwardingEnabled}
           hazardDetectionEnabled={hazardDetectionEnabled}
+          executionMode={executionMode}
           onToggleForwarding={onToggleForwarding}
           onToggleHazardDetection={onToggleHazardDetection}
+          onChangeExecutionMode={onChangeExecutionMode}
         />
       )}
     </div>
