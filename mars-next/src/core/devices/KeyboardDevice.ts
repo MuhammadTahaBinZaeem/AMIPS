@@ -17,11 +17,23 @@ interface PendingKey {
   consumedLow: boolean;
 }
 
+export interface KeyboardDeviceOptions {
+  onInterrupt?: InterruptHandler;
+}
+
 export class KeyboardDevice implements Device {
   private control = 0;
   private readonly queue: number[] = [];
   private activeKey: PendingKey | null = null;
   private interruptHandler: InterruptHandler | null = null;
+
+  constructor(options: KeyboardDeviceOptions | InterruptHandler | undefined = undefined) {
+    if (typeof options === "function") {
+      this.interruptHandler = options;
+    } else {
+      this.interruptHandler = options?.onInterrupt ?? null;
+    }
+  }
 
   getQueueState(): { active: number | null; queued: number[] } {
     return {
