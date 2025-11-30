@@ -73,6 +73,17 @@ export class Cache {
     }
   }
 
+  invalidateLine(address: number): void {
+    const { setIndex, tag } = this.indexAddress(address);
+    const set = this.sets[setIndex];
+    const line = this.findLine(set, tag);
+
+    if (line) {
+      line.valid = false;
+      line.dirty = false;
+    }
+  }
+
   readByte(
     address: number,
     loadLine: (address: number, size: number) => Uint8Array,
