@@ -13,13 +13,13 @@ const DATA_LOW_BYTE_INDEX = 3;
 
 interface PendingKey {
   value: number;
-  consumedLow: boolean;
   consumedHigh: boolean;
+  consumedLow: boolean;
 }
 
 export class KeyboardDevice implements Device {
   private control = 0;
-  private queue: number[] = [];
+  private readonly queue: number[] = [];
   private activeKey: PendingKey | null = null;
   private interruptHandler: InterruptHandler | null = null;
 
@@ -48,26 +48,25 @@ export class KeyboardDevice implements Device {
     }
 
     const numeric = Number(value) & 0xff;
-    const interruptEnabled = (numeric & INTERRUPT_ENABLE_MASK) !== 0;
-    this.setInterruptEnabled(interruptEnabled);
-    this.maybeInterrupt();
+    this.setInterruptEnabled((numeric & INTERRUPT_ENABLE_MASK) !== 0);
+    this.signalInterruptIfNeeded();
   }
 
   queueInput(...values: Array<number | string>): void {
-    for (const value of values) {
-      if (typeof value === "string") {
-        for (const char of value) {
-          this.enqueueKeycode(char.codePointAt(0) ?? 0);
+    for (const rawValue of values) {
+      if (typeof rawValue === "string") {
+        for (const char of rawValue) {
+          this.enqueueKey(char.codePointAt(0) ?? 0);
         }
       } else {
-        this.enqueueKeycode(value);
+        this.enqueueKey(rawValue);
       }
     }
   }
 
   onInterrupt(handler: InterruptHandler): void {
     this.interruptHandler = handler;
-    this.maybeInterrupt();
+    this.signalInterruptIfNeeded();
   }
 
   private readControlByte(byteOffset: number): number {
@@ -76,52 +75,62 @@ export class KeyboardDevice implements Device {
   }
 
   private readDataByte(byteOffset: number): number {
-    this.ensureActiveKey(byteOffset);
-    const activeKey = this.activeKey;
-    if (!activeKey) {
+    this.ensureActiveKey();
+
+    if (!this.activeKey) {
+      this.updateReadyFlag(false);
       return 0;
     }
 
     const shift = 8 * (DATA_END - DATA_START - byteOffset);
-    const byte = (activeKey.value >> shift) & 0xff;
-    this.markByteConsumed(byteOffset);
+    const byte = (this.activeKey.value >> shift) & 0xff;
+
+    if (byteOffset === DATA_HIGH_BYTE_INDEX) {
+      this.activeKey.consumedHigh = true;
+    } else if (byteOffset === DATA_LOW_BYTE_INDEX) {
+      this.activeKey.consumedLow = true;
+    }
+
+    this.finishKeyIfNeeded();
     return byte;
   }
 
-  private ensureActiveKey(requestedByte: number): void {
-    if (!this.activeKey && this.queue.length > 0) {
-      const value = this.queue.shift()!;
-      this.activeKey = {
-        value,
-        consumedLow: requestedByte === DATA_LOW_BYTE_INDEX,
-        consumedHigh: requestedByte === DATA_HIGH_BYTE_INDEX,
-      };
-      this.updateReadyFlag(true);
-      return;
-    }
-
-    if (!this.activeKey) {
-      this.updateReadyFlag(false);
-    }
+  private enqueueKey(value: number): void {
+    const keyCode = value & 0xffff;
+    this.queue.push(keyCode);
+    this.ensureActiveKey();
+    this.updateReadyFlag(true);
+    this.signalInterruptIfNeeded();
   }
 
-  private markByteConsumed(byteIndex: number): void {
+  private ensureActiveKey(): void {
+    if (this.activeKey || this.queue.length === 0) {
+      this.updateReadyFlag(this.activeKey !== null || this.queue.length > 0);
+      return;
+    }
+
+    const value = this.queue.shift()!;
+    this.activeKey = {
+      value,
+      consumedHigh: false,
+      consumedLow: false,
+    };
+    this.updateReadyFlag(true);
+  }
+
+  private finishKeyIfNeeded(): void {
     if (!this.activeKey) {
       this.updateReadyFlag(false);
       return;
     }
 
-    if (byteIndex === DATA_LOW_BYTE_INDEX) {
-      this.activeKey.consumedLow = true;
-    } else if (byteIndex === DATA_HIGH_BYTE_INDEX) {
-      this.activeKey.consumedHigh = true;
-    }
-
-    if (this.activeKey.consumedLow && this.activeKey.consumedHigh) {
+    if (this.activeKey.consumedHigh && this.activeKey.consumedLow) {
       this.activeKey = null;
+      this.ensureActiveKey();
+      return;
     }
 
-    this.updateReadyFlag(this.queue.length > 0 || this.activeKey !== null);
+    this.updateReadyFlag(true);
   }
 
   private updateReadyFlag(isReady: boolean): void {
@@ -140,17 +149,10 @@ export class KeyboardDevice implements Device {
     return (this.control & INTERRUPT_ENABLE_MASK) !== 0;
   }
 
-  private maybeInterrupt(): void {
-    if (this.isInterruptEnabled() && (this.queue.length > 0 || this.activeKey)) {
+  private signalInterruptIfNeeded(): void {
+    if (this.isInterruptEnabled() && (this.activeKey || this.queue.length > 0)) {
       this.updateReadyFlag(true);
       this.interruptHandler?.(this);
     }
-  }
-
-  private enqueueKeycode(value: number): void {
-    const keycode = value & 0xffff;
-    this.queue.push(keycode);
-    this.updateReadyFlag(true);
-    this.maybeInterrupt();
   }
 }
