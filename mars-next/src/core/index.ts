@@ -59,6 +59,8 @@ export interface CoreEngineOptions {
   watchEngine?: WatchEngine;
   interruptController?: InterruptController;
   interruptHandlers?: InterruptControllerOptions;
+  forwardingEnabled?: boolean;
+  hazardDetectionEnabled?: boolean;
 }
 
 export type EngineStepResult = ReturnType<Pipeline["step"]>;
@@ -141,6 +143,8 @@ export class CoreEngine {
       breakpoints: this.breakpoints ?? undefined,
       watchEngine: this.watchEngine ?? undefined,
       interrupts: this.interrupts,
+      forwardingEnabled: options.forwardingEnabled,
+      hazardDetectionEnabled: options.hazardDetectionEnabled,
     });
   }
 

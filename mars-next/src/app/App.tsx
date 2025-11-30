@@ -4,7 +4,7 @@ import { RunToolbar } from "../features/run-control";
 import { EditorPane } from "../features/editor";
 import { BreakpointManagerPanel, BreakpointList, BreakpointSpec, WatchManagerPanel, WatchSpec } from "../features/breakpoints";
 import { resolveInstructionIndex, toggleBreakpoint } from "../features/breakpoints/services/breakpointService";
-import { SettingsDialog } from "../features/settings";
+import { SettingsDialog, loadSettings } from "../features/settings";
 import {
   MemoryConfiguration,
   RegistersWindow,
@@ -28,6 +28,8 @@ import {
   reloadPseudoOpTable,
 } from "../core";
 import { BitmapDisplayState, type MarsToolContext } from "../core/tools/MarsTool";
+
+const initialSettings = loadSettings();
 
 const KEYBOARD_START = 0xffff0000;
 const KEYBOARD_SIZE = 0x8;
@@ -71,7 +73,9 @@ export function App(): React.JSX.Element {
   const [editorBreakpoints, setEditorBreakpoints] = useState<number[]>([]);
   const [activeLine, setActiveLine] = useState<number | null>(null);
   const [activeFile, setActiveFile] = useState<string | null>(null);
-  const [enablePseudoInstructions, setEnablePseudoInstructions] = useState(true);
+  const [enablePseudoInstructions, setEnablePseudoInstructions] = useState(initialSettings.enablePseudoInstructions);
+  const [forwardingEnabled, setForwardingEnabled] = useState(initialSettings.forwardingEnabled);
+  const [hazardDetectionEnabled, setHazardDetectionEnabled] = useState(initialSettings.hazardDetectionEnabled);
   const [openTools, setOpenTools] = useState<string[]>([]);
   const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
   const [bitmapDisplay, setBitmapDisplay] = useState<BitmapDisplayState | null>(null);
@@ -254,6 +258,8 @@ export function App(): React.JSX.Element {
       const { engine: loadedEngine, layout, image } = assembleAndLoad(source, {
         assemblerOptions: { enablePseudoInstructions },
         memory: customMemory,
+        forwardingEnabled,
+        hazardDetectionEnabled,
       });
       setKeyboardDevice(keyboardDeviceInstance);
       setEngine(loadedEngine);
@@ -404,7 +410,11 @@ export function App(): React.JSX.Element {
       <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
         <SettingsDialog
           enablePseudoInstructions={enablePseudoInstructions}
+          forwardingEnabled={forwardingEnabled}
+          hazardDetectionEnabled={hazardDetectionEnabled}
           onTogglePseudoInstructions={setEnablePseudoInstructions}
+          onToggleForwarding={setForwardingEnabled}
+          onToggleHazardDetection={setHazardDetectionEnabled}
           onReloadPseudoOps={handleReloadPseudoOps}
         />
         <RunToolbar

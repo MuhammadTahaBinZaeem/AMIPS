@@ -49,6 +49,24 @@ describe("HazardUnit", () => {
     assert.strictEqual(structuralHazard, true);
   });
 
+  it("stalls on dependencies without forwarding", () => {
+    const decodingHazard = decodeHazardInfo(ADD_T1_T0_T0);
+    const { loadUseHazard } = hazardUnit.detect(decodingHazard, buildPayload(ADDI_T0_ZERO_1), null, {
+      forwardingEnabled: false,
+    });
+
+    assert.strictEqual(loadUseHazard, true);
+  });
+
+  it("considers memory stage results when forwarding is disabled", () => {
+    const decodingHazard = decodeHazardInfo(ADD_T1_T0_T0);
+    const { loadUseHazard } = hazardUnit.detect(decodingHazard, null, buildPayload(ADDI_T0_ZERO_1), {
+      forwardingEnabled: false,
+    });
+
+    assert.strictEqual(loadUseHazard, true);
+  });
+
   it("propagates control metadata for branch and jump operations", () => {
     const branchHazard = decodeHazardInfo(JAL);
     assert.strictEqual(branchHazard.isControl, true);

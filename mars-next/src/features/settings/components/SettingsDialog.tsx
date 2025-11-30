@@ -1,18 +1,27 @@
 import React, { useState } from "react";
+import { PipelineSettings } from "../pipeline";
 import { PseudoOpsEditor } from "./PseudoOpsEditor";
 
 export interface SettingsDialogProps {
   enablePseudoInstructions: boolean;
+  forwardingEnabled: boolean;
+  hazardDetectionEnabled: boolean;
   onTogglePseudoInstructions: (enabled: boolean) => void;
+  onToggleForwarding: (enabled: boolean) => void;
+  onToggleHazardDetection: (enabled: boolean) => void;
   onReloadPseudoOps: () => void;
 }
 
 export function SettingsDialog({
   enablePseudoInstructions,
+  forwardingEnabled,
+  hazardDetectionEnabled,
   onTogglePseudoInstructions,
+  onToggleForwarding,
+  onToggleHazardDetection,
   onReloadPseudoOps,
 }: SettingsDialogProps): React.JSX.Element {
-  const [activeTab, setActiveTab] = useState<"general" | "pseudoOps">("general");
+  const [activeTab, setActiveTab] = useState<"general" | "pseudoOps" | "pipeline">("general");
 
   return (
     <div
@@ -56,6 +65,19 @@ export function SettingsDialog({
           >
             Pseudo-ops
           </button>
+          <button
+            onClick={() => setActiveTab("pipeline")}
+            style={{
+              background: activeTab === "pipeline" ? "#111827" : "transparent",
+              color: "#e5e7eb",
+              border: "1px solid #1f2937",
+              borderRadius: "0.375rem",
+              padding: "0.35rem 0.75rem",
+              cursor: "pointer",
+            }}
+          >
+            Pipeline
+          </button>
         </div>
       </div>
 
@@ -95,6 +117,15 @@ export function SettingsDialog({
       )}
 
       {activeTab === "pseudoOps" && <PseudoOpsEditor onSaved={onReloadPseudoOps} />}
+
+      {activeTab === "pipeline" && (
+        <PipelineSettings
+          forwardingEnabled={forwardingEnabled}
+          hazardDetectionEnabled={hazardDetectionEnabled}
+          onToggleForwarding={onToggleForwarding}
+          onToggleHazardDetection={onToggleHazardDetection}
+        />
+      )}
     </div>
   );
 }
