@@ -6,5 +6,6 @@ export function loadSettings(): SettingsState {
     enablePseudoInstructions: true,
     forwardingEnabled: true,
     hazardDetectionEnabled: true,
+    executionMode: "pipeline",
   };
 }

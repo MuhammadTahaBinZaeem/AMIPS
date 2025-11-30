@@ -58,6 +58,16 @@ function createEmptySnapshot(): PipelineSnapshot {
   };
 }
 
+export function createEmptyPipelineSnapshot(
+  overrides: Partial<Pick<PipelineSnapshot, "cycle" | "forwardingEnabled" | "hazardDetectionEnabled">> = {},
+): PipelineSnapshot {
+  const snapshot = createEmptySnapshot();
+  return {
+    ...snapshot,
+    ...overrides,
+  };
+}
+
 export function publishPipelineSnapshot(snapshot: PipelineSnapshot): void {
   latestSnapshot = snapshot;
   listeners.forEach((listener) => listener(snapshot));

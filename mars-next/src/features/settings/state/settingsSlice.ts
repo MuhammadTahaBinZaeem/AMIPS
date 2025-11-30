@@ -3,6 +3,7 @@ export interface SettingsState {
   enablePseudoInstructions: boolean;
   forwardingEnabled: boolean;
   hazardDetectionEnabled: boolean;
+  executionMode: "pipeline" | "sequential";
 }
 
 export const initialSettingsState: SettingsState = {
@@ -10,4 +11,5 @@ export const initialSettingsState: SettingsState = {
   enablePseudoInstructions: true,
   forwardingEnabled: true,
   hazardDetectionEnabled: true,
+  executionMode: "pipeline",
 };

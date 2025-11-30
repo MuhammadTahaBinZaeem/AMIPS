@@ -198,16 +198,31 @@ export const decodeHazardInfo = (instruction: number): HazardInfo => {
 };
 
 export class HazardUnit {
+  private forwardingEnabled = true;
+  private hazardDetectionEnabled = true;
+
+  setForwardingEnabled(enabled: boolean): void {
+    this.forwardingEnabled = enabled;
+  }
+
+  setHazardDetectionEnabled(enabled: boolean): void {
+    this.hazardDetectionEnabled = enabled;
+  }
+
   detect(
     decodingHazard: HazardInfo,
     executing: PipelineRegisterPayload,
     memoryStage: PipelineRegisterPayload,
     options?: { forwardingEnabled?: boolean },
   ): { loadUseHazard: boolean; structuralHazard: boolean } {
+    if (!this.hazardDetectionEnabled) {
+      return { loadUseHazard: false, structuralHazard: false };
+    }
+
     const executingHazard = executing ? decodeHazardInfo(executing.instruction) : EMPTY_HAZARD;
     const memoryHazard = memoryStage ? decodeHazardInfo(memoryStage.instruction) : EMPTY_HAZARD;
 
-    const forwardingEnabled = options?.forwardingEnabled ?? true;
+    const forwardingEnabled = options?.forwardingEnabled ?? this.forwardingEnabled;
 
     const executingDependency =
       executingHazard.destination !== null &&

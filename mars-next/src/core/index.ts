@@ -1,5 +1,5 @@
 import { Assembler, BinaryImage, type AssemblerOptions } from "./assembler/Assembler";
-import { InstructionDecoder } from "./cpu/Cpu";
+import { Cpu, InstructionDecoder } from "./cpu/Cpu";
 import { decodeInstruction } from "./cpu/Instructions";
 import { Pipeline, type PerformanceCounters } from "./cpu/Pipeline";
 import { TerminalDevice } from "./devices/TerminalDevice";
@@ -8,11 +8,13 @@ import { WatchEngine } from "./debugger/WatchEngine";
 import { ProgramLoader, type ProgramLayout, type ProgramLoadOptions } from "./loader/ProgramLoader";
 import { Linker } from "./loader/Linker";
 import { Memory } from "./memory/Memory";
-import { MachineState } from "./state/MachineState";
+import { DEFAULT_TEXT_BASE, MachineState } from "./state/MachineState";
 import { createDefaultSyscallHandlers, type SyscallDevices, type SyscallHandler } from "./syscalls/SyscallHandlers";
 import { SyscallTable } from "./syscalls/SyscallTable";
 import { SyscallException } from "./exceptions/ExecutionExceptions";
 import { InterruptController, InterruptControllerOptions } from "./interrupts/InterruptController";
+import { createEmptyPipelineSnapshot, publishPipelineSnapshot } from "./tools/pipelineEvents";
+import { publishRuntimeSnapshot, type RuntimeStatus } from "./tools/runtimeEvents";
 
 export * from "./cpu/Cpu";
 export * from "./cpu/Pipeline";
@@ -48,6 +50,8 @@ export * from "./tools/MarsTool";
 export * from "./tools/runtimeEvents";
 export * from "./tools/pipelineEvents";
 
+export type ExecutionMode = "pipeline" | "sequential";
+
 export interface CoreEngineOptions {
   decoder?: InstructionDecoder;
   memory?: Memory;
@@ -62,6 +66,7 @@ export interface CoreEngineOptions {
   interruptHandlers?: InterruptControllerOptions;
   forwardingEnabled?: boolean;
   hazardDetectionEnabled?: boolean;
+  executionMode?: ExecutionMode;
 }
 
 export type EngineStepResult = ReturnType<Pipeline["step"]>;
@@ -103,7 +108,13 @@ export class CoreEngine {
   private readonly watchEngine: WatchEngine | null;
   private readonly syscalls: SyscallTable | null;
   private readonly interrupts: InterruptController;
+  private readonly decoder: InstructionDecoder;
+  private readonly cpu: Cpu;
   private readonly pipeline: Pipeline;
+  private executionMode: ExecutionMode;
+  private sequentialPerformanceCounters: PerformanceCounters = { cycleCount: 0, instructionCount: 0, stallCount: 0 };
+  private sequentialHalted = false;
+  private textBase = DEFAULT_TEXT_BASE;
   private lastLayout: ProgramLayout | null = null;
   private symbolTable: Record<string, number> = {};
 
@@ -135,18 +146,19 @@ export class CoreEngine {
 
     this.memory.onInterrupt((device) => this.interrupts.requestDeviceInterrupt(device));
 
-    const decoder = options.decoder ?? createDefaultDecoder(this.syscalls, this.interrupts);
+    this.decoder = options.decoder ?? createDefaultDecoder(this.syscalls, this.interrupts);
+    this.cpu = new Cpu({ memory: this.memory, decoder: this.decoder, state: this.state });
 
     this.pipeline = new Pipeline({
-      memory: this.memory,
-      state: this.state,
-      decoder,
+      cpu: this.cpu,
       breakpoints: this.breakpoints ?? undefined,
       watchEngine: this.watchEngine ?? undefined,
       interrupts: this.interrupts,
       forwardingEnabled: options.forwardingEnabled,
       hazardDetectionEnabled: options.hazardDetectionEnabled,
     });
+
+    this.executionMode = options.executionMode ?? "pipeline";
   }
 
   assemble(source: string): BinaryImage {
@@ -155,9 +167,12 @@ export class CoreEngine {
 
   load(binary: BinaryImage, options?: ProgramLoadOptions): ProgramLayout {
     this.lastLayout = this.loader.loadProgram(this.state, binary, options);
+    this.textBase = this.lastLayout.textBase;
     this.pipeline.setTextBase(this.lastLayout.textBase);
     this.symbolTable = this.lastLayout.symbols;
     this.pipeline.resetPerformanceCounters();
+    this.sequentialPerformanceCounters = { cycleCount: 0, instructionCount: 0, stallCount: 0 };
+    this.sequentialHalted = false;
     this.resume();
 
     if (this.breakpoints) {
@@ -179,7 +194,7 @@ export class CoreEngine {
   }
 
   getState(): MachineState {
-    return this.pipeline.getState();
+    return this.state;
   }
 
   getMemory(): Memory {
@@ -191,19 +206,42 @@ export class CoreEngine {
   }
 
   step(): EngineStepResult {
-    return this.pipeline.step();
+    return this.executionMode === "pipeline" ? this.pipeline.step() : this.stepSequential();
   }
 
   run(maxCycles?: number): void {
-    this.pipeline.run(maxCycles);
+    if (this.executionMode === "pipeline") {
+      this.pipeline.run(maxCycles);
+      return;
+    }
+
+    let cycles = 0;
+    const max = maxCycles ?? Number.MAX_SAFE_INTEGER;
+    while (!this.sequentialHalted && cycles < max) {
+      const status = this.stepSequential();
+      if (status !== "running") break;
+      cycles += 1;
+    }
   }
 
   halt(): void {
-    this.pipeline.halt();
+    if (this.executionMode === "pipeline") {
+      this.pipeline.halt();
+      return;
+    }
+
+    this.sequentialHalted = true;
+    this.publishSequentialRuntimeSnapshot("halted");
   }
 
   resume(): void {
-    this.pipeline.resume();
+    if (this.executionMode === "pipeline") {
+      this.pipeline.resume();
+      return;
+    }
+
+    this.sequentialHalted = false;
+    this.publishSequentialRuntimeSnapshot("running");
   }
 
   addBreakpoint(address: number): void {
@@ -241,11 +279,14 @@ export class CoreEngine {
   }
 
   getPerformanceCounters(): PerformanceCounters {
-    return this.pipeline.getPerformanceCounters();
+    return this.executionMode === "pipeline"
+      ? this.pipeline.getPerformanceCounters()
+      : this.sequentialPerformanceCounters;
   }
 
   resetPerformanceCounters(): void {
     this.pipeline.resetPerformanceCounters();
+    this.sequentialPerformanceCounters = { cycleCount: 0, instructionCount: 0, stallCount: 0 };
   }
 
   setForwardingEnabled(enabled: boolean): void {
@@ -262,6 +303,102 @@ export class CoreEngine {
 
   getHazardDetectionEnabled(): boolean {
     return this.pipeline.getHazardDetectionEnabled();
+  }
+
+  setExecutionMode(mode: ExecutionMode): void {
+    this.executionMode = mode;
+    if (mode === "sequential") {
+      this.sequentialHalted = false;
+      this.publishSequentialRuntimeSnapshot("running");
+    }
+  }
+
+  getExecutionMode(): ExecutionMode {
+    return this.executionMode;
+  }
+
+  private stepSequential(): RuntimeStatus {
+    const contextPc = this.state.getProgramCounter();
+
+    if (this.sequentialHalted) {
+      return this.publishSequentialRuntimeSnapshot("halted");
+    }
+
+    if (this.servicePendingInterrupts(contextPc)) {
+      if (this.state.isTerminated()) {
+        this.sequentialHalted = true;
+        return this.publishSequentialRuntimeSnapshot("terminated");
+      }
+    }
+
+    const instructionIndex = ((contextPc - this.textBase) / 4) | 0;
+    const breakpointHit = this.breakpoints?.checkForHit(contextPc, instructionIndex, this.state) ?? false;
+    if (breakpointHit) {
+      this.sequentialHalted = true;
+      return this.publishSequentialRuntimeSnapshot("breakpoint");
+    }
+
+    try {
+      this.watchEngine?.beginStep();
+      this.cpu.step();
+      this.watchEngine?.completeStep();
+      this.sequentialPerformanceCounters.cycleCount += 1;
+      this.sequentialPerformanceCounters.instructionCount += 1;
+    } catch (error) {
+      this.watchEngine?.completeStep();
+      this.interrupts.requestException(error, contextPc);
+      if (this.servicePendingInterrupts(contextPc)) {
+        if (this.state.isTerminated()) {
+          this.sequentialHalted = true;
+          return this.publishSequentialRuntimeSnapshot("terminated");
+        }
+        return this.publishSequentialRuntimeSnapshot("running");
+      }
+      throw error;
+    }
+
+    if (this.servicePendingInterrupts(this.state.getProgramCounter())) {
+      if (this.state.isTerminated()) {
+        this.sequentialHalted = true;
+        return this.publishSequentialRuntimeSnapshot("terminated");
+      }
+    }
+
+    if (this.state.isTerminated()) {
+      this.sequentialHalted = true;
+      return this.publishSequentialRuntimeSnapshot("terminated");
+    }
+
+    return this.publishSequentialRuntimeSnapshot("running");
+  }
+
+  private publishSequentialRuntimeSnapshot(status: RuntimeStatus): RuntimeStatus {
+    publishRuntimeSnapshot({
+      status,
+      state: this.state,
+      memory: this.memory,
+    });
+    this.publishSequentialPipelineSnapshot();
+    return status;
+  }
+
+  private publishSequentialPipelineSnapshot(): void {
+    publishPipelineSnapshot(
+      createEmptyPipelineSnapshot({
+        cycle: this.sequentialPerformanceCounters.cycleCount,
+        forwardingEnabled: this.pipeline.getForwardingEnabled(),
+        hazardDetectionEnabled: this.pipeline.getHazardDetectionEnabled(),
+      }),
+    );
+  }
+
+  private servicePendingInterrupts(contextPc: number): boolean {
+    let handled = false;
+    while (this.interrupts.hasPendingInterrupt()) {
+      this.interrupts.handleNextInterrupt(this.state, this.memory, contextPc);
+      handled = true;
+    }
+    return handled;
   }
 }
 
