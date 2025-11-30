@@ -184,7 +184,9 @@ export class Memory {
 
     block[normalizedAddress & BLOCK_MASK] = value & 0xff;
     this.writtenAddresses.add(normalizedAddress);
-    this.invalidateInstructionCache(normalizedAddress);
+    if (this.isExecutableAddress(normalizedAddress)) {
+      this.invalidateInstructionCache(normalizedAddress);
+    }
   }
 
   private getOrCreateBlock(index: number): Uint8Array {
@@ -205,21 +207,11 @@ export class Memory {
   }
 
   private invalidateInstructionCache(address: number): void {
-    if (!this.instructionCache) {
+    if (!this.instructionCache || !this.isExecutableAddress(address)) {
       return;
     }
 
-    const textStart = this.memoryMap.textBase >>> 0;
-    const textEnd = (textStart + this.memoryMap.textSize - 1) >>> 0;
-    const ktextStart = this.memoryMap.ktextBase >>> 0;
-    const ktextEnd = (ktextStart + this.memoryMap.ktextSize - 1) >>> 0;
-
-    const withinText = address >= textStart && address <= textEnd;
-    const withinKText = address >= ktextStart && address <= ktextEnd;
-
-    if (withinText || withinKText) {
-      this.instructionCache.invalidateLine(address);
-    }
+    this.instructionCache.invalidateLine(address >>> 0);
   }
 
   private validateWordAddress(address: number, access: AccessType): number {
@@ -228,5 +220,19 @@ export class Memory {
       throw new AddressError(address, access, `Unaligned word address: 0x${address.toString(16)}`);
     }
     return normalizedAddress;
+  }
+
+  private isExecutableAddress(address: number): boolean {
+    const normalizedAddress = this.validateAddress(address);
+
+    const textStart = this.memoryMap.textBase >>> 0;
+    const textEnd = (textStart + this.memoryMap.textSize - 1) >>> 0;
+    const ktextStart = this.memoryMap.ktextBase >>> 0;
+    const ktextEnd = (ktextStart + this.memoryMap.ktextSize - 1) >>> 0;
+
+    return (
+      (normalizedAddress >= textStart && normalizedAddress <= textEnd) ||
+      (normalizedAddress >= ktextStart && normalizedAddress <= ktextEnd)
+    );
   }
 }
