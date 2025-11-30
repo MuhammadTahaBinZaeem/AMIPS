@@ -1,3 +1,4 @@
+import { BitmapDisplayDevice } from "../../devices/BitmapDisplayDevice";
 import { FileDevice } from "../../devices/FileDevice";
 import { TerminalDevice } from "../../devices/TerminalDevice";
 import { TimerDevice } from "../../devices/TimerDevice";
@@ -282,6 +283,21 @@ export function registerLegacySyscalls(
     const offset = state.getRegister(5) >>> 0;
     const length = state.getRegister(6) >>> 0;
 
+    const bitmapDevice = getBitmapDevice(memory);
+    if (bitmapDevice) {
+      const bufferLength = bitmapDevice.getBuffer().length;
+      const writable = Math.max(0, Math.min(length, bufferLength - offset));
+      const bytes = new Uint8Array(writable);
+
+      for (let i = 0; i < writable; i++) {
+        bytes[i] = memory.readByte(source + i);
+      }
+
+      bitmapDevice.writeBytes(offset, bytes);
+      state.setRegister(2, writable);
+      return;
+    }
+
     const framebufferStart = (BITMAP_BASE_ADDRESS + BITMAP_FRAMEBUFFER_OFFSET) >>> 0;
     const maxBytes = memory.readWord(BITMAP_BASE_ADDRESS) * memory.readWord(BITMAP_BASE_ADDRESS + 4) * 4;
     const writable = Math.max(0, Math.min(length, maxBytes - offset));
@@ -299,6 +315,28 @@ export function registerLegacySyscalls(
     const buffer = state.getRegister(5) >>> 0;
     const length = state.getRegister(6) >>> 0;
     const stream = getRandomStream(randomStreams, streamIndex);
+
+    const bitmapDevice = getBitmapDevice(memory);
+    const framebufferStart = (BITMAP_BASE_ADDRESS + BITMAP_FRAMEBUFFER_OFFSET) >>> 0;
+
+    if (bitmapDevice && buffer >= framebufferStart) {
+      const bufferLength = bitmapDevice.getBuffer().length;
+      const deviceOffset = buffer - framebufferStart;
+      const writable = Math.max(0, Math.min(length, bufferLength - deviceOffset));
+
+      for (let i = 0; i < writable; i++) {
+        const byteIndex = i % 4;
+        if (byteIndex === 0) {
+          cachedRandomWord = stream.nextInt() >>> 0;
+        }
+        const shift = 24 - byteIndex * 8;
+        const byte = (cachedRandomWord >>> shift) & 0xff;
+        bitmapDevice.writeByte(deviceOffset + i, byte);
+      }
+
+      state.setRegister(2, writable);
+      return;
+    }
 
     for (let i = 0; i < length; i++) {
       const byteIndex = i % 4;
@@ -397,6 +435,15 @@ function readCharFromTerminal(devices: SyscallDevices): number {
   const terminal = requireDevice<TerminalDevice>(devices, "terminal");
   const value = terminal.readString();
   return value.length > 0 ? value.charCodeAt(0) : -1;
+}
+
+function getBitmapDevice(memory: Memory): BitmapDisplayDevice | null {
+  try {
+    const { device } = memory.getMemoryMap().resolve(BITMAP_BASE_ADDRESS);
+    return device instanceof BitmapDisplayDevice ? device : null;
+  } catch {
+    return null;
+  }
 }
 
 function readCharFromKeyboard(memory: Memory): number | null {
@@ -510,7 +557,7 @@ const KEYBOARD_DATA_LOW_ADDRESS = KEYBOARD_DATA_ADDRESS + 3;
 const DISPLAY_CONTROL_ADDRESS = 0xffff0008;
 const DISPLAY_DATA_ADDRESS = 0xffff000c;
 
-const BITMAP_BASE_ADDRESS = 0xffff0100;
+const BITMAP_BASE_ADDRESS = 0xffff1000;
 const BITMAP_FRAMEBUFFER_OFFSET = 16;
 
 let cachedRandomWord = 0;
