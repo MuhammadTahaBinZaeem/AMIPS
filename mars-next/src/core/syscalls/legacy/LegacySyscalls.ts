@@ -5,6 +5,12 @@ import { Memory } from "../../memory/Memory";
 import { MachineState } from "../../state/MachineState";
 import { SyscallDevices, SyscallHandler } from "../SyscallHandlers";
 import { SyscallImplementation, SyscallTable } from "../SyscallTable";
+import { createInputDialogDouble } from "./SyscallInputDialogDouble";
+import { createInputDialogFloat } from "./SyscallInputDialogFloat";
+import { createMessageDialogDouble } from "./SyscallMessageDialogDouble";
+import { createMessageDialogFloat } from "./SyscallMessageDialogFloat";
+import { createMidiOutSyscall } from "./SyscallMidiOut";
+import { createMidiOutSyncSyscall } from "./SyscallMidiOutSync";
 
 const DEFAULT_HEAP_BASE = 0x10040000;
 
@@ -178,10 +184,7 @@ export function registerLegacySyscalls(
     state.setRegister(5, high);
   });
 
-  register(31, (state) => {
-    // MIDI output is not simulated; acknowledge the syscall.
-    state.setRegister(2, 0);
-  });
+  register(31, createMidiOutSyscall(devices, handlers));
 
   register(32, (state) => {
     const delay = state.getRegister(4);
@@ -189,9 +192,7 @@ export function registerLegacySyscalls(
     state.setRegister(2, 0);
   });
 
-  register(33, (state) => {
-    state.setRegister(2, 0);
-  });
+  register(33, createMidiOutSyncSyscall(devices, handlers));
 
   register(34, (state) => {
     const value = state.getRegister(4) >>> 0;
@@ -259,14 +260,14 @@ export function registerLegacySyscalls(
   });
 
   register(51, (state) => handleInputDialog(state, memory, devices, handlers, "int"));
-  register(52, (state) => handleInputDialog(state, memory, devices, handlers, "float"));
-  register(53, (state) => handleInputDialog(state, memory, devices, handlers, "double"));
+  register(52, createInputDialogFloat(memory, devices, handlers));
+  register(53, createInputDialogDouble(memory, devices, handlers));
   register(54, (state) => handleInputDialog(state, memory, devices, handlers, "string"));
 
   register(55, (state) => handleMessageDialog(state, memory, devices, handlers, "message"));
   register(56, (state) => handleMessageDialog(state, memory, devices, handlers, "int"));
-  register(57, (state) => handleMessageDialog(state, memory, devices, handlers, "float"));
-  register(58, (state) => handleMessageDialog(state, memory, devices, handlers, "double"));
+  register(57, createMessageDialogFloat(memory, devices, handlers));
+  register(58, createMessageDialogDouble(memory, devices, handlers));
   register(59, (state) => handleMessageDialog(state, memory, devices, handlers, "string"));
 
   register(60, (state) => {
