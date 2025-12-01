@@ -84,7 +84,6 @@ const KEYBOARD_SIZE = 0x8;
 const DISPLAY_START = KEYBOARD_START + KEYBOARD_SIZE;
 const DISPLAY_SIZE = 0x8;
 const BITMAP_START = 0xffff1000;
-const BITMAP_SIZE = 0x1000;
 const REAL_TIME_CLOCK_START = 0xffff0010;
 const REAL_TIME_CLOCK_SIZE = 0x8;
 const SEVEN_SEGMENT_START = 0xffff0018;
@@ -211,7 +210,7 @@ export class MemoryMap {
     const displayStart = DISPLAY_START >>> 0;
     const displayEnd = (displayStart + DISPLAY_SIZE - 1) >>> 0;
     const bitmapStart = BITMAP_START >>> 0;
-    const bitmapEnd = (bitmapStart + BITMAP_SIZE - 1) >>> 0;
+    const bitmapEnd = (bitmapStart + bitmapDisplay.byteLength - 1) >>> 0;
     const realTimeClockStart = REAL_TIME_CLOCK_START >>> 0;
     const realTimeClockEnd = (realTimeClockStart + REAL_TIME_CLOCK_SIZE - 1) >>> 0;
     const sevenSegmentStart = SEVEN_SEGMENT_START >>> 0;

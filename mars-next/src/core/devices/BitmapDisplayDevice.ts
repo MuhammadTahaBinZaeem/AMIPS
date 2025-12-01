@@ -19,10 +19,12 @@ const CONTROL_HEIGHT_OFFSET = 4;
 const CONTROL_DIRTY_COUNT_OFFSET = 8;
 const CONTROL_FLUSH_OFFSET = 12;
 const FRAMEBUFFER_OFFSET = 16;
+const DEFAULT_BYTE_LENGTH = 0x1000;
 
 export class BitmapDisplayDevice implements Device {
   readonly width: number;
   readonly height: number;
+  readonly byteLength: number;
 
   private readonly pixels: Uint8Array;
   private readonly dirtyRegions: DirtyRegion[] = [];
@@ -40,8 +42,10 @@ export class BitmapDisplayDevice implements Device {
     this.width = Math.max(1, options.width ?? 10);
     this.height = Math.max(1, options.height ?? 6);
 
+    this.byteLength = DEFAULT_BYTE_LENGTH;
+
     const bufferLength = this.width * this.height * 4;
-    const maxBufferLength = 0x100 - FRAMEBUFFER_OFFSET;
+    const maxBufferLength = this.byteLength - FRAMEBUFFER_OFFSET;
     if (bufferLength > maxBufferLength) {
       throw new RangeError(
         `BitmapDisplayDevice buffer too large: ${bufferLength} bytes (max ${maxBufferLength})`,
@@ -51,10 +55,6 @@ export class BitmapDisplayDevice implements Device {
     this.pixels = new Uint8Array(bufferLength);
     this.onFlush = options.onFlush;
     this.interruptHandler = options.onInterrupt ?? null;
-  }
-
-  get byteLength(): number {
-    return 0x100;
   }
 
   read(offset: number): DeviceData {
