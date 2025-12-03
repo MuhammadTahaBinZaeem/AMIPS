@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { MachineState } from "../../../core";
+import { MarsTool, type MarsToolComponentProps } from "../../../core/tools/MarsTool";
 import { getLatestCpuState, subscribeToCpuState, type CpuStateSnapshot } from "./registerEvents";
 
 const REGISTER_NAMES = [
@@ -155,6 +156,22 @@ export function RegistersWindow({ title = "Registers", onClose }: RegistersWindo
     </div>
   );
 }
+
+export function RegistersToolWindow({ onClose }: MarsToolComponentProps): React.JSX.Element {
+  return <RegistersWindow onClose={onClose} />;
+}
+
+export const RegistersTool: MarsTool = {
+  id: "registers-viewer",
+  name: "Registers Viewer",
+  description: "Watch general purpose registers update in real time.",
+  Component: RegistersToolWindow,
+  run: () => {
+    // Rendering handled by the host application.
+  },
+};
+
+export default RegistersTool;
 
 function LabeledValue({
   label,

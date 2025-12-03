@@ -1,11 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { KeyboardDevice } from "../../../core";
-import { MarsTool, MarsToolContext } from "../../../core/tools/MarsTool";
-
-export interface KeyboardWindowProps {
-  device: KeyboardDevice | null;
-  onClose: () => void;
-}
+import { MarsTool, type MarsToolComponentProps } from "../../../core/tools/MarsTool";
 
 interface QueueSnapshot {
   active: number | null;
@@ -34,7 +29,8 @@ function describeBytes(value: number): string {
     .padStart(2, "0")}`;
 }
 
-export function KeyboardWindow({ device, onClose }: KeyboardWindowProps): React.JSX.Element {
+export function KeyboardWindow({ appContext, onClose }: MarsToolComponentProps): React.JSX.Element {
+  const device = (appContext.keyboardDevice as KeyboardDevice | null | undefined) ?? null;
   const [snapshot, setSnapshot] = useState<QueueSnapshot>({ active: null, queued: [] });
 
   useEffect(() => {
@@ -157,16 +153,18 @@ export function KeyboardWindow({ device, onClose }: KeyboardWindowProps): React.
   );
 }
 
-type KeyboardToolContext = MarsToolContext & {
-  keyboardDevice: KeyboardDevice | null;
+export const KeyboardTool: MarsTool = {
+  id: "keyboard-viewer",
+  name: "Keyboard Input",
+  description: "Inspect and simulate keyboard device input.",
+  Component: KeyboardWindow,
+  isAvailable: (context) => Boolean(context.keyboardDevice),
+  run: () => {
+    // Rendering handled externally.
+  },
 };
 
-export const KeyboardTool: MarsTool<KeyboardToolContext> = {
-  getName: () => "Keyboard Input",
-  getFile: () => "keyboard-view/KeyboardWindow.tsx",
-  isAvailable: (context) => Boolean(context.keyboardDevice),
-  go: ({ context, onClose }) => <KeyboardWindow device={context.keyboardDevice ?? null} onClose={onClose} />,
-};
+export default KeyboardTool;
 
 const overlayStyle: React.CSSProperties = {
   position: "fixed",

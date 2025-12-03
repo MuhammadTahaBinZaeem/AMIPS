@@ -1,9 +1,12 @@
 import React from "react";
-import type { BinaryImage } from "../loader/ProgramLoader";
+import type { Assembler, BinaryImage } from "../assembler/Assembler";
 import type { SourceMapEntry } from "../loader/Linker";
 import type { KeyboardDevice } from "../devices/KeyboardDevice";
 import type { DirtyRegion } from "../devices/BitmapDisplayDevice";
-import type { RuntimeStatus } from "./runtimeEvents";
+import type { MachineState } from "../state/MachineState";
+import type { Memory } from "../memory/Memory";
+import type { getLatestPipelineSnapshot, subscribeToPipelineSnapshots } from "./pipelineEvents";
+import type { RuntimeSnapshot, RuntimeStatus, subscribeToRuntimeSnapshots } from "./runtimeEvents";
 
 export interface BitmapDisplayState {
   width: number;
@@ -23,7 +26,22 @@ export interface RuntimeController {
   getHazardDetectionEnabled?(): boolean;
 }
 
-export interface MarsToolContext {
+export interface ToolEventEmitters {
+  runtime: {
+    subscribe: typeof subscribeToRuntimeSnapshots;
+    latest: () => RuntimeSnapshot;
+  };
+  pipeline: {
+    subscribe: typeof subscribeToPipelineSnapshots;
+    latest: typeof getLatestPipelineSnapshot;
+  };
+}
+
+export interface AppContext {
+  machineState: MachineState;
+  memory: Memory;
+  assembler: Assembler;
+  events: ToolEventEmitters;
   program?: BinaryImage | null;
   sourceMap?: SourceMapEntry[] | undefined;
   memoryEntries?: Array<{ address: number; value: number }>;
@@ -33,29 +51,31 @@ export interface MarsToolContext {
   runtime?: RuntimeController | null;
 }
 
-export interface MarsToolLaunchProps<Context extends MarsToolContext = MarsToolContext> {
-  context: Context;
+export interface MarsToolComponentProps {
+  appContext: AppContext;
   onClose: () => void;
 }
 
-export interface MarsTool<Context extends MarsToolContext = MarsToolContext> {
+export interface MarsTool {
+  /** Unique identifier for the tool. */
+  id: string;
+  /** Tool display name shown in the UI menu. */
+  name: string;
+  /** Short description of the tool. */
+  description: string;
   /**
-   * Tool display name shown in the UI menu.
+   * Optional availability guard. Returning false will disable the menu entry.
    */
-  getName(): string;
-
+  isAvailable?(context: AppContext): boolean;
   /**
-   * Identifier for the tool. In the legacy interface this mapped to the class file name.
+   * Start the tool. This should perform any wiring or side effects needed to observe the app state.
    */
-  getFile(): string;
-
+  run(appContext: AppContext): void;
   /**
-   * Whether the tool can run given the current context.
+   * Optional React component used to render the tool UI.
    */
-  isAvailable?(context: Context): boolean;
-
-  /**
-   * Launch the tool UI.
-   */
-  go(props: MarsToolLaunchProps<Context>): React.JSX.Element | null;
+  Component?: React.ComponentType<MarsToolComponentProps> | null;
 }
+
+// Legacy compatibility alias used throughout the codebase.
+export type MarsToolContext = AppContext;

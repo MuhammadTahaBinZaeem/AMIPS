@@ -5,13 +5,10 @@ import { EditorPane } from "../features/editor";
 import { BreakpointManagerPanel, BreakpointList, BreakpointSpec, WatchManagerPanel, WatchSpec } from "../features/breakpoints";
 import { resolveInstructionIndex, toggleBreakpoint } from "../features/breakpoints/services/breakpointService";
 import { SettingsDialog, loadSettings } from "../features/settings";
-import {
-  MemoryConfiguration,
-  RegistersWindow,
-  TOOL_REGISTRY,
-} from "../features/tools";
+import { MemoryConfiguration, RegistersWindow } from "../features/tools";
 import { publishCpuState } from "../features/tools/register-viewer";
 import {
+  Assembler,
   AudioDevice,
   BinaryImage,
   BitmapDisplayDevice,
@@ -26,10 +23,14 @@ import {
   SourceMapEntry,
   assembleAndLoad,
   type ExecutionMode,
+  getLatestPipelineSnapshot,
+  getLatestRuntimeSnapshot,
   reloadPseudoOpTable,
+  subscribeToPipelineSnapshots,
   subscribeToRuntimeSnapshots,
 } from "../core";
-import { BitmapDisplayState, type MarsToolContext } from "../core/tools/MarsTool";
+import { BitmapDisplayState, type AppContext, type MarsTool } from "../core/tools/MarsTool";
+import { ToolLoader } from "../core/tools/ToolLoader";
 
 const initialSettings = loadSettings();
 
@@ -84,6 +85,11 @@ export function App(): React.JSX.Element {
   const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
   const [bitmapDisplay, setBitmapDisplay] = useState<BitmapDisplayState | null>(null);
   const [keyboardDevice, setKeyboardDevice] = useState<KeyboardDevice | null>(null);
+  const [availableTools, setAvailableTools] = useState<MarsTool[]>([]);
+
+  const assembler = useMemo(() => new Assembler(), []);
+  const fallbackState = useMemo(() => new MachineState(), []);
+  const fallbackMemory = useMemo(() => new Memory(), []);
 
   const handleToggleEditorBreakpoint = useCallback(
     (line: number): void => {
@@ -171,8 +177,17 @@ export function App(): React.JSX.Element {
     setWatchValues(snapshot);
   };
 
-  const toolContext = useMemo<MarsToolContext>(
+  useEffect(() => {
+    ToolLoader.loadTools()
+      .then(setAvailableTools)
+      .catch((error) => console.error("Failed to load tools", error));
+  }, []);
+
+  const toolContext = useMemo<AppContext>(
     () => ({
+      machineState: engine?.getState() ?? fallbackState,
+      memory: engine?.getMemory() ?? fallbackMemory,
+      assembler,
       program,
       sourceMap,
       memoryEntries,
@@ -180,8 +195,23 @@ export function App(): React.JSX.Element {
       bitmapDisplay,
       keyboardDevice,
       runtime: engine,
+      events: {
+        runtime: { subscribe: subscribeToRuntimeSnapshots, latest: getLatestRuntimeSnapshot },
+        pipeline: { subscribe: subscribeToPipelineSnapshots, latest: getLatestPipelineSnapshot },
+      },
     }),
-    [bitmapDisplay, engine, keyboardDevice, memoryConfiguration, memoryEntries, program, sourceMap],
+    [
+      assembler,
+      bitmapDisplay,
+      engine,
+      fallbackMemory,
+      fallbackState,
+      keyboardDevice,
+      memoryConfiguration,
+      memoryEntries,
+      program,
+      sourceMap,
+    ],
   );
 
   useEffect(() => {
@@ -239,9 +269,15 @@ export function App(): React.JSX.Element {
     return () => unsubscribe();
   }, [engine, sourceMap]);
 
-  const openTool = useCallback((toolId: string): void => {
-    setOpenTools((current) => (current.includes(toolId) ? current : [...current, toolId]));
-  }, []);
+  const openTool = useCallback(
+    (tool: MarsTool): void => {
+      tool.run(toolContext);
+      if (tool.Component) {
+        setOpenTools((current) => (current.includes(tool.id) ? current : [...current, tool.id]));
+      }
+    },
+    [toolContext],
+  );
 
   const closeTool = useCallback((toolId: string): void => {
     setOpenTools((current) => current.filter((id) => id !== toolId));
@@ -453,8 +489,8 @@ export function App(): React.JSX.Element {
             </button>
             {toolsMenuOpen && (
               <div style={toolsMenuStyle}>
-                {TOOL_REGISTRY.map((tool) => {
-                  const toolId = tool.getFile();
+                {availableTools.map((tool) => {
+                  const toolId = tool.id;
                   const isEnabled = tool.isAvailable ? tool.isAvailable(toolContext) : true;
                   const menuItemStyle: React.CSSProperties = {
                     ...toolsMenuItemStyle,
@@ -468,11 +504,11 @@ export function App(): React.JSX.Element {
                       disabled={!isEnabled}
                       onClick={() => {
                         if (!isEnabled) return;
-                        openTool(toolId);
+                        openTool(tool);
                         setToolsMenuOpen(false);
                       }}
                     >
-                      {tool.getName()}
+                      {tool.name}
                     </button>
                   );
                 })}
@@ -607,18 +643,17 @@ export function App(): React.JSX.Element {
         </div>
       </div>
       {openTools.map((toolId) => {
-        const tool = TOOL_REGISTRY.find((entry) => entry.getFile() === toolId);
+        const tool = availableTools.find((entry) => entry.id === toolId);
         if (!tool) return null;
         if (tool.isAvailable && !tool.isAvailable(toolContext)) {
           return null;
         }
+        if (!tool.Component) return null;
 
+        const ToolComponent = tool.Component;
         return (
           <React.Fragment key={toolId}>
-            {tool.go({
-              context: toolContext,
-              onClose: () => closeTool(toolId),
-            })}
+            <ToolComponent appContext={toolContext} onClose={() => closeTool(toolId)} />
           </React.Fragment>
         );
       })}
