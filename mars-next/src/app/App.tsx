@@ -4,7 +4,7 @@ import { RunToolbar } from "../features/run-control";
 import { EditorPane } from "../features/editor";
 import { BreakpointManagerPanel, BreakpointList, BreakpointSpec, WatchManagerPanel, WatchSpec } from "../features/breakpoints";
 import { resolveInstructionIndex, toggleBreakpoint } from "../features/breakpoints/services/breakpointService";
-import { SettingsDialog, loadSettings } from "../features/settings";
+import { SettingsDialog, loadSettings, saveSettings } from "../features/settings";
 import { MemoryConfiguration, RegistersWindow } from "../features/tools";
 import { publishCpuState } from "../features/tools/register-viewer";
 import {
@@ -77,7 +77,13 @@ export function App(): React.JSX.Element {
   const [editorBreakpoints, setEditorBreakpoints] = useState<number[]>([]);
   const [activeLine, setActiveLine] = useState<number | null>(null);
   const [activeFile, setActiveFile] = useState<string | null>(null);
+  const [theme] = useState(initialSettings.theme);
   const [enablePseudoInstructions, setEnablePseudoInstructions] = useState(initialSettings.enablePseudoInstructions);
+  const [assembleAllFiles, setAssembleAllFiles] = useState(initialSettings.assembleAllFiles);
+  const [delayedBranching, setDelayedBranching] = useState(initialSettings.delayedBranching);
+  const [compactMemoryMap, setCompactMemoryMap] = useState(initialSettings.compactMemoryMap);
+  const [selfModifyingCodeEnabled, setSelfModifyingCodeEnabled] = useState(initialSettings.selfModifyingCodeEnabled);
+  const [showPipelineDelays, setShowPipelineDelays] = useState(initialSettings.showPipelineDelays);
   const [forwardingEnabled, setForwardingEnabled] = useState(initialSettings.forwardingEnabled);
   const [hazardDetectionEnabled, setHazardDetectionEnabled] = useState(initialSettings.hazardDetectionEnabled);
   const [executionMode, setExecutionMode] = useState<ExecutionMode>(initialSettings.executionMode);
@@ -182,6 +188,32 @@ export function App(): React.JSX.Element {
       .then(setAvailableTools)
       .catch((error) => console.error("Failed to load tools", error));
   }, []);
+
+  useEffect(() => {
+    saveSettings({
+      theme,
+      enablePseudoInstructions,
+      assembleAllFiles,
+      delayedBranching,
+      compactMemoryMap,
+      selfModifyingCodeEnabled,
+      showPipelineDelays,
+      forwardingEnabled,
+      hazardDetectionEnabled,
+      executionMode,
+    });
+  }, [
+    assembleAllFiles,
+    compactMemoryMap,
+    delayedBranching,
+    enablePseudoInstructions,
+    executionMode,
+    forwardingEnabled,
+    hazardDetectionEnabled,
+    selfModifyingCodeEnabled,
+    showPipelineDelays,
+    theme,
+  ]);
 
   const toolContext = useMemo<AppContext>(
     () => ({
@@ -522,10 +554,20 @@ export function App(): React.JSX.Element {
       <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
         <SettingsDialog
           enablePseudoInstructions={enablePseudoInstructions}
+          assembleAllFiles={assembleAllFiles}
+          delayedBranching={delayedBranching}
+          compactMemoryMap={compactMemoryMap}
+          selfModifyingCodeEnabled={selfModifyingCodeEnabled}
+          showPipelineDelays={showPipelineDelays}
           forwardingEnabled={forwardingEnabled}
           hazardDetectionEnabled={hazardDetectionEnabled}
           executionMode={executionMode}
           onTogglePseudoInstructions={setEnablePseudoInstructions}
+          onToggleAssembleAllFiles={setAssembleAllFiles}
+          onToggleDelayedBranching={setDelayedBranching}
+          onToggleCompactMemoryMap={setCompactMemoryMap}
+          onToggleSelfModifyingCode={setSelfModifyingCodeEnabled}
+          onToggleShowPipelineDelays={setShowPipelineDelays}
           onToggleForwarding={handleToggleForwarding}
           onToggleHazardDetection={handleToggleHazardDetection}
           onChangeExecutionMode={handleChangeExecutionMode}

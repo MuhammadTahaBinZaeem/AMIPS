@@ -4,10 +4,20 @@ import { PseudoOpsEditor } from "./PseudoOpsEditor";
 
 export interface SettingsDialogProps {
   enablePseudoInstructions: boolean;
+  assembleAllFiles: boolean;
+  delayedBranching: boolean;
+  compactMemoryMap: boolean;
+  selfModifyingCodeEnabled: boolean;
+  showPipelineDelays: boolean;
   forwardingEnabled: boolean;
   hazardDetectionEnabled: boolean;
   executionMode: "pipeline" | "sequential";
   onTogglePseudoInstructions: (enabled: boolean) => void;
+  onToggleAssembleAllFiles: (enabled: boolean) => void;
+  onToggleDelayedBranching: (enabled: boolean) => void;
+  onToggleCompactMemoryMap: (enabled: boolean) => void;
+  onToggleSelfModifyingCode: (enabled: boolean) => void;
+  onToggleShowPipelineDelays: (enabled: boolean) => void;
   onToggleForwarding: (enabled: boolean) => void;
   onToggleHazardDetection: (enabled: boolean) => void;
   onChangeExecutionMode: (mode: "pipeline" | "sequential") => void;
@@ -16,10 +26,20 @@ export interface SettingsDialogProps {
 
 export function SettingsDialog({
   enablePseudoInstructions,
+  assembleAllFiles,
+  delayedBranching,
+  compactMemoryMap,
+  selfModifyingCodeEnabled,
+  showPipelineDelays,
   forwardingEnabled,
   hazardDetectionEnabled,
   executionMode,
   onTogglePseudoInstructions,
+  onToggleAssembleAllFiles,
+  onToggleDelayedBranching,
+  onToggleCompactMemoryMap,
+  onToggleSelfModifyingCode,
+  onToggleShowPipelineDelays,
   onToggleForwarding,
   onToggleHazardDetection,
   onChangeExecutionMode,
@@ -87,6 +107,7 @@ export function SettingsDialog({
 
       {activeTab === "general" && (
         <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+          <strong style={{ color: "#e2e8f0" }}>Assembler</strong>
           <label style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.95rem" }}>
             <input
               type="checkbox"
@@ -98,6 +119,65 @@ export function SettingsDialog({
           <span style={{ color: "#94a3b8", fontSize: "0.9rem" }}>
             Disable this to mirror MARS&apos;s &ldquo;allow pseudo-instructions&rdquo; checkbox and surface errors instead of
             automatic expansion.
+          </span>
+          <label style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.95rem" }}>
+            <input
+              type="checkbox"
+              checked={assembleAllFiles}
+              onChange={(event) => onToggleAssembleAllFiles(event.target.checked)}
+            />
+            <span style={{ color: "#e5e7eb" }}>Assemble all files in directory</span>
+          </label>
+          <span style={{ color: "#94a3b8", fontSize: "0.9rem" }}>
+            When enabled, MARS Next will assemble every <code>.asm</code> file alongside the active source.
+          </span>
+
+          <strong style={{ color: "#e2e8f0", marginTop: "0.25rem" }}>Runtime</strong>
+          <label style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.95rem" }}>
+            <input
+              type="checkbox"
+              checked={delayedBranching}
+              onChange={(event) => onToggleDelayedBranching(event.target.checked)}
+            />
+            <span style={{ color: "#e5e7eb" }}>Use delayed branching</span>
+          </label>
+          <span style={{ color: "#94a3b8", fontSize: "0.9rem" }}>
+            Disable to treat branch delay slots as nops for compatibility testing.
+          </span>
+          <label style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.95rem" }}>
+            <input
+              type="checkbox"
+              checked={selfModifyingCodeEnabled}
+              onChange={(event) => onToggleSelfModifyingCode(event.target.checked)}
+            />
+            <span style={{ color: "#e5e7eb" }}>Allow self-modifying code</span>
+          </label>
+          <span style={{ color: "#94a3b8", fontSize: "0.9rem" }}>
+            Toggle whether stores to the text segment are permitted and automatically invalidate instruction caches.
+          </span>
+          <label style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.95rem" }}>
+            <input
+              type="checkbox"
+              checked={showPipelineDelays}
+              onChange={(event) => onToggleShowPipelineDelays(event.target.checked)}
+            />
+            <span style={{ color: "#e5e7eb" }}>Show pipeline delays</span>
+          </label>
+          <span style={{ color: "#94a3b8", fontSize: "0.9rem" }}>
+            When pipelined mode is enabled, highlight hazards and inserted bubbles in the visualizer.
+          </span>
+
+          <strong style={{ color: "#e2e8f0", marginTop: "0.25rem" }}>Memory map</strong>
+          <label style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.95rem" }}>
+            <input
+              type="checkbox"
+              checked={compactMemoryMap}
+              onChange={(event) => onToggleCompactMemoryMap(event.target.checked)}
+            />
+            <span style={{ color: "#e5e7eb" }}>Use compact memory map</span>
+          </label>
+          <span style={{ color: "#94a3b8", fontSize: "0.9rem" }}>
+            Switch to a reduced address layout compatible with MARS&apos;s compact configuration.
           </span>
           <button
             onClick={onReloadPseudoOps}
