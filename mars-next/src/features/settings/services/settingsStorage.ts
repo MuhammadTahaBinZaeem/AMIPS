@@ -1,11 +1,26 @@
-import { type SettingsState } from "../state/settingsSlice";
+import { initialSettingsState, type SettingsState } from "../state/settingsSlice";
 
 export function loadSettings(): SettingsState {
-  return {
-    theme: "light",
-    enablePseudoInstructions: true,
-    forwardingEnabled: true,
-    hazardDetectionEnabled: true,
-    executionMode: "pipeline",
-  };
+  if (typeof window === "undefined") return initialSettingsState;
+
+  try {
+    const serialized = window.localStorage.getItem("mars-next.settings");
+    if (!serialized) return initialSettingsState;
+
+    const parsed = JSON.parse(serialized) as Partial<SettingsState>;
+    return { ...initialSettingsState, ...parsed };
+  } catch (error) {
+    console.warn("Failed to load settings; falling back to defaults", error);
+    return initialSettingsState;
+  }
+}
+
+export function saveSettings(settings: SettingsState): void {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.localStorage.setItem("mars-next.settings", JSON.stringify(settings));
+  } catch (error) {
+    console.warn("Failed to persist settings", error);
+  }
 }
