@@ -5,15 +5,11 @@ import {
   type PipelineSnapshot,
   type RuntimeController,
 } from "../../core";
-import type { MarsTool, MarsToolContext } from "../../core";
+import type { MarsTool, MarsToolComponentProps } from "../../core";
 import { StagePanel } from "./StagePanel";
 
-export interface PipelineStateWindowProps {
-  runtime: RuntimeController | null;
-  onClose: () => void;
-}
-
-export function PipelineStateWindow({ runtime, onClose }: PipelineStateWindowProps): React.JSX.Element {
+export function PipelineStateWindow({ appContext, onClose }: MarsToolComponentProps): React.JSX.Element {
+  const runtime = (appContext.runtime as RuntimeController | null | undefined) ?? null;
   const [snapshot, setSnapshot] = useState<PipelineSnapshot>(() => getLatestPipelineSnapshot());
   const [isRunning, setIsRunning] = useState(false);
 
@@ -195,14 +191,18 @@ function StatCard({ title, value, description }: StatCardProps): React.JSX.Eleme
   );
 }
 
-type PipelineToolContext = MarsToolContext & { runtime?: RuntimeController | null };
-
-export const PipelineStateTool: MarsTool<PipelineToolContext> = {
-  getName: () => "Pipeline Viewer",
-  getFile: () => "pipeline-view/PipelineStateWindow.tsx",
+export const PipelineStateTool: MarsTool = {
+  id: "pipeline-viewer",
+  name: "Pipeline Viewer",
+  description: "Visualize pipeline registers and hazards.",
+  Component: PipelineStateWindow,
   isAvailable: (context) => Boolean(context.runtime),
-  go: ({ context, onClose }) => <PipelineStateWindow runtime={context.runtime ?? null} onClose={onClose} />,
+  run: () => {
+    // Rendering handled by host application.
+  },
 };
+
+export default PipelineStateTool;
 
 const overlayStyle: React.CSSProperties = {
   position: "fixed",

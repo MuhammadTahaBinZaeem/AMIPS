@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { MarsTool, MarsToolContext } from "../../../core/tools/MarsTool";
+import { MarsTool, type MarsToolComponentProps } from "../../../core/tools/MarsTool";
 import { MemoryConfiguration, type MemorySegmentDescriptor } from "./MemoryConfiguration";
 
 const VALUES_PER_ROW = 8;
@@ -8,12 +8,6 @@ const BYTES_PER_VALUE = 4;
 const BYTES_PER_ROW = VALUES_PER_ROW * BYTES_PER_VALUE;
 const MEMORY_CHUNK_SIZE = NUMBER_OF_ROWS * BYTES_PER_ROW;
 const PREV_NEXT_CHUNK_SIZE = MEMORY_CHUNK_SIZE / 2;
-
-export interface DataSegmentWindowProps {
-  entries: Array<{ address: number; value: number }>;
-  configuration?: MemoryConfiguration | null;
-  onClose: () => void;
-}
 
 function formatAddress(address: number): string {
   return `0x${(address >>> 0).toString(16).padStart(8, "0")}`;
@@ -61,7 +55,9 @@ function selectInitialAddress(
   return preferred - (preferred % BYTES_PER_ROW);
 }
 
-export function DataSegmentWindow({ entries, configuration, onClose }: DataSegmentWindowProps): React.JSX.Element {
+export function DataSegmentWindow({ appContext, onClose }: MarsToolComponentProps): React.JSX.Element {
+  const entries = appContext.memoryEntries ?? [];
+  const configuration = (appContext.memoryConfiguration as MemoryConfiguration | null | undefined) ?? null;
   const [selectedSegment, setSelectedSegment] = useState<string>("data");
   const [chunkStart, setChunkStart] = useState<number>(0);
   const byteMap = useMemo(() => buildByteMap(entries), [entries]);
@@ -200,22 +196,18 @@ export function DataSegmentWindow({ entries, configuration, onClose }: DataSegme
   );
 }
 
-type DataSegmentToolContext = MarsToolContext & {
-  memoryEntries: Array<{ address: number; value: number }>;
-  memoryConfiguration: MemoryConfiguration | null;
+export const DataSegmentTool: MarsTool = {
+  id: "data-segment-viewer",
+  name: "Data Segment Viewer",
+  description: "Inspect the contents of the MIPS data segment in memory.",
+  Component: DataSegmentWindow,
+  isAvailable: (context) => (context.memoryEntries?.length ?? 0) > 0,
+  run: () => {
+    // UI rendering is handled by the host; no additional wiring needed.
+  },
 };
 
-export const DataSegmentTool: MarsTool<DataSegmentToolContext> = {
-  getName: () => "Data Segment Viewer",
-  getFile: () => "data-viewer/DataSegmentWindow.tsx",
-  go: ({ context, onClose }) => (
-    <DataSegmentWindow
-      entries={context.memoryEntries ?? []}
-      configuration={context.memoryConfiguration}
-      onClose={onClose}
-    />
-  ),
-};
+export default DataSegmentTool;
 
 const overlayStyle: React.CSSProperties = {
   position: "fixed",

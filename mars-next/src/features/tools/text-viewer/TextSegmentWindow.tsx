@@ -1,13 +1,7 @@
 import React, { useMemo } from "react";
 import { BinaryImage, DEFAULT_TEXT_BASE, SourceMapEntry } from "../../../core";
 import { disassembleInstruction } from "../../../core/debugger/Disassembler";
-import { MarsTool, MarsToolContext } from "../../../core/tools/MarsTool";
-
-export interface TextSegmentWindowProps {
-  program?: BinaryImage | null;
-  sourceMap?: SourceMapEntry[] | undefined;
-  onClose: () => void;
-}
+import { MarsTool, type MarsToolComponentProps } from "../../../core/tools/MarsTool";
 
 type TextSegmentKey = "text" | "ktext";
 
@@ -87,7 +81,10 @@ function buildSegmentRows(
   });
 }
 
-export function TextSegmentWindow({ program, sourceMap, onClose }: TextSegmentWindowProps): React.JSX.Element {
+export function TextSegmentWindow({ appContext, onClose }: MarsToolComponentProps): React.JSX.Element {
+  const program = (appContext.program as BinaryImage | null | undefined) ?? null;
+  const sourceMap = appContext.sourceMap as SourceMapEntry[] | undefined;
+
   const effectiveSourceMap = useMemo(() => sourceMap ?? program?.sourceMap ?? [], [program?.sourceMap, sourceMap]);
   const rows = useMemo(() => {
     const lookup = buildSourceLookup(effectiveSourceMap);
@@ -150,18 +147,18 @@ export function TextSegmentWindow({ program, sourceMap, onClose }: TextSegmentWi
   );
 }
 
-type TextSegmentToolContext = MarsToolContext & {
-  program?: BinaryImage | null;
-  sourceMap?: SourceMapEntry[] | undefined;
+export const TextSegmentTool: MarsTool = {
+  id: "text-segment-viewer",
+  name: "Text Segment Viewer",
+  description: "Disassemble the text and kernel text segments with source mapping.",
+  Component: TextSegmentWindow,
+  isAvailable: (context) => Boolean(context.program),
+  run: () => {
+    // Rendering handled by host.
+  },
 };
 
-export const TextSegmentTool: MarsTool<TextSegmentToolContext> = {
-  getName: () => "Text Segment Viewer",
-  getFile: () => "text-viewer/TextSegmentWindow.tsx",
-  go: ({ context, onClose }) => (
-    <TextSegmentWindow program={context.program ?? null} sourceMap={context.sourceMap} onClose={onClose} />
-  ),
-};
+export default TextSegmentTool;
 
 const overlayStyle: React.CSSProperties = {
   position: "fixed",

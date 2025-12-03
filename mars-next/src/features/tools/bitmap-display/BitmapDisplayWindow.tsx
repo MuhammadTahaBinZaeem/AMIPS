@@ -1,16 +1,14 @@
 import React, { useEffect, useMemo, useRef } from "react";
 import type { DirtyRegion } from "../../../core";
-import { BitmapDisplayState, MarsTool, MarsToolContext } from "../../../core/tools/MarsTool";
+import { BitmapDisplayState, MarsTool, type MarsToolComponentProps } from "../../../core/tools/MarsTool";
 
-export interface BitmapDisplayWindowProps {
-  width: number;
-  height: number;
-  buffer: Uint8Array;
-  dirtyRegions: DirtyRegion[];
-  onClose: () => void;
-}
+export function BitmapDisplayWindow({ appContext, onClose }: MarsToolComponentProps): React.JSX.Element {
+  const bitmap = (appContext.bitmapDisplay as BitmapDisplayState | null | undefined) ?? null;
 
-export function BitmapDisplayWindow({ width, height, buffer, dirtyRegions, onClose }: BitmapDisplayWindowProps): React.JSX.Element {
+  const width = bitmap?.width ?? 0;
+  const height = bitmap?.height ?? 0;
+  const buffer = bitmap?.buffer ?? new Uint8Array();
+  const dirtyRegions = bitmap?.dirtyRegions ?? [];
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const imageDataRef = useRef<ImageData | null>(null);
 
@@ -83,29 +81,18 @@ export function BitmapDisplayWindow({ width, height, buffer, dirtyRegions, onClo
   );
 }
 
-type BitmapDisplayToolContext = MarsToolContext & {
-  bitmapDisplay: BitmapDisplayState | null;
-};
-
-export const BitmapDisplayTool: MarsTool<BitmapDisplayToolContext> = {
-  getName: () => "Bitmap Display",
-  getFile: () => "bitmap-display/BitmapDisplayWindow.tsx",
+export const BitmapDisplayTool: MarsTool = {
+  id: "bitmap-display",
+  name: "Bitmap Display",
+  description: "Render the bitmap display peripheral output.",
+  Component: BitmapDisplayWindow,
   isAvailable: (context) => Boolean(context.bitmapDisplay),
-  go: ({ context, onClose }) => {
-    const bitmap = context.bitmapDisplay;
-    if (!bitmap) return null;
-
-    return (
-      <BitmapDisplayWindow
-        width={bitmap.width}
-        height={bitmap.height}
-        buffer={bitmap.buffer}
-        dirtyRegions={bitmap.dirtyRegions}
-        onClose={onClose}
-      />
-    );
+  run: () => {
+    // Rendering handled externally.
   },
 };
+
+export default BitmapDisplayTool;
 
 const overlayStyle: React.CSSProperties = {
   position: "fixed",
