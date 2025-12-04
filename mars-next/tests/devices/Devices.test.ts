@@ -7,7 +7,7 @@ import { decodeInstruction } from "../../src/core/cpu/Instructions";
 import { InstructionDecoder } from "../../src/core/cpu/Cpu";
 import { DisplayDevice } from "../../src/core/devices/DisplayDevice";
 import { FileDevice } from "../../src/core/devices/FileDevice";
-import { KeyboardDevice } from "../../src/core/devices/KeyboardDevice";
+import { KeyboardDevice, KEYBOARD_QUEUE_BYTE_LENGTH } from "../../src/core/devices/KeyboardDevice";
 import { TerminalDevice } from "../../src/core/devices/TerminalDevice";
 import { TimerDevice } from "../../src/core/devices/TimerDevice";
 import { MemoryMap } from "../../src/core/memory/MemoryMap";
@@ -133,37 +133,43 @@ describe("MMIO device interrupts", () => {
   test("KeyboardDevice triggers interrupts when ready and enabled", () => {
     const map = new MemoryMap();
     const keyboard = new KeyboardDevice();
-    map.registerDevice(map.mmioBase, 8, keyboard);
+    const downStart = map.mmioBase + 0x10;
+    const upStart = map.mmioBase + 0x20;
+    map.registerDevice(downStart, KEYBOARD_QUEUE_BYTE_LENGTH, keyboard.getQueueDevice("down"));
+    map.registerDevice(upStart, KEYBOARD_QUEUE_BYTE_LENGTH, keyboard.getQueueDevice("up"));
 
     let interrupts = 0;
     map.onInterrupt(() => interrupts++);
 
     const memory = new Memory({ map });
-    memory.writeByte(map.mmioBase, 0x2); // enable interrupt bit while leaving ready cleared
-
-    keyboard.queueInput("A");
+    keyboard.queueFromBytes("down", [0x41]);
     assert.strictEqual(interrupts, 1);
+    assert.strictEqual(memory.readByte(downStart), 1);
 
-    memory.readByte(map.mmioBase + 4); // clears ready bit
-    keyboard.queueInput("B");
+    memory.writeByte(downStart + 1, 0x1); // clear queued events
+    assert.strictEqual(memory.readByte(downStart), 0);
+
+    keyboard.queueFromBytes("up", [0x42, 0x43]);
     assert.strictEqual(interrupts, 2);
+    assert.strictEqual(memory.readByte(upStart), 2);
   });
 
   test("DisplayDevice fires interrupts when re-enabled and after transmissions", () => {
     const map = new MemoryMap();
     const keyboard = new KeyboardDevice();
     const display = new DisplayDevice(() => {});
-    map.registerDevice(map.mmioBase, 8, keyboard);
-    map.registerDevice(map.mmioBase + 8, 8, display);
+    map.registerDevice(map.mmioBase + 0x10, KEYBOARD_QUEUE_BYTE_LENGTH, keyboard.getQueueDevice("down"));
+    map.registerDevice(map.mmioBase + 0x20, KEYBOARD_QUEUE_BYTE_LENGTH, keyboard.getQueueDevice("up"));
+    map.registerDevice(map.mmioBase, 8, display);
 
     let interrupts = 0;
     map.onInterrupt(() => interrupts++);
 
     const memory = new Memory({ map });
-    memory.writeByte(map.mmioBase + 8, 0x2); // enable interrupts while already ready
+    memory.writeByte(map.mmioBase, 0x2); // enable interrupts while already ready
     assert.strictEqual(interrupts, 1);
 
-    memory.writeByte(map.mmioBase + 12, 0x41);
+    memory.writeByte(map.mmioBase + 4, 0x41);
     assert.strictEqual(interrupts, 2);
   });
 });

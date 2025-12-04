@@ -3,7 +3,7 @@ import { describe, test } from "node:test";
 
 import { DisplayDevice } from "../../src/core/devices/DisplayDevice";
 import { FileDevice } from "../../src/core/devices/FileDevice";
-import { KeyboardDevice } from "../../src/core/devices/KeyboardDevice";
+import { KeyboardDevice, KEYBOARD_QUEUE_BYTE_LENGTH } from "../../src/core/devices/KeyboardDevice";
 import { TerminalDevice } from "../../src/core/devices/TerminalDevice";
 import { Memory } from "../../src/core/memory/Memory";
 import { MemoryMap } from "../../src/core/memory/MemoryMap";
@@ -169,8 +169,11 @@ describe("Legacy syscall coverage", () => {
   test("read_char pulls from the keyboard device when ready", () => {
     const map = new MemoryMap({ devices: [] });
     const keyboard = new KeyboardDevice();
-    map.registerDevice(map.mmioBase, 8, keyboard);
-    keyboard.queueInput("Z");
+    const downStart = map.mmioBase + 0x10;
+    const upStart = map.mmioBase + 0x20;
+    map.registerDevice(downStart, KEYBOARD_QUEUE_BYTE_LENGTH, keyboard.getQueueDevice("down"));
+    map.registerDevice(upStart, KEYBOARD_QUEUE_BYTE_LENGTH, keyboard.getQueueDevice("up"));
+    keyboard.queueFromBytes("down", ["Z".charCodeAt(0)]);
 
     const memory = new Memory({ map });
     const table = buildTable(memory, {});
@@ -185,7 +188,7 @@ describe("Legacy syscall coverage", () => {
     const map = new MemoryMap({ devices: [] });
     const log: string[] = [];
     const display = new DisplayDevice((char) => log.push(char));
-    map.registerDevice(map.mmioBase + 8, 8, display);
+    map.registerDevice(map.mmioBase, 8, display);
 
     const memory = new Memory({ map });
     const table = buildTable(memory, {});

@@ -97,3 +97,7 @@ export function subscribeToPipelineSnapshots(listener: PipelineListener): () => 
 export function getLatestPipelineSnapshot(): PipelineSnapshot {
   return latestSnapshot;
 }
+
+export function hasPipelineListeners(): boolean {
+  return listeners.size > 0;
+}
