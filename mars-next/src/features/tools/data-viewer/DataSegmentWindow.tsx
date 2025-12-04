@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { MarsTool, type MarsToolComponentProps } from "../../../core/tools/MarsTool";
+import { getLatestDataState, subscribeToDataState } from "./dataEvents";
 import { MemoryConfiguration, type MemorySegmentDescriptor } from "./MemoryConfiguration";
 
 const VALUES_PER_ROW = 8;
@@ -56,7 +57,9 @@ function selectInitialAddress(
 }
 
 export function DataSegmentWindow({ appContext, onClose }: MarsToolComponentProps): React.JSX.Element {
-  const entries = appContext.memoryEntries ?? [];
+  const [entries, setEntries] = useState<Array<{ address: number; value: number }>>(
+    () => getLatestDataState().entries,
+  );
   const configuration = (appContext.memoryConfiguration as MemoryConfiguration | null | undefined) ?? null;
   const [selectedSegment, setSelectedSegment] = useState<string>("data");
   const [chunkStart, setChunkStart] = useState<number>(0);
@@ -68,6 +71,11 @@ export function DataSegmentWindow({ appContext, onClose }: MarsToolComponentProp
     segments,
     selectedSegment,
   ]);
+
+  useEffect(() => {
+    const unsubscribe = subscribeToDataState((snapshot) => setEntries(snapshot.entries));
+    return () => unsubscribe();
+  }, []);
 
   useEffect(() => {
     if (!activeSegment && segments.length > 0) {
