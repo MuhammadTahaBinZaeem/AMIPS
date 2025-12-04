@@ -1,5 +1,6 @@
 import { Memory } from "../memory/Memory";
 import { MachineState } from "../state/MachineState";
+import { type WatchEvent, type WatchValue } from "../debugger/WatchEngine";
 
 export type RuntimeStatus = "running" | "breakpoint" | "halted" | "terminated";
 
@@ -7,6 +8,8 @@ export interface RuntimeSnapshot {
   status: RuntimeStatus;
   state: MachineState;
   memory?: Memory;
+  watchChanges?: WatchEvent[];
+  watchValues?: WatchValue[];
 }
 
 type RuntimeListener = (snapshot: RuntimeSnapshot) => void;
@@ -16,6 +19,8 @@ let latestSnapshot: RuntimeSnapshot = {
   status: "halted",
   state: new MachineState(),
   memory: new Memory(),
+  watchChanges: [],
+  watchValues: [],
 };
 
 export function publishRuntimeSnapshot(snapshot: RuntimeSnapshot): void {

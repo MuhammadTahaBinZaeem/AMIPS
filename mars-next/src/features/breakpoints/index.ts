@@ -4,4 +4,6 @@ export * from "./components/BreakpointManagerPanel";
 export * from "./types";
 export * from "./components/WatchManagerPanel";
 export * from "./state/breakpointSlice";
+export * from "./state/watchSlice";
 export * from "./services/breakpointService";
+export * from "./types";

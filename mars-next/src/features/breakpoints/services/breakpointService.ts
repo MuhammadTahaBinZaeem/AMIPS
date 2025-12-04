@@ -9,11 +9,11 @@ export function resolveInstructionIndex(line: number, sourceMap?: SourceMapEntry
 
   const targetFile = file ?? (sourceMap.some((entry) => entry.file === "<input>") ? "<input>" : sourceMap[0]?.file);
 
-  const location = sourceMap.find(
-    (entry) => entry.segment === "text" && entry.line === line && (targetFile === undefined || entry.file === targetFile),
-  );
+  const candidates = sourceMap
+    .filter((entry) => entry.segment === "text" && entry.line === line && (targetFile === undefined || entry.file === targetFile))
+    .sort((left, right) => (left.segmentIndex ?? 0) - (right.segmentIndex ?? 0));
 
-  return location ? location.segmentIndex : null;
+  return candidates[0]?.segmentIndex ?? null;
 }
 
 export function toggleBreakpoint(

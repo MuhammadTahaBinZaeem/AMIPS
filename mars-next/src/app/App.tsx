@@ -25,6 +25,8 @@ import {
   type ExecutionMode,
   getLatestPipelineSnapshot,
   getLatestRuntimeSnapshot,
+  type WatchEvent,
+  type WatchValue,
   reloadPseudoOpTable,
   subscribeToPipelineSnapshots,
   subscribeToRuntimeSnapshots,
@@ -107,16 +109,17 @@ export function App(): React.JSX.Element {
     [activeFile, engine, sourceMap],
   );
 
-  const applyBreakpoints = (
-    targetEngine: CoreEngine,
-    specs: BreakpointSpec[],
-    symbols: Record<string, number> = symbolTable,
-    map: SourceMapEntry[] | undefined = sourceMap,
-    editorPoints: number[] = editorBreakpoints,
-    file: string | null = activeFile,
-  ): void => {
-    const { breakpoints: engineBreakpoints } = targetEngine.getDebuggerEngines();
-    if (!engineBreakpoints) return;
+  const applyBreakpoints = useCallback(
+    (
+      targetEngine: CoreEngine,
+      specs: BreakpointSpec[],
+      symbols: Record<string, number>,
+      map: SourceMapEntry[] | undefined,
+      editorPoints: number[],
+      file: string | null,
+    ): void => {
+      const { breakpoints: engineBreakpoints } = targetEngine.getDebuggerEngines();
+      if (!engineBreakpoints) return;
 
     engineBreakpoints.clearAll();
     engineBreakpoints.setSymbolTable(symbols);
@@ -149,19 +152,28 @@ export function App(): React.JSX.Element {
       }
     });
 
-    editorPoints.forEach((line) => {
-      const index = resolveInstructionIndex(line, map, file ?? undefined);
-      if (index !== null) {
-        engineBreakpoints.setInstructionBreakpoint(index);
-      }
-    });
-  };
+      editorPoints.forEach((line) => {
+        const index = resolveInstructionIndex(line, map, file ?? undefined);
+        if (index !== null) {
+          engineBreakpoints.setInstructionBreakpoint(index);
+        }
+      });
+    },
+    [],
+  );
 
-  const applyWatches = (
-    targetEngine: CoreEngine,
-    specs: WatchSpec[],
-    symbols: Record<string, number> = symbolTable,
-  ): void => {
+  const updateWatchState = useCallback((values?: WatchValue[] | null, changes?: WatchEvent[] | null): void => {
+    setWatchValues((current) => {
+      const next = values ? Object.fromEntries(values.map((entry) => [entry.key, entry.value])) : { ...current };
+      (changes ?? []).forEach((event) => {
+        const key = `${event.kind}:${event.identifier}`;
+        next[key] = event.newValue;
+      });
+      return next;
+    });
+  }, []);
+
+  const applyWatches = useCallback((targetEngine: CoreEngine, specs: WatchSpec[], symbols: Record<string, number>): void => {
     const { watchEngine } = targetEngine.getDebuggerEngines();
     if (!watchEngine) return;
 
@@ -176,12 +188,18 @@ export function App(): React.JSX.Element {
       }
     });
 
-    const snapshot: Record<string, number | undefined> = {};
-    watchEngine.getWatchValues().forEach((entry) => {
-      snapshot[entry.key] = entry.value;
-    });
-    setWatchValues(snapshot);
-  };
+    updateWatchState(watchEngine.getWatchValues(), null);
+  }, [updateWatchState]);
+
+  useEffect(() => {
+    if (!engine) return;
+    applyBreakpoints(engine, breakpoints, symbolTable, sourceMap, editorBreakpoints, activeFile);
+  }, [activeFile, applyBreakpoints, breakpoints, editorBreakpoints, engine, sourceMap, symbolTable]);
+
+  useEffect(() => {
+    if (!engine) return;
+    applyWatches(engine, watches, symbolTable);
+  }, [applyWatches, engine, symbolTable, watches]);
 
   useEffect(() => {
     ToolLoader.loadTools()
@@ -265,12 +283,13 @@ export function App(): React.JSX.Element {
       setActiveFile(currentLocation?.file ?? null);
 
       const { breakpoints: engineBreakpoints, watchEngine } = engine.getDebuggerEngines();
-      if (watchEngine) {
-        const snapshotValues: Record<string, number | undefined> = {};
-        watchEngine.getWatchValues().forEach((entry) => {
-          snapshotValues[entry.key] = entry.value;
-        });
-        setWatchValues(snapshotValues);
+      if (snapshot.watchValues || snapshot.watchChanges) {
+        updateWatchState(snapshot.watchValues ?? null, snapshot.watchChanges ?? null);
+        if (snapshot.watchChanges?.length) {
+          watchEngine?.getWatchChanges();
+        }
+      } else if (watchEngine) {
+        updateWatchState(watchEngine.getWatchValues(), watchEngine.getWatchChanges());
       }
 
       if (runtimeStatus === "terminated") {
@@ -299,7 +318,7 @@ export function App(): React.JSX.Element {
     });
 
     return () => unsubscribe();
-  }, [engine, sourceMap]);
+  }, [engine, sourceMap, updateWatchState]);
 
   const openTool = useCallback(
     (tool: MarsTool): void => {
@@ -434,11 +453,7 @@ export function App(): React.JSX.Element {
 
       const { breakpoints: engineBreakpoints, watchEngine } = loadedEngine.getDebuggerEngines();
       if (watchEngine) {
-        const snapshot: Record<string, number | undefined> = {};
-        watchEngine.getWatchValues().forEach((entry) => {
-          snapshot[entry.key] = entry.value;
-        });
-        setWatchValues(snapshot);
+        updateWatchState(watchEngine.getWatchValues(), watchEngine.getWatchChanges());
       }
 
       const hitInfo = engineBreakpoints?.getHitInfo();
@@ -616,6 +631,9 @@ export function App(): React.JSX.Element {
           <BreakpointManagerPanel
             breakpoints={breakpoints}
             symbols={symbolTable}
+            lineBreakpoints={editorBreakpoints}
+            sourceMap={sourceMap}
+            file={activeFile}
             onAdd={(spec) =>
               setBreakpoints((previous) => {
                 const alreadyExists = previous.some(
@@ -636,6 +654,7 @@ export function App(): React.JSX.Element {
               })
             }
             onRemove={(id) => setBreakpoints((previous) => previous.filter((entry) => entry.id !== id))}
+            onToggleLine={handleToggleEditorBreakpoint}
           />
           <div
             style={{
