@@ -1,5 +1,6 @@
 import React, { useMemo } from "react";
 import { BreakpointSpec, WatchSpec } from "../../breakpoints";
+import { getWatchKey } from "../../breakpoints/services/watchKey";
 import { EditorView } from "./EditorView";
 
 interface EditorPaneProps {
@@ -61,9 +62,9 @@ export function EditorPane({
     () =>
       watches.map((watch) => ({
         ...watch,
-        key: `${watch.kind}:${watch.identifier}`,
+        key: getWatchKey(watch, symbols),
         display: renderWatchIdentifier(watch, symbols),
-        value: watchValues[`${watch.kind}:${watch.identifier}`],
+        value: watchValues[getWatchKey(watch, symbols)],
       })),
     [symbols, watchValues, watches],
   );

@@ -3,7 +3,7 @@ import { Cpu, type DecodedInstruction, type InstructionDecoder, type Instruction
 import { SyscallException, normalizeCpuException } from "../exceptions/ExecutionExceptions";
 import { DEFAULT_TEXT_BASE, MachineState } from "../state/MachineState";
 import { BreakpointEngine } from "../debugger/BreakpointEngine";
-import { WatchEngine } from "../debugger/WatchEngine";
+import { WatchEngine, type WatchEvent, type WatchValue } from "../debugger/WatchEngine";
 import { InterruptController } from "../interrupts/InterruptController";
 import { Memory } from "../memory/Memory";
 import { publishPipelineSnapshot, type PipelineSnapshot, type PipelineStageState } from "../tools/pipelineEvents";
@@ -475,13 +475,25 @@ export class PipelineSimulator {
   }
 
   private publishRuntimeState(status: RuntimeStatus, state: MachineState, memory: InstructionMemory): RuntimeStatus {
+    const watchSnapshot = this.collectWatchSnapshot();
+
     publishRuntimeSnapshot({
       status,
       state,
       memory: memory instanceof Memory ? memory : undefined,
+      watchChanges: watchSnapshot?.changes,
+      watchValues: watchSnapshot?.values,
     });
 
     return status;
+  }
+
+  private collectWatchSnapshot(): { changes: WatchEvent[]; values: WatchValue[] } | null {
+    if (!this.watchEngine) return null;
+    return {
+      changes: this.watchEngine.peekWatchChanges(),
+      values: this.watchEngine.getWatchValues(),
+    };
   }
 
   private servicePendingInterrupts(state: MachineState, memory: InstructionMemory, contextPc: number): boolean {

@@ -12,3 +12,10 @@ export interface BreakpointSpec {
 }
 
 export type NewBreakpointSpec = Omit<BreakpointSpec, "id">;
+
+export type WatchKind = "register" | "memory" | "expression";
+
+export interface WatchSpec {
+  kind: WatchKind;
+  identifier: string;
+}

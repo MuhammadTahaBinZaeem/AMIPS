@@ -11,6 +11,13 @@ export interface WatchEvent {
   newValue: number;
 }
 
+export interface WatchValue {
+  key: string;
+  kind: WatchKind;
+  identifier: WatchIdentifier;
+  value: number | undefined;
+}
+
 interface MemoryReader {
   read(address: number): number;
 }
@@ -94,6 +101,10 @@ export class WatchEngine {
     return events;
   }
 
+  peekWatchChanges(): WatchEvent[] {
+    return [...this.pendingEvents];
+  }
+
   setSymbolTable(symbols: Map<string, number> | Record<string, number> | null): void {
     if (!symbols) {
       this.symbolTable = null;
@@ -103,7 +114,7 @@ export class WatchEngine {
     this.symbolTable = symbols instanceof Map ? new Map(symbols) : new Map(Object.entries(symbols));
   }
 
-  getWatchValues(): Array<{ key: string; kind: WatchKind; identifier: WatchIdentifier; value: number | undefined }> {
+  getWatchValues(): WatchValue[] {
     return Array.from(this.watches.values()).map((watch) => ({
       key: watch.key,
       kind: watch.kind,

@@ -4,7 +4,7 @@ import { decodeInstruction } from "./cpu/Instructions";
 import { Pipeline, type PerformanceCounters } from "./cpu/Pipeline";
 import { TerminalDevice } from "./devices/TerminalDevice";
 import { BreakpointEngine } from "./debugger/BreakpointEngine";
-import { WatchEngine } from "./debugger/WatchEngine";
+import { WatchEngine, type WatchEvent, type WatchValue } from "./debugger/WatchEngine";
 import { ProgramLoader, type ProgramLayout, type ProgramLoadOptions } from "./loader/ProgramLoader";
 import { Linker } from "./loader/Linker";
 import { Memory } from "./memory/Memory";
@@ -386,13 +386,25 @@ export class CoreEngine {
   }
 
   private publishSequentialRuntimeSnapshot(status: RuntimeStatus): RuntimeStatus {
+    const watchSnapshot = this.collectWatchSnapshot();
+
     publishRuntimeSnapshot({
       status,
       state: this.state,
       memory: this.memory,
+      watchChanges: watchSnapshot?.changes,
+      watchValues: watchSnapshot?.values,
     });
     this.publishSequentialPipelineSnapshot();
     return status;
+  }
+
+  private collectWatchSnapshot(): { changes: WatchEvent[]; values: WatchValue[] } | null {
+    if (!this.watchEngine) return null;
+    return {
+      changes: this.watchEngine.peekWatchChanges(),
+      values: this.watchEngine.getWatchValues(),
+    };
   }
 
   private publishSequentialPipelineSnapshot(): void {

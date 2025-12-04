@@ -11,6 +11,7 @@ type BreakpointRule = Required<BreakpointOptions>;
 export class BreakpointEngine {
   private readonly addressBreakpoints = new Map<number, BreakpointRule[]>();
   private readonly instructionBreakpoints = new Map<number, BreakpointRule[]>();
+  private readonly lineBreakpoints = new Map<number, BreakpointRule[]>();
   private lastHit: BreakpointHit | null = null;
   private symbolTable: Map<string, number> | null = null;
 
@@ -41,11 +42,25 @@ export class BreakpointEngine {
     this.instructionBreakpoints.delete(index | 0);
   }
 
+  setLineBreakpoint(line: number, options: BreakpointOptions = {}): void {
+    const normalized = Math.max(1, Math.floor(line));
+    this.addRule(this.lineBreakpoints, normalized, options);
+  }
+
+  removeLineBreakpoint(line: number): void {
+    this.lineBreakpoints.delete(Math.max(1, Math.floor(line)));
+  }
+
   checkForHit(programCounter: number, instructionIndex: number, state?: MachineState): boolean {
     if (this.evaluateBreakpoints(this.addressBreakpoints, "address", programCounter, state)) return true;
     if (this.evaluateBreakpoints(this.instructionBreakpoints, "instruction", instructionIndex, state)) return true;
+    if (this.evaluateBreakpoints(this.lineBreakpoints, "instruction", instructionIndex + 1, state)) return true;
 
     return false;
+  }
+
+  shouldBreak(programCounter: number, instructionIndex: number, state?: MachineState): boolean {
+    return this.checkForHit(programCounter, instructionIndex, state);
   }
 
   getHitBreakpoint(): number | null {
@@ -63,6 +78,7 @@ export class BreakpointEngine {
   clearAll(): void {
     this.addressBreakpoints.clear();
     this.instructionBreakpoints.clear();
+    this.lineBreakpoints.clear();
     this.clearHit();
   }
 

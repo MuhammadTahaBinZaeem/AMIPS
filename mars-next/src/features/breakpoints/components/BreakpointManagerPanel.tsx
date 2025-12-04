@@ -1,11 +1,17 @@
 import React, { useMemo, useState } from "react";
+import { type SourceMapEntry } from "../../../core";
+import { resolveInstructionIndex } from "../services/breakpointService";
 import { BreakpointSpec, NewBreakpointSpec } from "../types";
 
 export interface BreakpointManagerPanelProps {
   breakpoints: BreakpointSpec[];
   symbols?: Record<string, number>;
+  lineBreakpoints?: number[];
+  sourceMap?: SourceMapEntry[];
+  file?: string | null;
   onAdd: (spec: NewBreakpointSpec) => void;
   onRemove: (id: string) => void;
+  onToggleLine?: (line: number) => void;
 }
 
 function resolveAddress(spec: string | number, symbols?: Record<string, number>): number | null {
@@ -21,7 +27,16 @@ function resolveAddress(spec: string | number, symbols?: Record<string, number>)
   return null;
 }
 
-export function BreakpointManagerPanel({ breakpoints, symbols, onAdd, onRemove }: BreakpointManagerPanelProps): React.JSX.Element {
+export function BreakpointManagerPanel({
+  breakpoints,
+  symbols,
+  lineBreakpoints = [],
+  sourceMap,
+  file,
+  onAdd,
+  onRemove,
+  onToggleLine,
+}: BreakpointManagerPanelProps): React.JSX.Element {
   const [input, setInput] = useState("");
   const [conditionRegister, setConditionRegister] = useState("");
   const [conditionValue, setConditionValue] = useState("");
@@ -36,6 +51,14 @@ export function BreakpointManagerPanel({ breakpoints, symbols, onAdd, onRemove }
     [breakpoints, symbols],
   );
 
+  const resolvedLineBreakpoints = useMemo(() => {
+    const sorted = [...lineBreakpoints].sort((a, b) => a - b);
+    return sorted.map((line) => ({
+      line,
+      instructionIndex: resolveInstructionIndex(line, sourceMap, file ?? undefined),
+    }));
+  }, [file, lineBreakpoints, sourceMap]);
+
   const handleAdd = (): void => {
     if (!input.trim()) return;
 
@@ -45,6 +68,16 @@ export function BreakpointManagerPanel({ breakpoints, symbols, onAdd, onRemove }
       hasCondition && !Number.isNaN(parsedValue)
         ? { kind: "registerEquals" as const, register: conditionRegister.trim(), value: parsedValue }
         : null;
+
+    const parsedLine = Number.parseInt(input.trim(), 10);
+    if (!Number.isNaN(parsedLine) && onToggleLine && resolveInstructionIndex(parsedLine, sourceMap, file ?? undefined) !== null) {
+      onToggleLine(parsedLine);
+      setInput("");
+      setConditionRegister("");
+      setConditionValue("");
+      setOneShot(false);
+      return;
+    }
 
     onAdd({
       spec: input.trim(),
@@ -148,7 +181,48 @@ export function BreakpointManagerPanel({ breakpoints, symbols, onAdd, onRemove }
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
-        {resolvedBreakpoints.length === 0 && <span style={{ color: "#94a3b8" }}>No breakpoints defined.</span>}
+        {resolvedLineBreakpoints.length === 0 && resolvedBreakpoints.length === 0 && (
+          <span style={{ color: "#94a3b8" }}>No breakpoints defined.</span>
+        )}
+
+        {resolvedLineBreakpoints.map((entry) => (
+          <div
+            key={`line-${entry.line}`}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "0.35rem 0.5rem",
+              border: "1px solid #1f2937",
+              borderRadius: "0.35rem",
+              backgroundColor: "#0b1220",
+            }}
+          >
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.1rem" }}>
+              <span style={{ color: "#e2e8f0", fontWeight: 600 }}>Line {entry.line}</span>
+              <span style={{ color: entry.instructionIndex !== null ? "#38bdf8" : "#fca5a5", fontSize: "0.9rem" }}>
+                {entry.instructionIndex !== null
+                  ? `Instruction ${entry.instructionIndex}`
+                  : "Unmapped source line"}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => onToggleLine?.(entry.line)}
+              style={{
+                backgroundColor: "#1f2937",
+                color: "#e2e8f0",
+                border: "1px solid #334155",
+                borderRadius: "0.35rem",
+                padding: "0.3rem 0.75rem",
+                cursor: "pointer",
+              }}
+            >
+              Remove
+            </button>
+          </div>
+        ))}
+
         {resolvedBreakpoints.map((breakpoint) => (
           <div
             key={breakpoint.id}
@@ -169,10 +243,10 @@ export function BreakpointManagerPanel({ breakpoints, symbols, onAdd, onRemove }
                   {breakpoint.address !== null ? `0x${breakpoint.address.toString(16)}` : "Unresolved"}
                 </span>
                 {breakpoint.condition && (
-                <span style={{ color: "#facc15", fontSize: "0.9rem" }}>
-                  {`Condition: $${breakpoint.condition.register} == ${breakpoint.condition.value}`}
-                </span>
-              )}
+                  <span style={{ color: "#facc15", fontSize: "0.9rem" }}>
+                    {`Condition: $${breakpoint.condition.register} == ${breakpoint.condition.value}`}
+                  </span>
+                )}
                 {breakpoint.oneShot && (
                   <span
                     style={{

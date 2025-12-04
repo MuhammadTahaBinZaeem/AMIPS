@@ -1,11 +1,6 @@
 import React, { useMemo, useState } from "react";
-
-export type WatchKind = "register" | "memory" | "expression";
-
-export interface WatchSpec {
-  kind: WatchKind;
-  identifier: string;
-}
+import { getWatchKey } from "../services/watchKey";
+import { type WatchKind, type WatchSpec } from "../types";
 
 export interface WatchManagerPanelProps {
   watches: WatchSpec[];
@@ -36,7 +31,7 @@ export function WatchManagerPanel({ watches, symbols, values, onAdd, onRemove }:
     setIdentifier("");
   };
 
-  const keyFor = (spec: WatchSpec): string => `${spec.kind}:${spec.identifier}`;
+  const keyFor = (spec: WatchSpec): string => getWatchKey(spec, symbols);
 
   return (
     <div
