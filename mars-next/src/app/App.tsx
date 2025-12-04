@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useReducer, useState } from "react";
 import { MemoryTable } from "../features/memory-view";
 import { RunToolbar, setActiveSource } from "../features/run-control";
 import { EditorPane, StatusBar } from "../features/editor";
@@ -44,6 +44,8 @@ import {
 } from "../core";
 import { BitmapDisplayState, type AppContext, type MarsTool } from "../core/tools/MarsTool";
 import { ToolLoader } from "../core/tools/ToolLoader";
+import { HelpSidebar } from "../features/help/components/HelpSidebar";
+import { helpReducer, initialHelpState } from "../features/help";
 
 const initialSettings = loadSettings();
 
@@ -106,6 +108,8 @@ export function App(): React.JSX.Element {
   const [bitmapDisplay, setBitmapDisplay] = useState<BitmapDisplayState | null>(null);
   const [keyboardDevice, setKeyboardDevice] = useState<KeyboardDevice | null>(null);
   const [availableTools, setAvailableTools] = useState<MarsTool[]>([]);
+  const [isHelpOpen, setHelpOpen] = useState(false);
+  const [helpState, helpDispatch] = useReducer(helpReducer, initialHelpState);
 
   const assembler = useMemo(() => new Assembler(), []);
   const fallbackState = useMemo(() => new MachineState(), []);
@@ -612,6 +616,16 @@ export function App(): React.JSX.Element {
     zIndex: 10,
   };
 
+  const openHelp = useCallback(
+    (query?: string): void => {
+      if (query) {
+        helpDispatch({ type: "search", query });
+      }
+      setHelpOpen(true);
+    },
+    [],
+  );
+
   const toolsMenuItemStyle: React.CSSProperties = {
     width: "100%",
     textAlign: "left",
@@ -633,44 +647,47 @@ export function App(): React.JSX.Element {
         color: "#e5e7eb",
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem" }}>
-        <h1 style={{ margin: 0 }}>MARS Next – Prototype</h1>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", position: "relative" }}>
-          <div style={{ position: "relative" }}>
-            <button style={toolsButtonStyle} onClick={() => setToolsMenuOpen((open) => !open)}>
-              Tools ▾
-            </button>
-            {toolsMenuOpen && (
-              <div style={toolsMenuStyle}>
-                {availableTools.map((tool) => {
-                  const toolId = tool.id;
-                  const isEnabled = tool.isAvailable ? tool.isAvailable(toolContext) : true;
-                  const menuItemStyle: React.CSSProperties = {
-                    ...toolsMenuItemStyle,
-                    ...(isEnabled ? {} : { opacity: 0.6, cursor: "not-allowed" }),
-                  };
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem" }}>
+          <h1 style={{ margin: 0 }}>MARS Next – Prototype</h1>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", position: "relative" }}>
+            <div style={{ position: "relative" }}>
+              <button style={toolsButtonStyle} onClick={() => setToolsMenuOpen((open) => !open)}>
+                Tools ▾
+              </button>
+              {toolsMenuOpen && (
+                <div style={toolsMenuStyle}>
+                  {availableTools.map((tool) => {
+                    const toolId = tool.id;
+                    const isEnabled = tool.isAvailable ? tool.isAvailable(toolContext) : true;
+                    const menuItemStyle: React.CSSProperties = {
+                      ...toolsMenuItemStyle,
+                      ...(isEnabled ? {} : { opacity: 0.6, cursor: "not-allowed" }),
+                    };
 
-                  return (
-                    <button
-                      key={toolId}
-                      style={menuItemStyle}
-                      disabled={!isEnabled}
-                      onClick={() => {
-                        if (!isEnabled) return;
-                        openTool(tool);
-                        setToolsMenuOpen(false);
-                      }}
-                    >
-                      {tool.name}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
+                    return (
+                      <button
+                        key={toolId}
+                        style={menuItemStyle}
+                        disabled={!isEnabled}
+                        onClick={() => {
+                          if (!isEnabled) return;
+                          openTool(tool);
+                          setToolsMenuOpen(false);
+                        }}
+                      >
+                        {tool.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+            <button style={toolsButtonStyle} onClick={() => openHelp()}>
+              Help
+            </button>
+            <span style={{ color: "#9ca3af" }}>Dark mode by default</span>
           </div>
-          <span style={{ color: "#9ca3af" }}>Dark mode by default</span>
         </div>
-      </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
         <SettingsDialog
@@ -745,7 +762,21 @@ export function App(): React.JSX.Element {
               padding: "0.75rem 1rem",
             }}
           >
-            {error}
+            <div>{error}</div>
+            <button
+              onClick={() => openHelp(error)}
+              style={{
+                marginTop: "0.4rem",
+                backgroundColor: "#7f1d1d",
+                border: "1px solid #b91c1c",
+                color: "#fff",
+                borderRadius: "0.35rem",
+                padding: "0.25rem 0.6rem",
+                cursor: "pointer",
+              }}
+            >
+              View related help
+            </button>
           </div>
         )}
 
@@ -869,6 +900,7 @@ export function App(): React.JSX.Element {
           </React.Fragment>
         );
       })}
+      <HelpSidebar state={helpState} dispatch={helpDispatch} isOpen={isHelpOpen} onClose={() => setHelpOpen(false)} />
     </main>
   );
 }
