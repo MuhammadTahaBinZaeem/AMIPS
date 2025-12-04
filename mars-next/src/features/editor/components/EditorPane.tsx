@@ -1,7 +1,8 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo } from "react";
 import { BreakpointSpec, WatchSpec } from "../../breakpoints";
 import { getWatchKey } from "../../breakpoints/services/watchKey";
 import { EditorView } from "./EditorView";
+import { UndoManager } from "../undoRedo/UndoManager";
 
 interface EditorPaneProps {
   source: string;
@@ -49,6 +50,14 @@ export function EditorPane({
   activeFile,
   onToggleBreakpoint,
 }: EditorPaneProps): React.JSX.Element {
+  const undoManager = useMemo(() => new UndoManager(), []);
+
+  useEffect(() => {
+    if (undoManager.peek() !== source) {
+      undoManager.registerChange(source);
+    }
+  }, [source, undoManager]);
+
   const resolvedBreakpoints = useMemo(
     () =>
       managedBreakpoints.map((entry) => ({
@@ -115,6 +124,7 @@ export function EditorPane({
           <EditorView
             value={source}
             onChange={onChange}
+            undoManager={undoManager}
             breakpoints={breakpoints}
             onToggleBreakpoint={onToggleBreakpoint}
             activeLine={activeLine ?? undefined}
