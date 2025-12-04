@@ -1,7 +1,8 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { BinaryImage, DEFAULT_TEXT_BASE, SourceMapEntry } from "../../../core";
 import { disassembleInstruction } from "../../../core/debugger/Disassembler";
 import { MarsTool, type MarsToolComponentProps } from "../../../core/tools/MarsTool";
+import { getLatestDataState, subscribeToDataState, type DataStateSnapshot } from "./dataEvents";
 
 type TextSegmentKey = "text" | "ktext";
 
@@ -24,6 +25,22 @@ function formatAddress(address: number): string {
 
 function formatMachineWord(word: number): string {
   return `0x${(word >>> 0).toString(16).padStart(8, "0")}`;
+}
+
+function buildByteMap(entries: Array<{ address: number; value: number }>): Map<number, number> {
+  const map = new Map<number, number>();
+  entries.forEach((entry) => map.set(entry.address >>> 0, entry.value & 0xff));
+  return map;
+}
+
+function readWord(map: Map<number, number>, address: number): number {
+  let value = 0;
+  for (let index = 0; index < 4; index++) {
+    const byte = map.get((address + index) >>> 0);
+    if (byte === undefined) return NaN;
+    value = (value << 8) | byte;
+  }
+  return value >>> 0;
 }
 
 function buildSourceLookup(entries: SourceMapEntry[] | undefined): SourceLookup {
@@ -62,19 +79,22 @@ function buildSegmentRows(
   instructions: number[] | undefined,
   baseAddress: number | undefined,
   lookup: SourceLookup,
+  byteMap: Map<number, number>,
 ): TextSegmentRow[] {
   if (!instructions || instructions.length === 0) return [];
 
   const resolvedBase = baseAddress ?? DEFAULT_TEXT_BASE;
   return instructions.map((word, index) => {
     const address = resolvedBase + index * 4;
+    const fromMemory = readWord(byteMap, address);
+    const machineWord = Number.isNaN(fromMemory) ? word : fromMemory;
     const source = resolveSource(segmentKey, index, address, lookup);
-    const disassembled = disassembleInstruction(word, address);
+    const disassembled = disassembleInstruction(machineWord, address);
 
     return {
       segment: label,
       address,
-      machineWord: word,
+      machineWord,
       assembly: disassembled?.assembly ?? null,
       source,
     };
@@ -84,16 +104,24 @@ function buildSegmentRows(
 export function TextSegmentWindow({ appContext, onClose }: MarsToolComponentProps): React.JSX.Element {
   const program = (appContext.program as BinaryImage | null | undefined) ?? null;
   const sourceMap = appContext.sourceMap as SourceMapEntry[] | undefined;
+  const [dataSnapshot, setDataSnapshot] = useState<DataStateSnapshot>(() => getLatestDataState());
+
+  const byteMap = useMemo(() => buildByteMap(dataSnapshot.entries), [dataSnapshot.entries]);
+
+  useEffect(() => {
+    const unsubscribe = subscribeToDataState(setDataSnapshot);
+    return () => unsubscribe();
+  }, []);
 
   const effectiveSourceMap = useMemo(() => sourceMap ?? program?.sourceMap ?? [], [program?.sourceMap, sourceMap]);
   const rows = useMemo(() => {
     const lookup = buildSourceLookup(effectiveSourceMap);
 
     return [
-      ...buildSegmentRows("Text", "text", program?.text, program?.textBase, lookup),
-      ...buildSegmentRows("Kernel Text", "ktext", program?.ktext, program?.ktextBase, lookup),
+      ...buildSegmentRows("Text", "text", program?.text, program?.textBase, lookup, byteMap),
+      ...buildSegmentRows("Kernel Text", "ktext", program?.ktext, program?.ktextBase, lookup, byteMap),
     ];
-  }, [effectiveSourceMap, program?.ktext, program?.ktextBase, program?.text, program?.textBase]);
+  }, [byteMap, effectiveSourceMap, program?.ktext, program?.ktextBase, program?.text, program?.textBase]);
 
   return (
     <div style={overlayStyle}>
