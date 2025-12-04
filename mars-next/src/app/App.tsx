@@ -1,12 +1,23 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { MemoryTable } from "../features/memory-view";
 import { RunToolbar, setActiveSource } from "../features/run-control";
-import { EditorPane } from "../features/editor";
+import { EditorPane, StatusBar } from "../features/editor";
 import { BreakpointManagerPanel, BreakpointList, BreakpointSpec, WatchManagerPanel, WatchSpec } from "../features/breakpoints";
 import { resolveInstructionIndex, toggleBreakpoint } from "../features/breakpoints/services/breakpointService";
 import { SettingsDialog, loadSettings, saveSettings } from "../features/settings";
 import { MemoryConfiguration, RegistersWindow } from "../features/tools";
 import { publishCpuState } from "../features/tools/register-viewer";
+import {
+  FileExplorer,
+  RecentFilesList,
+  getWorkingDirectory,
+  initializeFileManagerState,
+  markFileSaved,
+  openFile as trackOpenFile,
+  setWorkingDirectory as setFileManagerWorkingDirectory,
+  updateFileContent as setOpenFileContent,
+  writeFile as writeWorkspaceFile,
+} from "../features/file-manager";
 import {
   Assembler,
   AudioDevice,
@@ -79,6 +90,7 @@ export function App(): React.JSX.Element {
   const [editorBreakpoints, setEditorBreakpoints] = useState<number[]>([]);
   const [activeLine, setActiveLine] = useState<number | null>(null);
   const [activeFile, setActiveFile] = useState<string | null>(null);
+  const [fileManager, setFileManager] = useState(initializeFileManagerState());
   const [theme] = useState(initialSettings.theme);
   const [enablePseudoInstructions, setEnablePseudoInstructions] = useState(initialSettings.enablePseudoInstructions);
   const [assembleAllFiles, setAssembleAllFiles] = useState(initialSettings.assembleAllFiles);
@@ -98,10 +110,19 @@ export function App(): React.JSX.Element {
   const assembler = useMemo(() => new Assembler(), []);
   const fallbackState = useMemo(() => new MachineState(), []);
   const fallbackMemory = useMemo(() => new Memory(), []);
+  const workingDirectory = fileManager.workingDirectory ?? getWorkingDirectory();
+  const activeFileRecord = activeFile ? fileManager.openFiles[activeFile] ?? null : null;
+  const isDirty = activeFile ? Boolean(activeFileRecord?.isDirty) : source.trim().length > 0;
 
   useEffect(() => {
     setActiveSource(source);
   }, [source]);
+
+  useEffect(() => {
+    if (fileManager.activeFile && fileManager.activeFile !== activeFile) {
+      setActiveFile(fileManager.activeFile);
+    }
+  }, [activeFile, fileManager.activeFile]);
 
   const handleToggleEditorBreakpoint = useCallback(
     (line: number): void => {
@@ -366,10 +387,91 @@ export function App(): React.JSX.Element {
     }
   };
 
+  const handleFileOpen = useCallback(
+    (filePath: string, content: string): void => {
+      setFileManager((current) => trackOpenFile(current, filePath, content));
+      setSource(content);
+      setActiveFile(filePath);
+    },
+    [],
+  );
+
+  const handleSourceChange = useCallback(
+    (value: string): void => {
+      setSource(value);
+      if (activeFile) {
+        setFileManager((current) => setOpenFileContent(current, activeFile, value));
+      }
+    },
+    [activeFile],
+  );
+
+  const handleSave = useCallback(async (): Promise<void> => {
+    if (!activeFile) return;
+    await writeWorkspaceFile(activeFile, source);
+    setFileManager((current) => markFileSaved(current, activeFile));
+  }, [activeFile, source]);
+
+  const handleSaveAs = useCallback(async (): Promise<void> => {
+    const suggested = activeFile ?? `${workingDirectory}/untitled.asm`;
+    const target = typeof window !== "undefined" ? window.prompt("Save file as", suggested) : null;
+    if (!target) return;
+    await writeWorkspaceFile(target, source);
+    setActiveFile(target);
+    setFileManager((current) => markFileSaved(trackOpenFile(current, target, source), target));
+  }, [activeFile, source, workingDirectory]);
+
+  const handleNewFile = useCallback((): void => {
+    setSource("");
+    setActiveFile(null);
+    setFileManager((current) => ({ ...current, activeFile: null }));
+  }, []);
+
+  const handleOpenFilePicker = useCallback(async (): Promise<void> => {
+    if (typeof window === "undefined" || typeof window.showOpenFilePicker !== "function") return;
+    try {
+      const [handle] = await window.showOpenFilePicker({
+        multiple: false,
+        types: [{ description: "MIPS Assembly", accept: { "text/plain": [".asm", ".s"] } }],
+      });
+      const file = await handle.getFile();
+      const content = await file.text();
+      handleFileOpen(handle.name, content);
+    } catch (fileError) {
+      console.warn("File open cancelled or failed", fileError);
+    }
+  }, [handleFileOpen]);
+
+  useEffect(() => {
+    const handler = (event: KeyboardEvent): void => {
+      const key = event.key.toLowerCase();
+      if (event.ctrlKey && key === "s") {
+        event.preventDefault();
+        if (event.shiftKey) {
+          void handleSaveAs();
+        } else {
+          void handleSave();
+        }
+      }
+
+      if (event.ctrlKey && key === "o") {
+        event.preventDefault();
+        void handleOpenFilePicker();
+      }
+
+      if (event.ctrlKey && key === "n") {
+        event.preventDefault();
+        handleNewFile();
+      }
+    };
+
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [handleNewFile, handleOpenFilePicker, handleSave, handleSaveAs]);
+
   const handleRun = (): void => {
     setError(null);
     setActiveLine(null);
-    setActiveFile(null);
     setKeyboardDevice(null);
     try {
       setStatus("Assembling...");
@@ -598,6 +700,36 @@ export function App(): React.JSX.Element {
           onFlushInstructionCache={handleFlushInstructionCache}
           flushEnabled={engine !== null}
         />
+        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+          <button onClick={handleNewFile} style={{ padding: "0.4rem 0.75rem", borderRadius: "0.4rem", border: "1px solid #1f2937" }}>
+            New File
+          </button>
+          <button
+            onClick={() => void handleOpenFilePicker()}
+            style={{ padding: "0.4rem 0.75rem", borderRadius: "0.4rem", border: "1px solid #1f2937" }}
+          >
+            Open…
+          </button>
+          <button
+            onClick={() => void handleSave()}
+            disabled={!activeFile}
+            style={{
+              padding: "0.4rem 0.75rem",
+              borderRadius: "0.4rem",
+              border: "1px solid #1f2937",
+              opacity: activeFile ? 1 : 0.5,
+              cursor: activeFile ? "pointer" : "not-allowed",
+            }}
+          >
+            Save
+          </button>
+          <button
+            onClick={() => void handleSaveAs()}
+            style={{ padding: "0.4rem 0.75rem", borderRadius: "0.4rem", border: "1px solid #1f2937" }}
+          >
+            Save As…
+          </button>
+        </div>
         {activeLine !== null && (
           <div style={{ color: "#a5b4fc", fontWeight: 600 }}>
             Current instruction: {activeFile ?? "<input>"}:{activeLine}
@@ -617,19 +749,34 @@ export function App(): React.JSX.Element {
           </div>
         )}
 
-        <EditorPane
-          source={source}
-          status={status}
-          onChange={setSource}
-          breakpoints={editorBreakpoints}
-          managedBreakpoints={breakpoints}
-          watches={watches}
-          watchValues={watchValues}
-          symbols={symbolTable}
-          activeLine={activeLine}
-          activeFile={activeFile}
-          onToggleBreakpoint={handleToggleEditorBreakpoint}
-        />
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(260px, 320px) 1fr", gap: "1rem", alignItems: "start" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+            <FileExplorer
+              workingDirectory={workingDirectory}
+              onFileOpen={handleFileOpen}
+              onWorkspaceChange={(directory) =>
+                setFileManager((current) => setFileManagerWorkingDirectory(current, directory))
+              }
+            />
+            <RecentFilesList files={fileManager.recentFiles} onOpenFile={handleFileOpen} />
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+            <EditorPane
+              source={source}
+              status={status}
+              onChange={handleSourceChange}
+              breakpoints={editorBreakpoints}
+              managedBreakpoints={breakpoints}
+              watches={watches}
+              watchValues={watchValues}
+              symbols={symbolTable}
+              activeLine={activeLine}
+              activeFile={activeFile}
+              onToggleBreakpoint={handleToggleEditorBreakpoint}
+            />
+            <StatusBar activeFile={activeFile} workingDirectory={workingDirectory} dirty={isDirty} />
+          </div>
+        </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: "1rem" }}>
           <BreakpointManagerPanel

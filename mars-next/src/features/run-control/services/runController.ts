@@ -3,7 +3,7 @@ import { ProgramLoader } from "../../../core/loader/ProgramLoader";
 import { Linker } from "../../../core/loader/Linker";
 import { Memory } from "../../../core/memory/Memory";
 import { loadSettings } from "../../settings";
-import { listFiles, readFileContent } from "../../file-manager";
+import { FileEntry, getWorkingDirectory, listFiles, readFile } from "../../file-manager";
 import { runProgram } from "./executionController";
 
 type RunStatusListener = (status: string) => void;
@@ -22,8 +22,16 @@ function notifyRunning(running: boolean): void {
   runningListeners.forEach((listener) => listener(running));
 }
 
-function collectWorkspaceSources(): string[] {
-  return listFiles().map((file) => readFileContent(file)).filter((content) => content.trim().length > 0);
+function flatten(entries: FileEntry[]): FileEntry[] {
+  return entries.flatMap((entry) => (entry.children ? [entry, ...flatten(entry.children)] : [entry]));
+}
+
+async function collectWorkspaceSources(): Promise<string[]> {
+  const directory = getWorkingDirectory();
+  const tree = await listFiles(directory);
+  const files = flatten(tree).filter((entry) => !entry.isDirectory);
+  const contents = await Promise.all(files.map((file) => readFile(file.path)));
+  return contents.filter((content) => content.trim().length > 0);
 }
 
 export function setActiveSource(content: string): void {
@@ -40,7 +48,7 @@ export function subscribeToRunState(listener: RunStateListener): () => void {
   return () => runningListeners.delete(listener);
 }
 
-export async function assembleAndLoad(fileList: string[]): Promise<BinaryImage> {
+export async function assembleAndLoad(fileList: Array<string | { path: string; content: string }>): Promise<BinaryImage> {
   const settings = loadSettings();
   const assembler = new Assembler({
     enablePseudoInstructions: settings.enablePseudoInstructions,
@@ -49,23 +57,24 @@ export async function assembleAndLoad(fileList: string[]): Promise<BinaryImage> 
   const loader = new ProgramLoader(new Memory());
 
   const sources = settings.assembleAllFiles ? fileList : [fileList[0]];
+  const normalized = sources.map((entry) => (typeof entry === "string" ? entry : entry.content));
   if (sources.length === 0 || sources[0].trim().length === 0) {
     throw new Error("No source files available for assembly");
   }
 
-  if (sources.length === 1) {
-    return assembler.assemble(loader.normalizeSource(sources[0]));
+  if (normalized.length === 1) {
+    return assembler.assemble(loader.normalizeSource(normalized[0]));
   }
 
   const linker = new Linker();
-  const images = sources.map((source) => assembler.assemble(loader.normalizeSource(source)));
+  const images = normalized.map((source) => assembler.assemble(loader.normalizeSource(source)));
   return linker.link(images);
 }
 
-export async function startRun(fileList?: string[]): Promise<boolean> {
+export async function startRun(fileList?: Array<string | { path: string; content: string }>): Promise<boolean> {
   if (isRunning) return false;
 
-  const sources = fileList ?? collectWorkspaceSources();
+  const sources = fileList ? await Promise.resolve(fileList) : await collectWorkspaceSources();
   if (sources.length === 0) {
     sources.push(cachedSource);
   }
