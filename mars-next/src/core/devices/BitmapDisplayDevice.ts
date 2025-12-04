@@ -20,6 +20,7 @@ const CONTROL_DIRTY_COUNT_OFFSET = 8;
 const CONTROL_FLUSH_OFFSET = 12;
 const FRAMEBUFFER_OFFSET = 16;
 const DEFAULT_BYTE_LENGTH = 0x1000;
+const UPDATE_BIT_MASK = 0x1;
 
 export class BitmapDisplayDevice implements Device {
   readonly width: number;
@@ -29,6 +30,7 @@ export class BitmapDisplayDevice implements Device {
   private readonly pixels: Uint8Array;
   private readonly dirtyRegions: DirtyRegion[] = [];
   private dirtyRegion: DirtyRegion | null = null;
+  private controlWord = 0;
   private readonly onFlush?: (regions: DirtyRegion[], pixels: Uint8Array) => void;
 
   private readonly interruptHandler: InterruptHandler | null;
@@ -61,6 +63,7 @@ export class BitmapDisplayDevice implements Device {
     if (offset === CONTROL_WIDTH_OFFSET) return this.width;
     if (offset === CONTROL_HEIGHT_OFFSET) return this.height;
     if (offset === CONTROL_DIRTY_COUNT_OFFSET) return this.getDirtyRegions().length;
+    if (offset === CONTROL_FLUSH_OFFSET) return this.controlWord;
 
     if (offset >= FRAMEBUFFER_OFFSET && offset < this.byteLength) {
       const index = offset - FRAMEBUFFER_OFFSET;
@@ -72,7 +75,7 @@ export class BitmapDisplayDevice implements Device {
 
   write(offset: number, value: number | string | Uint8Array): void {
     if (offset === CONTROL_FLUSH_OFFSET) {
-      this.flush();
+      this.handleControlWrite(value);
       return;
     }
 
@@ -121,6 +124,7 @@ export class BitmapDisplayDevice implements Device {
   }
 
   flush(): void {
+    this.controlWord &= ~UPDATE_BIT_MASK;
     if (this.dirtyRegion) {
       this.dirtyRegions.push(this.dirtyRegion);
       this.dirtyRegion = null;
@@ -167,5 +171,17 @@ export class BitmapDisplayDevice implements Device {
 
   private signalInterrupt(): void {
     this.interruptHandler?.(this);
+  }
+
+  private handleControlWrite(value: number | string | Uint8Array): void {
+    const numeric = typeof value === "number" ? value : typeof value === "string" ? value.charCodeAt(0) : value[0];
+    const previous = this.controlWord;
+    this.controlWord = numeric & ~UPDATE_BIT_MASK;
+
+    const wasSet = (previous & UPDATE_BIT_MASK) !== 0;
+    const isSet = (numeric & UPDATE_BIT_MASK) !== 0;
+    if (!wasSet && isSet) {
+      this.flush();
+    }
   }
 }

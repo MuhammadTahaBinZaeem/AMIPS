@@ -37,3 +37,7 @@ export function subscribeToRuntimeSnapshots(listener: RuntimeListener): () => vo
 export function getLatestRuntimeSnapshot(): RuntimeSnapshot {
   return latestSnapshot;
 }
+
+export function hasRuntimeListeners(): boolean {
+  return runtimeListeners.size > 0;
+}

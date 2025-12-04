@@ -6,8 +6,13 @@ import { BreakpointEngine } from "../debugger/BreakpointEngine";
 import { WatchEngine, type WatchEvent, type WatchValue } from "../debugger/WatchEngine";
 import { InterruptController } from "../interrupts/InterruptController";
 import { Memory } from "../memory/Memory";
-import { publishPipelineSnapshot, type PipelineSnapshot, type PipelineStageState } from "../tools/pipelineEvents";
-import { publishRuntimeSnapshot, type RuntimeStatus } from "../tools/runtimeEvents";
+import {
+  hasPipelineListeners,
+  publishPipelineSnapshot,
+  type PipelineSnapshot,
+  type PipelineStageState,
+} from "../tools/pipelineEvents";
+import { hasRuntimeListeners, publishRuntimeSnapshot, type RuntimeStatus } from "../tools/runtimeEvents";
 import { PipelineRegister } from "./PipelineRegister";
 import { HazardUnit, decodeHazardInfo, EMPTY_HAZARD } from "./HazardUnit";
 import { IFStage } from "./IFStage";
@@ -448,6 +453,10 @@ export class PipelineSimulator {
       this.statistics.observePipeline(registerPayloads, { pipelineCleared: flushed });
     }
 
+    if (!hasPipelineListeners()) {
+      return;
+    }
+
     const toStageState = (payload: PipelineRegisterPayload, stalled?: boolean): PipelineStageState => ({
       pc: payload?.pc ?? null,
       instruction: payload?.instruction ?? null,
@@ -477,6 +486,10 @@ export class PipelineSimulator {
   private publishRuntimeState(status: RuntimeStatus, state: MachineState, memory: InstructionMemory): RuntimeStatus {
     const watchSnapshot = this.collectWatchSnapshot();
 
+    if (!hasRuntimeListeners() && !watchSnapshot) {
+      return status;
+    }
+
     publishRuntimeSnapshot({
       status,
       state,
@@ -489,7 +502,7 @@ export class PipelineSimulator {
   }
 
   private collectWatchSnapshot(): { changes: WatchEvent[]; values: WatchValue[] } | null {
-    if (!this.watchEngine) return null;
+    if (!this.watchEngine || !this.watchEngine.hasWatches()) return null;
     return {
       changes: this.watchEngine.peekWatchChanges(),
       values: this.watchEngine.getWatchValues(),

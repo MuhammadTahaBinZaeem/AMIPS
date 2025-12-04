@@ -3,8 +3,8 @@ import { KeyboardDevice } from "../../../core";
 import { MarsTool, type MarsToolComponentProps } from "../../../core/tools/MarsTool";
 
 interface QueueSnapshot {
-  active: number | null;
-  queued: number[];
+  down: number[];
+  up: number[];
 }
 
 const TEST_KEYS: Array<{ label: string; value: number }> = [
@@ -18,20 +18,12 @@ const TEST_KEYS: Array<{ label: string; value: number }> = [
 ];
 
 function formatKeycode(value: number): string {
-  return `0x${(value & 0xffff).toString(16).padStart(4, "0")}`;
-}
-
-function describeBytes(value: number): string {
-  const high = (value >> 8) & 0xff;
-  const low = value & 0xff;
-  return `High: 0x${high.toString(16).padStart(2, "0")}, Low: 0x${low
-    .toString(16)
-    .padStart(2, "0")}`;
+  return `0x${(value & 0xff).toString(16).padStart(2, "0")}`;
 }
 
 export function KeyboardWindow({ appContext, onClose }: MarsToolComponentProps): React.JSX.Element {
   const device = (appContext.keyboardDevice as KeyboardDevice | null | undefined) ?? null;
-  const [snapshot, setSnapshot] = useState<QueueSnapshot>({ active: null, queued: [] });
+  const [snapshot, setSnapshot] = useState<QueueSnapshot>({ down: [], up: [] });
 
   useEffect(() => {
     if (!device) return undefined;
@@ -45,16 +37,41 @@ export function KeyboardWindow({ appContext, onClose }: MarsToolComponentProps):
     return () => clearInterval(handle);
   }, [device]);
 
-  const hasPending = snapshot.active !== null || snapshot.queued.length > 0;
-
-  const queuedItems = useMemo(() => {
-    const entries: Array<{ value: number; status: "active" | "queued" }> = [];
-    if (snapshot.active !== null) {
-      entries.push({ value: snapshot.active, status: "active" });
-    }
-    snapshot.queued.forEach((value) => entries.push({ value, status: "queued" }));
-    return entries;
-  }, [snapshot.active, snapshot.queued]);
+  const renderQueue = useMemo(
+    () =>
+      (label: string, values: number[]) => (
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <strong>{label}</strong>
+            <span style={{ color: "#9ca3af", fontSize: "0.9rem" }}>
+              {values.length} byte{values.length === 1 ? "" : "s"} buffered
+            </span>
+          </div>
+          {values.length === 0 ? (
+            <div style={emptyStateStyle}>Queue is empty.</div>
+          ) : (
+            <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+              {values.map((value, index) => (
+                <span
+                  key={`${label}-${index}-${value}`}
+                  style={{
+                    padding: "0.35rem 0.65rem",
+                    borderRadius: "0.5rem",
+                    border: "1px solid #1f2937",
+                    backgroundColor: "#0f172a",
+                    fontFamily: "'JetBrains Mono', monospace",
+                    fontWeight: 600,
+                  }}
+                >
+                  {formatKeycode(value)}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      ),
+    [],
+  );
 
   return (
     <div style={overlayStyle}>
@@ -76,49 +93,10 @@ export function KeyboardWindow({ appContext, onClose }: MarsToolComponentProps):
             <section style={sectionStyle}>
               <div style={sectionHeaderStyle}>
                 <strong>Pending keycodes</strong>
-                <span style={{ color: "#9ca3af", fontSize: "0.9rem" }}>
-                  {hasPending ? `${queuedItems.length} waiting` : "Queue is empty"}
-                </span>
               </div>
               <div style={{ display: "grid", gap: "0.5rem" }}>
-                {queuedItems.length === 0 ? (
-                  <div style={emptyStateStyle}>No pending keycodes.</div>
-                ) : (
-                  queuedItems.map((entry, index) => (
-                    <div
-                      key={`${entry.status}-${entry.value}-${index}`}
-                      style={{
-                        padding: "0.5rem 0.75rem",
-                        border: "1px solid #1f2937",
-                        borderRadius: "0.5rem",
-                        backgroundColor: entry.status === "active" ? "#111827" : "#0f172a",
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        gap: "0.5rem",
-                      }}
-                    >
-                      <div style={{ display: "flex", flexDirection: "column", gap: "0.2rem" }}>
-                        <span style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 600 }}>
-                          {formatKeycode(entry.value)}
-                        </span>
-                        <span style={{ color: "#9ca3af", fontSize: "0.9rem" }}>{describeBytes(entry.value)}</span>
-                      </div>
-                      <span
-                        style={{
-                          padding: "0.15rem 0.5rem",
-                          borderRadius: "9999px",
-                          border: "1px solid #1f2937",
-                          color: entry.status === "active" ? "#34d399" : "#9ca3af",
-                          backgroundColor: entry.status === "active" ? "rgba(52, 211, 153, 0.08)" : "transparent",
-                          fontSize: "0.85rem",
-                        }}
-                      >
-                        {entry.status === "active" ? "Active" : "Queued"}
-                      </span>
-                    </div>
-                  ))
-                )}
+                {renderQueue("Key-down queue", snapshot.down)}
+                {renderQueue("Key-up queue", snapshot.up)}
               </div>
             </section>
 

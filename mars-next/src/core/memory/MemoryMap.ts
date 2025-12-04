@@ -2,7 +2,7 @@ import { Device, DeviceData, InterruptHandler } from "../devices/Device";
 import { AudioDevice } from "../devices/AudioDevice";
 import { BitmapDisplayDevice } from "../devices/BitmapDisplayDevice";
 import { DisplayDevice } from "../devices/DisplayDevice";
-import { KeyboardDevice } from "../devices/KeyboardDevice";
+import { KeyboardDevice, KEYBOARD_QUEUE_BYTE_LENGTH } from "../devices/KeyboardDevice";
 import { RealTimeClockDevice } from "../devices/RealTimeClockDevice";
 import { SevenSegmentDisplayDevice } from "../devices/SevenSegmentDisplayDevice";
 import { PrivilegeViolation } from "../exceptions/AccessExceptions";
@@ -79,16 +79,16 @@ const DEFAULT_STACK_BASE = 0x7ffffffc;
 const DEFAULT_STACK_SIZE = 4 * 1024 * 1024;
 const DEFAULT_MMIO_BASE = 0xffff0000;
 const DEFAULT_MMIO_SIZE = 0x00010000;
-const KEYBOARD_START = 0xffff0000;
-const KEYBOARD_SIZE = 0x8;
-const DISPLAY_START = KEYBOARD_START + KEYBOARD_SIZE;
+const DISPLAY_START = 0xffff0000;
 const DISPLAY_SIZE = 0x8;
+const KEYBOARD_DOWN_START = 0xffff0010;
+const KEYBOARD_UP_START = 0xffff0020;
 const BITMAP_START = 0xffff1000;
-const REAL_TIME_CLOCK_START = 0xffff0010;
+const REAL_TIME_CLOCK_START = 0xffff0030;
 const REAL_TIME_CLOCK_SIZE = 0x8;
-const SEVEN_SEGMENT_START = 0xffff0018;
+const SEVEN_SEGMENT_START = 0xffff0038;
 const SEVEN_SEGMENT_SIZE = 0x2;
-const AUDIO_START = 0xffff0020;
+const AUDIO_START = 0xffff0040;
 const AUDIO_SIZE = 0x10;
 
 export class MemoryMap {
@@ -205,8 +205,10 @@ export class MemoryMap {
     const sevenSegmentDisplay = new SevenSegmentDisplayDevice();
     const audioDevice = new AudioDevice();
 
-    const keyboardStart = KEYBOARD_START >>> 0;
-    const keyboardEnd = (keyboardStart + KEYBOARD_SIZE - 1) >>> 0;
+    const keyboardDownStart = KEYBOARD_DOWN_START >>> 0;
+    const keyboardDownEnd = (keyboardDownStart + KEYBOARD_QUEUE_BYTE_LENGTH - 1) >>> 0;
+    const keyboardUpStart = KEYBOARD_UP_START >>> 0;
+    const keyboardUpEnd = (keyboardUpStart + KEYBOARD_QUEUE_BYTE_LENGTH - 1) >>> 0;
     const displayStart = DISPLAY_START >>> 0;
     const displayEnd = (displayStart + DISPLAY_SIZE - 1) >>> 0;
     const bitmapStart = BITMAP_START >>> 0;
@@ -219,7 +221,8 @@ export class MemoryMap {
     const audioEnd = (audioStart + AUDIO_SIZE - 1) >>> 0;
 
     return [
-      { start: keyboardStart, end: keyboardEnd, device: keyboard },
+      { start: keyboardDownStart, end: keyboardDownEnd, device: keyboard.getQueueDevice("down") },
+      { start: keyboardUpStart, end: keyboardUpEnd, device: keyboard.getQueueDevice("up") },
       { start: displayStart, end: displayEnd, device: display },
       { start: bitmapStart, end: bitmapEnd, device: bitmapDisplay },
       { start: realTimeClockStart, end: realTimeClockEnd, device: realTimeClock },

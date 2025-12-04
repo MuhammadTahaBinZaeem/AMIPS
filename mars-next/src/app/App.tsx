@@ -49,18 +49,19 @@ import { helpReducer, initialHelpState } from "../features/help";
 
 const initialSettings = loadSettings();
 
-const KEYBOARD_START = 0xffff0000;
-const KEYBOARD_SIZE = 0x8;
-const DISPLAY_START = KEYBOARD_START + KEYBOARD_SIZE;
+const DISPLAY_START = 0xffff0000;
 const DISPLAY_SIZE = 0x8;
+const KEYBOARD_DOWN_START = 0xffff0010;
+const KEYBOARD_UP_START = 0xffff0020;
+const KEYBOARD_QUEUE_SIZE = 0x10;
 const BITMAP_START = 0xffff1000;
 const BITMAP_SIZE = 0x1000;
 const BITMAP_END = BITMAP_START + BITMAP_SIZE - 1;
-const REAL_TIME_CLOCK_START = 0xffff0010;
+const REAL_TIME_CLOCK_START = 0xffff0030;
 const REAL_TIME_CLOCK_SIZE = 0x8;
-const SEVEN_SEGMENT_START = 0xffff0018;
+const SEVEN_SEGMENT_START = 0xffff0038;
 const SEVEN_SEGMENT_SIZE = 0x2;
-const AUDIO_START = 0xffff0020;
+const AUDIO_START = 0xffff0040;
 const AUDIO_SIZE = 0x10;
 
 const SAMPLE_PROGRAM = `# Simple hello-style program
@@ -75,6 +76,23 @@ main:
 
   li $v0, 10      # exit
   syscall`;
+
+const EXTENDED_SCANCODES: Record<string, number[]> = {
+  ArrowUp: [0xe0, 0x75],
+  ArrowDown: [0xe0, 0x72],
+  ArrowLeft: [0xe0, 0x6b],
+  ArrowRight: [0xe0, 0x74],
+  Enter: [0x0d],
+  Escape: [0x1b],
+};
+
+function mapKeyboardEventToBytes(event: KeyboardEvent): number[] {
+  if (event.key.length === 1) {
+    return [event.key.codePointAt(0) ?? 0];
+  }
+
+  return EXTENDED_SCANCODES[event.key] ?? [];
+}
 
 export function App(): React.JSX.Element {
   const [source, setSource] = useState(SAMPLE_PROGRAM);
@@ -473,6 +491,42 @@ export function App(): React.JSX.Element {
     return () => window.removeEventListener("keydown", handler);
   }, [handleNewFile, handleOpenFilePicker, handleSave, handleSaveAs]);
 
+  useEffect(() => {
+    if (!keyboardDevice) return;
+
+    const shouldCapture = (event: KeyboardEvent): boolean => {
+      const target = event.target as HTMLElement | null;
+      const tagName = target?.tagName?.toLowerCase();
+      const isEditable = Boolean(target?.isContentEditable);
+      if (isEditable || tagName === "input" || tagName === "textarea") {
+        return false;
+      }
+
+      return !event.defaultPrevented;
+    };
+
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (!shouldCapture(event)) return;
+      const bytes = mapKeyboardEventToBytes(event);
+      if (bytes.length === 0) return;
+      keyboardDevice.queueFromBytes("down", bytes);
+    };
+
+    const handleKeyUp = (event: KeyboardEvent): void => {
+      if (!shouldCapture(event)) return;
+      const bytes = mapKeyboardEventToBytes(event);
+      if (bytes.length === 0) return;
+      keyboardDevice.queueFromBytes("up", bytes);
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+    };
+  }, [keyboardDevice]);
+
   const handleRun = (): void => {
     setError(null);
     setActiveLine(null);
@@ -495,7 +549,16 @@ export function App(): React.JSX.Element {
       const customMemory = new Memory({
         map: new MemoryMap({
           devices: [
-            { start: KEYBOARD_START, end: KEYBOARD_START + KEYBOARD_SIZE - 1, device: keyboardDeviceInstance },
+            {
+              start: KEYBOARD_DOWN_START,
+              end: KEYBOARD_DOWN_START + KEYBOARD_QUEUE_SIZE - 1,
+              device: keyboardDeviceInstance.getQueueDevice("down"),
+            },
+            {
+              start: KEYBOARD_UP_START,
+              end: KEYBOARD_UP_START + KEYBOARD_QUEUE_SIZE - 1,
+              device: keyboardDeviceInstance.getQueueDevice("up"),
+            },
             { start: DISPLAY_START, end: DISPLAY_START + DISPLAY_SIZE - 1, device: new DisplayDevice() },
             { start: BITMAP_START, end: BITMAP_END, device: bitmapDevice },
             {

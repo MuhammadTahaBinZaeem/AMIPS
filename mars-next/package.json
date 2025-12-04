@@ -15,7 +15,7 @@
     "build:renderer": "vite build --config config/vite.config.ts",
     "clean:modules": "rimraf node_modules package-lock.json dist",
     "lint": "echo \"Lint placeholder\"",
-    "test": "tsx --test tests/**/*.test.ts"
+    "test": "node scripts/run-tests.js"
   },
   "dependencies": {
     "electron": "^31.3.1",

@@ -1,5 +1,6 @@
 import { BitmapDisplayDevice } from "../../devices/BitmapDisplayDevice";
 import { FileDevice } from "../../devices/FileDevice";
+import { KeyboardDevice } from "../../devices/KeyboardDevice";
 import { TerminalDevice } from "../../devices/TerminalDevice";
 import { TimerDevice } from "../../devices/TimerDevice";
 import { Memory } from "../../memory/Memory";
@@ -446,6 +447,15 @@ function getBitmapDevice(memory: Memory): BitmapDisplayDevice | null {
   }
 }
 
+function getKeyboardDevice(memory: Memory): KeyboardDevice | null {
+  try {
+    const { device } = memory.getMemoryMap().resolve(KEYBOARD_DOWN_ADDRESS);
+    return device instanceof KeyboardDevice ? device : null;
+  } catch {
+    return null;
+  }
+}
+
 function readCharFromKeyboard(memory: Memory): number | null {
   if (!isKeyboardReady(memory)) {
     return null;
@@ -520,17 +530,28 @@ function getRandomStream(map: Map<number, RandomStream>, index: number): RandomS
 }
 
 function isKeyboardReady(memory: Memory): boolean {
+  const device = getKeyboardDevice(memory);
+  if (device) {
+    return device.getQueueLength("down") > 0;
+  }
+
   try {
-    return (memory.readByte(KEYBOARD_CONTROL_READY_ADDRESS) & READY_FLAG_MASK) !== 0;
+    return memory.readByte(KEYBOARD_DOWN_ADDRESS) > 0;
   } catch {
     return false;
   }
 }
 
 function readKeyboardValue(memory: Memory): number {
-  const high = memory.readByte(KEYBOARD_DATA_HIGH_ADDRESS);
-  const low = memory.readByte(KEYBOARD_DATA_LOW_ADDRESS);
-  return ((high << 8) | low) | 0;
+  const device = getKeyboardDevice(memory);
+  if (device) {
+    const value = device.dequeue("down");
+    return value ?? 0;
+  }
+
+  const count = memory.readByte(KEYBOARD_DOWN_ADDRESS);
+  if (count === 0) return 0;
+  return memory.readByte(KEYBOARD_DOWN_ADDRESS + 2);
 }
 
 function writeToDisplayDevice(memory: Memory, value: number): boolean {
@@ -548,14 +569,11 @@ function writeToDisplayDevice(memory: Memory, value: number): boolean {
 }
 
 const READY_FLAG_MASK = 0x1;
-const KEYBOARD_CONTROL_ADDRESS = 0xffff0000;
-const KEYBOARD_CONTROL_READY_ADDRESS = KEYBOARD_CONTROL_ADDRESS + 3;
-const KEYBOARD_DATA_ADDRESS = 0xffff0004;
-const KEYBOARD_DATA_HIGH_ADDRESS = KEYBOARD_DATA_ADDRESS + 2;
-const KEYBOARD_DATA_LOW_ADDRESS = KEYBOARD_DATA_ADDRESS + 3;
+const KEYBOARD_DOWN_ADDRESS = 0xffff0010;
+const KEYBOARD_UP_ADDRESS = 0xffff0020;
 
-const DISPLAY_CONTROL_ADDRESS = 0xffff0008;
-const DISPLAY_DATA_ADDRESS = 0xffff000c;
+const DISPLAY_CONTROL_ADDRESS = 0xffff0000;
+const DISPLAY_DATA_ADDRESS = 0xffff0004;
 
 const BITMAP_BASE_ADDRESS = 0xffff1000;
 const BITMAP_FRAMEBUFFER_OFFSET = 16;

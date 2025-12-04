@@ -68,6 +68,10 @@ export class WatchEngine {
     this.pendingEvents.length = 0;
   }
 
+  hasWatches(): boolean {
+    return this.watches.size > 0;
+  }
+
   beginStep(): void {
     this.stepSnapshot.clear();
     for (const watch of this.watches.values()) {
