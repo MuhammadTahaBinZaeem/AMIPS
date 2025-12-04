@@ -1,0 +1,314 @@
+{
+  "fibonacci": {
+    "description": "Baseline console printing of the first twelve Fibonacci numbers",
+    "mars": {
+      "exitCode": 0,
+      "output": [
+        "Fibonacci numbers:",
+        "0",
+        "1",
+        "1",
+        "2",
+        "3",
+        "5",
+        "8",
+        "13",
+        "21",
+        "34",
+        "55",
+        "89"
+      ],
+      "registers": {
+        "$t0": "0x00000090",
+        "$t1": "0x000000e9",
+        "$t2": "0x00000000",
+        "$t3": "0x000000e9",
+        "$v0": "0x0000000a"
+      },
+      "memory": {
+        "memory": [
+          {
+            "address": "0x10010000",
+            "words": [
+              "0x6f626946",
+              "0x6363616e",
+              "0x756e2069",
+              "0x7265626d"
+            ]
+          },
+          {
+            "address": "0x10010010",
+            "words": [
+              "0x000a3a73",
+              "0x0000000a",
+              "0x00000000",
+              "0x00000000"
+            ]
+          }
+        ]
+      }
+    },
+    "marsNext": {
+      "exitCode": null,
+      "output": [],
+      "registers": {},
+      "memory": {
+        "memory": []
+      },
+      "devices": {
+        "error": "Error: Unknown instruction 'bgtz' at line 32"
+      }
+    }
+  },
+  "syscall-mixed": {
+    "description": "Console input/output coverage for read_int, print_int, print_hex, and print_char",
+    "mars": {
+      "exitCode": 0,
+      "output": [
+        "Enter a value: 123",
+        "0x0000007b",
+        "{"
+      ],
+      "registers": {
+        "$t0": "0x0000007b",
+        "$v0": "0x0000000a",
+        "$a0": "0x0000007b"
+      },
+      "memory": {
+        "memory": [
+          {
+            "address": "0x10010000",
+            "words": [
+              "0x65746e45",
+              "0x20612072",
+              "0x756c6176",
+              "0x00203a65"
+            ]
+          },
+          {
+            "address": "0x10010010",
+            "words": [
+              "0x0000000a",
+              "0x00000000",
+              "0x00000000",
+              "0x00000000"
+            ]
+          }
+        ]
+      }
+    },
+    "marsNext": {
+      "exitCode": null,
+      "output": [],
+      "registers": {},
+      "memory": {
+        "memory": []
+      },
+      "devices": {
+        "error": "Error: Unknown instruction 'andi' at line 40"
+      }
+    }
+  },
+  "floating-point": {
+    "description": "Single- and double-precision arithmetic and printing",
+    "mars": {
+      "exitCode": 0,
+      "output": [
+        "3.75",
+        "-15.0",
+        "1.75"
+      ],
+      "registers": {
+        "$f2": "0x40700000",
+        "$f4": "0xc1700000",
+        "$f10": "0x00000000"
+      },
+      "memory": {
+        "memory": [
+          {
+            "address": "0x10010000",
+            "words": [
+              "0x3fc00000",
+              "0x40100000",
+              "0xc0800000",
+              "0x00000000"
+            ]
+          },
+          {
+            "address": "0x10010010",
+            "words": [
+              "0x00000000",
+              "0x40080000",
+              "0x00000000",
+              "0xbff40000"
+            ]
+          }
+        ]
+      }
+    },
+    "marsNext": {
+      "exitCode": null,
+      "output": [],
+      "registers": {},
+      "memory": {
+        "memory": []
+      },
+      "devices": {
+        "error": "Error: Unknown register f0 (line 13)"
+      }
+    }
+  },
+  "file-io": {
+    "description": "Syscall-based open/read/write/close flow",
+    "mars": {
+      "exitCode": 0,
+      "output": [
+        "File I/O sample"
+      ],
+      "registers": {
+        "$s0": "0x00000003",
+        "$s1": "0x00000003",
+        "$t0": "0x00000010"
+      },
+      "memory": {
+        "memory": [
+          {
+            "address": "0x10010000",
+            "words": [
+              "0x65736162",
+              "0x656e696c",
+              "0x6c69662d",
+              "0x78742e65"
+            ]
+          },
+          {
+            "address": "0x10010010",
+            "words": [
+              "0x69460074",
+              "0x4920656c",
+              "0x73204f2f",
+              "0x6c706d61"
+            ]
+          },
+          {
+            "address": "0x10010020",
+            "words": [
+              "0x46000a65",
+              "0x20656c69",
+              "0x204f2f49",
+              "0x706d6173"
+            ]
+          },
+          {
+            "address": "0x10010030",
+            "words": [
+              "0x000a656c",
+              "0x00000000",
+              "0x00000000",
+              "0x00000000"
+            ]
+          }
+        ]
+      }
+    },
+    "marsNext": {
+      "exitCode": 10,
+      "output": [
+        "File I/O sample\n"
+      ],
+      "registers": {
+        "$s0": "0x00000003",
+        "$s1": "0x00000004",
+        "$t0": "0x00000010"
+      },
+      "memory": {
+        "memory": [
+          {
+            "address": "0x10010000",
+            "words": [
+              "0x62617365",
+              "0x6c696e65",
+              "0x2d66696c",
+              "0x652e7478",
+              "0x74004669",
+              "0x6c652049",
+              "0x2f4f2073",
+              "0x616d706c",
+              "0x650a0046",
+              "0x696c6520",
+              "0x492f4f20",
+              "0x73616d70",
+              "0x6c650a00",
+              "0x00000000",
+              "0x00000000",
+              "0x00000000"
+            ]
+          }
+        ]
+      },
+      "devices": {
+        "terminal": [
+          "File I/O sample\n"
+        ],
+        "display": [],
+        "bitmap": [],
+        "file": {
+          "baseline-file.txt": "File I/O sample\n"
+        }
+      }
+    }
+  },
+  "device-mmio": {
+    "description": "MMIO access to UART-style display and bitmap buffer",
+    "mars": {
+      "exitCode": 0,
+      "output": [],
+      "registers": {
+        "$t2": "0x00000041",
+        "$t6": "0x00ff0000"
+      },
+      "memory": {
+        "memory": [
+          {
+            "address": "0xffff0000",
+            "words": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000001",
+              "0x00000041"
+            ]
+          },
+          {
+            "address": "0xffff1000",
+            "words": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000",
+              "0x00000001"
+            ]
+          },
+          {
+            "address": "0xffff1010",
+            "words": [
+              "0x00ff0000",
+              "0x00000000",
+              "0x00000000",
+              "0x00000000"
+            ]
+          }
+        ]
+      }
+    },
+    "marsNext": {
+      "exitCode": null,
+      "output": [],
+      "registers": {},
+      "memory": {
+        "memory": []
+      },
+      "devices": {
+        "error": "RangeError: DisplayDevice write offset out of range: 1"
+      }
+    }
+  }
+}
