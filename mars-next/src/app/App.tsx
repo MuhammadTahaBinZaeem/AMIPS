@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { MemoryTable } from "../features/memory-view";
-import { RunToolbar } from "../features/run-control";
+import { RunToolbar, setActiveSource } from "../features/run-control";
 import { EditorPane } from "../features/editor";
 import { BreakpointManagerPanel, BreakpointList, BreakpointSpec, WatchManagerPanel, WatchSpec } from "../features/breakpoints";
 import { resolveInstructionIndex, toggleBreakpoint } from "../features/breakpoints/services/breakpointService";
@@ -98,6 +98,10 @@ export function App(): React.JSX.Element {
   const assembler = useMemo(() => new Assembler(), []);
   const fallbackState = useMemo(() => new MachineState(), []);
   const fallbackMemory = useMemo(() => new Memory(), []);
+
+  useEffect(() => {
+    setActiveSource(source);
+  }, [source]);
 
   const handleToggleEditorBreakpoint = useCallback(
     (line: number): void => {

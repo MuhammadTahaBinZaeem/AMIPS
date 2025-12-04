@@ -1,14 +1,32 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
+import { startRun, subscribeToRunState, subscribeToRunStatus } from "../services/runController";
 
 export interface RunToolbarProps {
-  onRun: () => void;
+  onRun?: () => void | Promise<void>;
   status?: string;
   onFlushInstructionCache?: () => void;
   flushEnabled?: boolean;
 }
 
 export function RunToolbar({ onRun, status, onFlushInstructionCache, flushEnabled = true }: RunToolbarProps): React.JSX.Element {
+  const [internalStatus, setInternalStatus] = useState<string>("");
+  const [running, setRunning] = useState<boolean>(false);
   const flushAvailable = Boolean(onFlushInstructionCache);
+  const effectiveStatus = status ?? internalStatus;
+
+  useEffect(() => {
+    const unsubscribeStatus = subscribeToRunStatus(setInternalStatus);
+    const unsubscribeRunning = subscribeToRunState(setRunning);
+    return () => {
+      unsubscribeStatus();
+      unsubscribeRunning();
+    };
+  }, []);
+
+  const handleRun = async (): Promise<void> => {
+    const handler = onRun ?? startRun;
+    await handler();
+  };
 
   return (
     <div
@@ -24,7 +42,8 @@ export function RunToolbar({ onRun, status, onFlushInstructionCache, flushEnable
       }}
     >
       <button
-        onClick={onRun}
+        onClick={handleRun}
+        disabled={running}
         style={{
           background: "linear-gradient(135deg, #22c55e, #16a34a)",
           color: "#0b1726",
@@ -32,7 +51,8 @@ export function RunToolbar({ onRun, status, onFlushInstructionCache, flushEnable
           borderRadius: "0.375rem",
           padding: "0.65rem 1.1rem",
           fontWeight: 700,
-          cursor: "pointer",
+          cursor: running ? "not-allowed" : "pointer",
+          opacity: running ? 0.7 : 1,
         }}
       >
         Assemble &amp; Run
@@ -53,7 +73,7 @@ export function RunToolbar({ onRun, status, onFlushInstructionCache, flushEnable
       >
         Flush Instruction Cache
       </button>
-      <span style={{ color: "#9ca3af", fontSize: "0.95rem" }}>{status ?? ""}</span>
+      <span style={{ color: "#9ca3af", fontSize: "0.95rem" }}>{effectiveStatus}</span>
     </div>
   );
 }
