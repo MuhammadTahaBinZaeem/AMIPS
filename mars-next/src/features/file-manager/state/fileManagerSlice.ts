@@ -13,6 +13,7 @@ export interface FileManagerState {
   fileTree: FileEntry[];
   openFiles: Record<string, OpenFileRecord>;
   activeFile: string | null;
+  openFileOrder: string[];
   recentFiles: string[];
 }
 
@@ -75,10 +76,15 @@ export function openFile(
     [filePath]: { path: filePath, content, isDirty: false },
   } satisfies Record<string, OpenFileRecord>;
 
+  const openFileOrder = state.openFileOrder.includes(filePath)
+    ? state.openFileOrder
+    : [...state.openFileOrder, filePath];
+
   const nextState: FileManagerState = {
     ...state,
     openFiles: open,
     activeFile: markActive ? filePath : state.activeFile,
+    openFileOrder,
   };
 
   return recordRecentFile(nextState, filePath);
@@ -117,12 +123,14 @@ export function closeFile(state: FileManagerState, filePath: string): FileManage
   if (!(filePath in state.openFiles)) return state;
 
   const { [filePath]: _removed, ...remaining } = state.openFiles;
+  const openFileOrder = state.openFileOrder.filter((entry) => entry !== filePath);
   const activeFile = state.activeFile === filePath ? Object.keys(remaining)[0] ?? null : state.activeFile;
 
   return {
     ...state,
     openFiles: remaining,
     activeFile,
+    openFileOrder,
   };
 }
 
@@ -140,12 +148,26 @@ export function setActiveFile(state: FileManagerState, filePath: string | null):
   return { ...state, activeFile: filePath };
 }
 
+export function moveOpenFile(state: FileManagerState, filePath: string, offset: number): FileManagerState {
+  if (!state.openFileOrder.includes(filePath) || offset === 0) return state;
+
+  const order = [...state.openFileOrder];
+  const index = order.indexOf(filePath);
+  const nextIndex = Math.max(0, Math.min(order.length - 1, index + offset));
+
+  order.splice(index, 1);
+  order.splice(nextIndex, 0, filePath);
+
+  return { ...state, openFileOrder: order };
+}
+
 export function initializeFileManagerState(): FileManagerState {
   return {
     workingDirectory: getWorkingDirectory(),
     fileTree: [],
     openFiles: {},
     activeFile: null,
+    openFileOrder: [],
     recentFiles: loadRecentFromDisk(),
   };
 }

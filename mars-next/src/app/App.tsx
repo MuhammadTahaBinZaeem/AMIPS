@@ -13,7 +13,10 @@ import {
   getWorkingDirectory,
   initializeFileManagerState,
   markFileSaved,
+  moveOpenFile,
   openFile as trackOpenFile,
+  closeFile,
+  setActiveFile as setActiveFileRecord,
   setWorkingDirectory as setFileManagerWorkingDirectory,
   updateFileContent as setOpenFileContent,
   writeFile as writeWorkspaceFile,
@@ -109,7 +112,7 @@ export function App(): React.JSX.Element {
   const [sourceMap, setSourceMap] = useState<SourceMapEntry[] | undefined>(undefined);
   const [editorBreakpoints, setEditorBreakpoints] = useState<number[]>([]);
   const [activeLine, setActiveLine] = useState<number | null>(null);
-  const [activeFile, setActiveFile] = useState<string | null>(null);
+  const [activeFile, setActiveFilePath] = useState<string | null>(null);
   const [fileManager, setFileManager] = useState(initializeFileManagerState());
   const [theme] = useState(initialSettings.theme);
   const [enablePseudoInstructions, setEnablePseudoInstructions] = useState(initialSettings.enablePseudoInstructions);
@@ -128,6 +131,11 @@ export function App(): React.JSX.Element {
   const [availableTools, setAvailableTools] = useState<MarsTool[]>([]);
   const [isHelpOpen, setHelpOpen] = useState(false);
   const [helpState, helpDispatch] = useReducer(helpReducer, initialHelpState);
+  const [activeSidebarView, setActiveSidebarView] = useState<"explorer" | "registers" | "settings" | "tools">("explorer");
+  const [bottomPanelTab, setBottomPanelTab] = useState<"console" | "registers" | "memory" | "debug">("console");
+  const [isBottomPanelOpen, setBottomPanelOpen] = useState(true);
+  const [splitMode, setSplitMode] = useState<"single" | "vertical" | "horizontal">("single");
+  const [secondaryActiveFile, setSecondaryActiveFile] = useState<string | null>(null);
 
   const assembler = useMemo(() => new Assembler(), []);
   const fallbackState = useMemo(() => new MachineState(), []);
@@ -142,16 +150,21 @@ export function App(): React.JSX.Element {
 
   useEffect(() => {
     if (fileManager.activeFile && fileManager.activeFile !== activeFile) {
-      setActiveFile(fileManager.activeFile);
+      setActiveFilePath(fileManager.activeFile);
     }
   }, [activeFile, fileManager.activeFile]);
 
+  useEffect(() => {
+    if (secondaryActiveFile && !(secondaryActiveFile in fileManager.openFiles)) {
+      setSecondaryActiveFile(null);
+    }
+  }, [fileManager.openFiles, secondaryActiveFile]);
+
   const handleToggleEditorBreakpoint = useCallback(
-    (line: number): void => {
+    (line: number, fileOverride?: string): void => {
       const engineBreakpoints = engine?.getDebuggerEngines().breakpoints ?? undefined;
-      setEditorBreakpoints((previous) =>
-        toggleBreakpoint(line, previous, engineBreakpoints ?? undefined, sourceMap, activeFile ?? undefined),
-      );
+      const targetFile = fileOverride ?? activeFile ?? undefined;
+      setEditorBreakpoints((previous) => toggleBreakpoint(line, previous, engineBreakpoints ?? undefined, sourceMap, targetFile));
     },
     [activeFile, engine, sourceMap],
   );
@@ -168,36 +181,36 @@ export function App(): React.JSX.Element {
       const { breakpoints: engineBreakpoints } = targetEngine.getDebuggerEngines();
       if (!engineBreakpoints) return;
 
-    engineBreakpoints.clearAll();
-    engineBreakpoints.setSymbolTable(symbols);
+      engineBreakpoints.clearAll();
+      engineBreakpoints.setSymbolTable(symbols);
 
-    specs.forEach((spec) => {
-      const trimmed = spec.spec.trim();
-      if (!trimmed) return;
+      specs.forEach((spec) => {
+        const trimmed = spec.spec.trim();
+        if (!trimmed) return;
 
-      const options = {
-        once: spec.oneShot ?? false,
-        condition: spec.condition
-          ? { kind: "registerEquals" as const, register: spec.condition.register, value: spec.condition.value }
-          : undefined,
-      };
+        const options = {
+          once: spec.oneShot ?? false,
+          condition: spec.condition
+            ? { kind: "registerEquals" as const, register: spec.condition.register, value: spec.condition.value }
+            : undefined,
+        };
 
-      if (/^0x[0-9a-f]+$/i.test(trimmed)) {
-        engineBreakpoints.setBreakpoint(Number.parseInt(trimmed, 16), options);
-        return;
-      }
+        if (/^0x[0-9a-f]+$/i.test(trimmed)) {
+          engineBreakpoints.setBreakpoint(Number.parseInt(trimmed, 16), options);
+          return;
+        }
 
-      if (/^\d+$/.test(trimmed)) {
-        engineBreakpoints.setBreakpoint(Number.parseInt(trimmed, 10), options);
-        return;
-      }
+        if (/^\d+$/.test(trimmed)) {
+          engineBreakpoints.setBreakpoint(Number.parseInt(trimmed, 10), options);
+          return;
+        }
 
-      try {
-        engineBreakpoints.setBreakpointByLabel(trimmed, options);
-      } catch (resolutionError) {
-        console.warn(resolutionError);
-      }
-    });
+        try {
+          engineBreakpoints.setBreakpointByLabel(trimmed, options);
+        } catch (resolutionError) {
+          console.warn(resolutionError);
+        }
+      });
 
       editorPoints.forEach((line) => {
         const index = resolveInstructionIndex(line, map, file ?? undefined);
@@ -327,7 +340,7 @@ export function App(): React.JSX.Element {
       const currentPc = state.getProgramCounter();
       const currentLocation = sourceMap?.find((entry) => entry.address === currentPc);
       setActiveLine(currentLocation?.line ?? null);
-      setActiveFile(currentLocation?.file ?? null);
+      setActiveFilePath(currentLocation?.file ?? null);
 
       const { breakpoints: engineBreakpoints, watchEngine } = engine.getDebuggerEngines();
       if (snapshot.watchValues || snapshot.watchChanges) {
@@ -409,20 +422,36 @@ export function App(): React.JSX.Element {
     }
   };
 
+  const activateFile = useCallback(
+    (filePath: string | null, fallbackContent?: string): void => {
+      const content = filePath
+        ? fileManager.openFiles[filePath]?.content ?? fallbackContent ?? ""
+        : fallbackContent ?? source;
+      setActiveFilePath(filePath);
+      setSource(content);
+      setFileManager((current) => setActiveFileRecord(current, filePath));
+    },
+    [fileManager.openFiles, source],
+  );
+
   const handleFileOpen = useCallback(
     (filePath: string, content: string): void => {
       setFileManager((current) => trackOpenFile(current, filePath, content));
-      setSource(content);
-      setActiveFile(filePath);
+      activateFile(filePath, content);
     },
-    [],
+    [activateFile],
   );
 
   const handleSourceChange = useCallback(
-    (value: string): void => {
-      setSource(value);
-      if (activeFile) {
-        setFileManager((current) => setOpenFileContent(current, activeFile, value));
+    (value: string, filePath: string | null = activeFile): void => {
+      const targetFile = filePath ?? null;
+      if (targetFile) {
+        setFileManager((current) => setOpenFileContent(current, targetFile, value));
+        if (targetFile === activeFile) {
+          setSource(value);
+        }
+      } else {
+        setSource(value);
       }
     },
     [activeFile],
@@ -439,13 +468,13 @@ export function App(): React.JSX.Element {
     const target = typeof window !== "undefined" ? window.prompt("Save file as", suggested) : null;
     if (!target) return;
     await writeWorkspaceFile(target, source);
-    setActiveFile(target);
+    setActiveFilePath(target);
     setFileManager((current) => markFileSaved(trackOpenFile(current, target, source), target));
   }, [activeFile, source, workingDirectory]);
 
   const handleNewFile = useCallback((): void => {
     setSource("");
-    setActiveFile(null);
+    setActiveFilePath(null);
     setFileManager((current) => ({ ...current, activeFile: null }));
   }, []);
 
@@ -622,7 +651,7 @@ export function App(): React.JSX.Element {
 
       const currentLocation = layout.sourceMap.find((entry) => entry.address === state.getProgramCounter());
       setActiveLine(currentLocation?.line ?? null);
-      setActiveFile(currentLocation?.file ?? null);
+      setActiveFilePath(currentLocation?.file ?? null);
 
       const { breakpoints: engineBreakpoints, watchEngine } = loadedEngine.getDebuggerEngines();
       if (watchEngine) {
@@ -700,59 +729,88 @@ export function App(): React.JSX.Element {
     cursor: "pointer",
   };
 
-  return (
-    <main
-      style={{
-        fontFamily: "Inter, system-ui, sans-serif",
-        padding: "2rem",
-        background: "#0b1220",
-        minHeight: "100vh",
-        color: "#e5e7eb",
-      }}
-    >
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem" }}>
-          <h1 style={{ margin: 0 }}>MARS Next – Prototype</h1>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", position: "relative" }}>
-            <div style={{ position: "relative" }}>
-              <button style={toolsButtonStyle} onClick={() => setToolsMenuOpen((open) => !open)}>
-                Tools ▾
-              </button>
-              {toolsMenuOpen && (
-                <div style={toolsMenuStyle}>
-                  {availableTools.map((tool) => {
-                    const toolId = tool.id;
-                    const isEnabled = tool.isAvailable ? tool.isAvailable(toolContext) : true;
-                    const menuItemStyle: React.CSSProperties = {
-                      ...toolsMenuItemStyle,
-                      ...(isEnabled ? {} : { opacity: 0.6, cursor: "not-allowed" }),
-                    };
+  const orderedOpenFiles = useMemo(() => {
+    const known = new Set(Object.keys(fileManager.openFiles));
+    const ordered = fileManager.openFileOrder.filter((entry) => known.has(entry));
+    const remainder = Array.from(known).filter((entry) => !fileManager.openFileOrder.includes(entry));
+    return [...ordered, ...remainder];
+  }, [fileManager.openFileOrder, fileManager.openFiles]);
 
-                    return (
-                      <button
-                        key={toolId}
-                        style={menuItemStyle}
-                        disabled={!isEnabled}
-                        onClick={() => {
-                          if (!isEnabled) return;
-                          openTool(tool);
-                          setToolsMenuOpen(false);
-                        }}
-                      >
-                        {tool.name}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-            <button style={toolsButtonStyle} onClick={() => openHelp()}>
-              Help
+  useEffect(() => {
+    if (splitMode === "single") {
+      setSecondaryActiveFile(null);
+      return;
+    }
+
+    if (!secondaryActiveFile) {
+      const candidate = orderedOpenFiles.find((entry) => entry !== activeFile) ?? activeFile ?? null;
+      setSecondaryActiveFile(candidate);
+    }
+  }, [activeFile, orderedOpenFiles, secondaryActiveFile, splitMode]);
+
+  const tabLabel = (filePath: string): string => filePath.split(/[/\\]/).pop() ?? filePath;
+  const primarySource = activeFile ? fileManager.openFiles[activeFile]?.content ?? "" : source;
+  const secondarySource = secondaryActiveFile
+    ? fileManager.openFiles[secondaryActiveFile]?.content ?? ""
+    : primarySource;
+
+  const handleCloseTab = useCallback((filePath: string): void => {
+    setFileManager((current) => {
+      const next = closeFile(current, filePath);
+      if (next.activeFile !== current.activeFile) {
+        const content = next.activeFile ? next.openFiles[next.activeFile]?.content ?? "" : "";
+        setActiveFilePath(next.activeFile);
+        setSource(content);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleActivateTab = useCallback(
+    (filePath: string): void => {
+      const content = fileManager.openFiles[filePath]?.content ?? "";
+      activateFile(filePath, content);
+    },
+    [activateFile, fileManager.openFiles],
+  );
+
+  const renderSidebarContent = (): React.ReactNode => {
+    if (activeSidebarView === "explorer") {
+      return (
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontWeight: 700, color: "#e2e8f0" }}>Workspace</span>
+            <button style={toolsButtonStyle} onClick={() => void handleOpenFilePicker()}>
+              ⬆️ Open
             </button>
-            <span style={{ color: "#9ca3af" }}>Dark mode by default</span>
           </div>
+          <FileExplorer
+            workingDirectory={workingDirectory}
+            onFileOpen={handleFileOpen}
+            onWorkspaceChange={(directory) =>
+              setFileManager((current) => setFileManagerWorkingDirectory(current, directory))
+            }
+          />
+          <RecentFilesList files={fileManager.recentFiles} onOpenFile={handleFileOpen} />
         </div>
+      );
+    }
 
-      <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+    if (activeSidebarView === "registers") {
+      return (
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+          <span style={{ fontWeight: 700, color: "#e2e8f0" }}>Registers & Memory</span>
+          <RegistersWindow />
+          <MemoryConfiguration
+            onChange={(configuration) => setMemoryConfiguration(configuration)}
+            configuration={memoryConfiguration}
+          />
+        </div>
+      );
+    }
+
+    if (activeSidebarView === "settings") {
+      return (
         <SettingsDialog
           enablePseudoInstructions={enablePseudoInstructions}
           assembleAllFiles={assembleAllFiles}
@@ -774,180 +832,480 @@ export function App(): React.JSX.Element {
           onChangeExecutionMode={handleChangeExecutionMode}
           onReloadPseudoOps={handleReloadPseudoOps}
         />
-        <RunToolbar
-          onRun={handleRun}
-          status={status}
-          onFlushInstructionCache={handleFlushInstructionCache}
-          flushEnabled={engine !== null}
-        />
-        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-          <button onClick={handleNewFile} style={{ padding: "0.4rem 0.75rem", borderRadius: "0.4rem", border: "1px solid #1f2937" }}>
-            New File
-          </button>
-          <button
-            onClick={() => void handleOpenFilePicker()}
-            style={{ padding: "0.4rem 0.75rem", borderRadius: "0.4rem", border: "1px solid #1f2937" }}
-          >
-            Open…
-          </button>
-          <button
-            onClick={() => void handleSave()}
-            disabled={!activeFile}
-            style={{
-              padding: "0.4rem 0.75rem",
-              borderRadius: "0.4rem",
-              border: "1px solid #1f2937",
-              opacity: activeFile ? 1 : 0.5,
-              cursor: activeFile ? "pointer" : "not-allowed",
-            }}
-          >
-            Save
-          </button>
-          <button
-            onClick={() => void handleSaveAs()}
-            style={{ padding: "0.4rem 0.75rem", borderRadius: "0.4rem", border: "1px solid #1f2937" }}
-          >
-            Save As…
-          </button>
-        </div>
-        {activeLine !== null && (
-          <div style={{ color: "#a5b4fc", fontWeight: 600 }}>
-            Current instruction: {activeFile ?? "<input>"}:{activeLine}
+      );
+    }
+
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+        <span style={{ fontWeight: 700, color: "#e2e8f0" }}>Tools</span>
+        {availableTools.map((tool) => {
+          const toolId = tool.id;
+          const isEnabled = tool.isAvailable ? tool.isAvailable(toolContext) : true;
+          return (
+            <button
+              key={toolId}
+              style={{
+                ...toolsButtonStyle,
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                opacity: isEnabled ? 1 : 0.6,
+              }}
+              disabled={!isEnabled}
+              onClick={() => openTool(tool)}
+            >
+              <span>{tool.name}</span>
+              <span style={{ color: "#9ca3af" }}>↗</span>
+            </button>
+          );
+        })}
+        <button style={toolsButtonStyle} onClick={() => openHelp()}>
+          Help & Docs
+        </button>
+      </div>
+    );
+  };
+
+  const renderBottomPanel = (): React.ReactNode => {
+    if (bottomPanelTab === "console") {
+      return (
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+          <div style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
+            <span style={{ color: "#a5b4fc", fontWeight: 700 }}>Status:</span>
+            <span>{status}</span>
+            {activeLine !== null && <span style={{ color: "#38bdf8" }}>Line {activeLine}</span>}
           </div>
-        )}
-        {error && (
+          {error && (
+            <div style={{ padding: "0.75rem", borderRadius: "0.5rem", backgroundColor: "#2b0f1c", border: "1px solid #7f1d1d" }}>
+              <div style={{ color: "#fca5a5" }}>{error}</div>
+              <button style={{ ...toolsButtonStyle, marginTop: "0.5rem" }} onClick={() => openHelp(error)}>
+                View related help
+              </button>
+            </div>
+          )}
+          <RunToolbar
+            onRun={handleRun}
+            status={status}
+            onFlushInstructionCache={handleFlushInstructionCache}
+            flushEnabled={engine !== null}
+          />
+        </div>
+      );
+    }
+
+    if (bottomPanelTab === "registers") {
+      return <RegistersWindow />;
+    }
+
+    if (bottomPanelTab === "memory") {
+      return <MemoryTable entries={memoryEntries} />;
+    }
+
+    return (
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "0.75rem" }}>
+        <BreakpointManagerPanel
+          breakpoints={breakpoints}
+          symbols={symbolTable}
+          lineBreakpoints={editorBreakpoints}
+          sourceMap={sourceMap}
+          file={activeFile}
+          onAdd={(spec) =>
+            setBreakpoints((previous) => {
+              const alreadyExists = previous.some(
+                (entry) =>
+                  entry.spec === spec.spec &&
+                  (entry.oneShot ?? false) === (spec.oneShot ?? false) &&
+                  (entry.condition?.kind ?? null) === (spec.condition?.kind ?? null) &&
+                  (entry.condition?.register ?? null) === (spec.condition?.register ?? null) &&
+                  (entry.condition?.value ?? null) === (spec.condition?.value ?? null),
+              );
+
+              if (alreadyExists) return previous;
+
+              return [
+                ...previous,
+                { ...spec, id: `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}` },
+              ];
+            })
+          }
+          onRemove={(id) => setBreakpoints((previous) => previous.filter((entry) => entry.id !== id))}
+          onToggleLine={(line) => handleToggleEditorBreakpoint(line, activeFile ?? undefined)}
+        />
+        <div
+          style={{
+            border: "1px solid #1f2937",
+            borderRadius: "0.5rem",
+            padding: "0.75rem 1rem",
+            backgroundColor: "#0f172a",
+            display: "flex",
+            flexDirection: "column",
+            gap: "0.5rem",
+          }}
+        >
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+            <strong style={{ color: "#e2e8f0" }}>Source Breakpoints</strong>
+            <span style={{ color: "#94a3b8", fontSize: "0.9rem" }}>
+              Click the gutter to toggle instruction breakpoints; remove them here or from the editor.
+            </span>
+          </div>
+          <BreakpointList
+            breakpoints={editorBreakpoints}
+            program={program ?? undefined}
+            onRemove={(line) => handleToggleEditorBreakpoint(line, activeFile ?? undefined)}
+          />
+        </div>
+        <WatchManagerPanel
+          watches={watches}
+          symbols={symbolTable}
+          values={watchValues}
+          onAdd={(spec) =>
+            setWatches((previous) =>
+              previous.find((entry) => entry.kind === spec.kind && entry.identifier === spec.identifier)
+                ? previous
+                : [...previous, spec],
+            )
+          }
+          onRemove={(spec) =>
+            setWatches((previous) =>
+              previous.filter((entry) => !(entry.kind === spec.kind && entry.identifier === spec.identifier)),
+            )
+          }
+        />
+      </div>
+    );
+  };
+
+  return (
+    <main
+      style={{
+        fontFamily: "Inter, system-ui, sans-serif",
+        background: "#0b1220",
+        minHeight: "100vh",
+        color: "#e5e7eb",
+        display: "flex",
+        flexDirection: "column",
+      }}
+    >
+      <header
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "0.75rem 1rem",
+          borderBottom: "1px solid #111827",
+          background: "linear-gradient(90deg, #0f172a, #0b1220)",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
           <div
             style={{
-              backgroundColor: "#2b0f1c",
-              color: "#fca5a5",
-              border: "1px solid #7f1d1d",
-              borderRadius: "0.5rem",
-              padding: "0.75rem 1rem",
+              background: "#111827",
+              border: "1px solid #1f2937",
+              borderRadius: "0.4rem",
+              padding: "0.35rem 0.5rem",
+              fontWeight: 700,
+              letterSpacing: "0.05em",
             }}
           >
-            <div>{error}</div>
-            <button
-              onClick={() => openHelp(error)}
+            MARS Next
+          </div>
+          <span style={{ color: "#9ca3af" }}>Modern IDE shell</span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <button style={toolsButtonStyle} onClick={handleNewFile} title="New file">
+            🆕
+          </button>
+          <button style={toolsButtonStyle} onClick={() => void handleOpenFilePicker()} title="Open file">
+            📂
+          </button>
+          <button
+            style={{ ...toolsButtonStyle, opacity: activeFile ? 1 : 0.6 }}
+            disabled={!activeFile}
+            onClick={() => void handleSave()}
+            title="Save"
+          >
+            💾
+          </button>
+          <button style={toolsButtonStyle} onClick={() => void handleSaveAs()} title="Save as">
+            📁
+          </button>
+          <div style={{ position: "relative" }}>
+            <button style={toolsButtonStyle} onClick={() => setToolsMenuOpen((open) => !open)} title="Tool drawer">
+              🧰
+            </button>
+            {toolsMenuOpen && (
+              <div style={toolsMenuStyle}>
+                {availableTools.map((tool) => {
+                  const toolId = tool.id;
+                  const isEnabled = tool.isAvailable ? tool.isAvailable(toolContext) : true;
+                  const menuItemStyle: React.CSSProperties = {
+                    ...toolsMenuItemStyle,
+                    ...(isEnabled ? {} : { opacity: 0.6, cursor: "not-allowed" }),
+                  };
+
+                  return (
+                    <button
+                      key={toolId}
+                      style={menuItemStyle}
+                      disabled={!isEnabled}
+                      onClick={() => {
+                        if (!isEnabled) return;
+                        openTool(tool);
+                        setToolsMenuOpen(false);
+                      }}
+                    >
+                      {tool.name}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+          <button style={toolsButtonStyle} onClick={() => openHelp()} title="Help">
+            ❔
+          </button>
+        </div>
+      </header>
+      <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", padding: "0.75rem" }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateRows: isBottomPanelOpen ? "1fr 280px" : "1fr",
+            gap: "0.75rem",
+            flex: 1,
+            minHeight: 0,
+          }}
+        >
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "60px 320px 1fr",
+              gap: "0.5rem",
+              minHeight: 0,
+            }}
+          >
+            <div
               style={{
-                marginTop: "0.4rem",
-                backgroundColor: "#7f1d1d",
-                border: "1px solid #b91c1c",
-                color: "#fff",
-                borderRadius: "0.35rem",
-                padding: "0.25rem 0.6rem",
-                cursor: "pointer",
+                border: "1px solid #111827",
+                borderRadius: "0.5rem",
+                background: "#0d1628",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                padding: "0.5rem 0",
+                gap: "0.5rem",
               }}
             >
-              View related help
-            </button>
-          </div>
-        )}
-
-        <div style={{ display: "grid", gridTemplateColumns: "minmax(260px, 320px) 1fr", gap: "1rem", alignItems: "start" }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-            <FileExplorer
-              workingDirectory={workingDirectory}
-              onFileOpen={handleFileOpen}
-              onWorkspaceChange={(directory) =>
-                setFileManager((current) => setFileManagerWorkingDirectory(current, directory))
-              }
-            />
-            <RecentFilesList files={fileManager.recentFiles} onOpenFile={handleFileOpen} />
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-            <EditorPane
-              source={source}
-              status={status}
-              onChange={handleSourceChange}
-              breakpoints={editorBreakpoints}
-              managedBreakpoints={breakpoints}
-              watches={watches}
-              watchValues={watchValues}
-              symbols={symbolTable}
-              activeLine={activeLine}
-              activeFile={activeFile}
-              onToggleBreakpoint={handleToggleEditorBreakpoint}
-            />
-            <StatusBar activeFile={activeFile} workingDirectory={workingDirectory} dirty={isDirty} />
-          </div>
-        </div>
-
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: "1rem" }}>
-          <BreakpointManagerPanel
-            breakpoints={breakpoints}
-            symbols={symbolTable}
-            lineBreakpoints={editorBreakpoints}
-            sourceMap={sourceMap}
-            file={activeFile}
-            onAdd={(spec) =>
-              setBreakpoints((previous) => {
-                const alreadyExists = previous.some(
-                  (entry) =>
-                    entry.spec === spec.spec &&
-                    (entry.oneShot ?? false) === (spec.oneShot ?? false) &&
-                    (entry.condition?.kind ?? null) === (spec.condition?.kind ?? null) &&
-                    (entry.condition?.register ?? null) === (spec.condition?.register ?? null) &&
-                    (entry.condition?.value ?? null) === (spec.condition?.value ?? null),
+              {["explorer", "registers", "settings", "tools"].map((item) => {
+                const isActive = activeSidebarView === item;
+                const icon =
+                  item === "explorer"
+                    ? "📁"
+                    : item === "registers"
+                      ? "🧮"
+                      : item === "settings"
+                        ? "⚙️"
+                        : "🛠️";
+                return (
+                  <button
+                    key={item}
+                    onClick={() => setActiveSidebarView(item as typeof activeSidebarView)}
+                    style={{
+                      background: isActive ? "#1e293b" : "transparent",
+                      color: isActive ? "#a5b4fc" : "#cbd5e1",
+                      border: "none",
+                      borderRadius: "0.4rem",
+                      width: "80%",
+                      padding: "0.5rem 0",
+                      cursor: "pointer",
+                    }}
+                  >
+                    {icon}
+                  </button>
                 );
-
-                if (alreadyExists) return previous;
-
-                return [
-                  ...previous,
-                  { ...spec, id: `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}` },
-                ];
-              })
-            }
-            onRemove={(id) => setBreakpoints((previous) => previous.filter((entry) => entry.id !== id))}
-            onToggleLine={handleToggleEditorBreakpoint}
-          />
-          <div
-            style={{
-              border: "1px solid #1f2937",
-              borderRadius: "0.5rem",
-              padding: "0.75rem 1rem",
-              backgroundColor: "#0f172a",
-              display: "flex",
-              flexDirection: "column",
-              gap: "0.5rem",
-            }}
-          >
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
-              <strong style={{ color: "#e2e8f0" }}>Source Breakpoints</strong>
-              <span style={{ color: "#94a3b8", fontSize: "0.9rem" }}>
-                Click the gutter to toggle instruction breakpoints; remove them here or from the editor.
-              </span>
+              })}
             </div>
-            <BreakpointList
-              breakpoints={editorBreakpoints}
-              program={program ?? undefined}
-              onRemove={handleToggleEditorBreakpoint}
-            />
-          </div>
-          <WatchManagerPanel
-            watches={watches}
-            symbols={symbolTable}
-            values={watchValues}
-            onAdd={(spec) =>
-              setWatches((previous) =>
-                previous.find((entry) => entry.kind === spec.kind && entry.identifier === spec.identifier)
-                  ? previous
-                  : [...previous, spec],
-              )
-            }
-            onRemove={(spec) =>
-              setWatches((previous) =>
-                previous.filter((entry) => !(entry.kind === spec.kind && entry.identifier === spec.identifier)),
-              )
-            }
-          />
-        </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "1rem" }}>
-          <RegistersWindow />
-          <MemoryTable entries={memoryEntries} />
+            <aside
+              style={{
+                border: "1px solid #111827",
+                borderRadius: "0.5rem",
+                padding: "0.75rem",
+                background: "#0f172a",
+                overflow: "auto",
+              }}
+            >
+              {renderSidebarContent()}
+            </aside>
+
+            <section
+              style={{
+                border: "1px solid #111827",
+                borderRadius: "0.5rem",
+                padding: "0.5rem 0.75rem",
+                background: "#0f172a",
+                display: "flex",
+                flexDirection: "column",
+                gap: "0.5rem",
+                minHeight: 0,
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: "0.75rem",
+                  borderBottom: "1px solid #111827",
+                  paddingBottom: "0.35rem",
+                }}
+              >
+                <div style={{ display: "flex", gap: "0.35rem", alignItems: "center", flexWrap: "wrap" }}>
+                  <button style={toolsButtonStyle} onClick={() => setSplitMode("single")} title="Single editor">
+                    ▢
+                  </button>
+                  <button style={toolsButtonStyle} onClick={() => setSplitMode("vertical")} title="Split vertically">
+                    ⇄
+                  </button>
+                  <button style={toolsButtonStyle} onClick={() => setSplitMode("horizontal")} title="Split horizontally">
+                    ⇅
+                  </button>
+                  <div style={{ color: "#94a3b8", fontSize: "0.9rem" }}>
+                    {activeFile ? `Editing ${tabLabel(activeFile)}` : "Scratch buffer"}
+                  </div>
+                </div>
+                <StatusBar activeFile={activeFile} workingDirectory={workingDirectory} dirty={isDirty} />
+              </div>
+
+              <div style={{ display: "flex", gap: "0.35rem", alignItems: "center", overflowX: "auto" }}>
+                {orderedOpenFiles.map((filePath, index) => {
+                  const isActive = filePath === activeFile;
+                  const record = fileManager.openFiles[filePath];
+                  return (
+                    <div
+                      key={filePath}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "0.35rem",
+                        padding: "0.4rem 0.6rem",
+                        borderRadius: "0.4rem",
+                        background: isActive ? "#1f2937" : "#111827",
+                        border: "1px solid #1f2937",
+                        boxShadow: isActive ? "0 10px 25px rgba(0,0,0,0.25)" : undefined,
+                      }}
+                    >
+                      <button onClick={() => handleActivateTab(filePath)} style={{ color: "inherit", background: "transparent", border: "none", cursor: "pointer" }}>
+                        {tabLabel(filePath)}{record?.isDirty ? " •" : ""}
+                      </button>
+                      <div style={{ display: "flex", gap: "0.2rem" }}>
+                        <button style={toolsButtonStyle} onClick={() => setFileManager((current) => moveOpenFile(current, filePath, -1))} title="Move left" disabled={index === 0}>
+                          ←
+                        </button>
+                        <button
+                          style={toolsButtonStyle}
+                          onClick={() => setFileManager((current) => moveOpenFile(current, filePath, 1))}
+                          title="Move right"
+                          disabled={index === orderedOpenFiles.length - 1}
+                        >
+                          →
+                        </button>
+                        <button style={toolsButtonStyle} onClick={() => handleCloseTab(filePath)} title="Close tab">
+                          ✕
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div
+                style={{
+                  flex: 1,
+                  display: "grid",
+                  gridTemplateColumns: splitMode === "vertical" ? "1fr 1fr" : "1fr",
+                  gridTemplateRows: splitMode === "horizontal" ? "1fr 1fr" : "1fr",
+                  gap: "0.5rem",
+                  minHeight: 0,
+                }}
+              >
+                <EditorPane
+                  source={primarySource}
+                  status={status}
+                  onChange={(value) => handleSourceChange(value, activeFile)}
+                  breakpoints={editorBreakpoints}
+                  managedBreakpoints={breakpoints}
+                  watches={watches}
+                  watchValues={watchValues}
+                  symbols={symbolTable}
+                  activeLine={activeLine}
+                  activeFile={activeFile}
+                  onToggleBreakpoint={(line) => handleToggleEditorBreakpoint(line, activeFile ?? undefined)}
+                />
+                {splitMode !== "single" && (
+                  <EditorPane
+                    source={secondarySource}
+                    status={status}
+                    onChange={(value) => handleSourceChange(value, secondaryActiveFile)}
+                    breakpoints={editorBreakpoints}
+                    managedBreakpoints={breakpoints}
+                    watches={watches}
+                    watchValues={watchValues}
+                    symbols={symbolTable}
+                    activeLine={secondaryActiveFile === activeFile ? activeLine : null}
+                    activeFile={secondaryActiveFile}
+                    onToggleBreakpoint={(line) => handleToggleEditorBreakpoint(line, secondaryActiveFile ?? undefined)}
+                  />
+                )}
+              </div>
+            </section>
+          </div>
+
+          {isBottomPanelOpen && (
+            <section
+              style={{
+                border: "1px solid #111827",
+                borderRadius: "0.5rem",
+                padding: "0.5rem 0.75rem",
+                background: "#0f172a",
+                display: "flex",
+                flexDirection: "column",
+                gap: "0.5rem",
+                minHeight: 0,
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", gap: "0.35rem", alignItems: "center" }}>
+                  {["console", "registers", "memory", "debug"].map((tab) => (
+                    <button
+                      key={tab}
+                      onClick={() => setBottomPanelTab(tab as typeof bottomPanelTab)}
+                      style={{
+                        ...toolsButtonStyle,
+                        backgroundColor: bottomPanelTab === tab ? "#1f2937" : "#111827",
+                        borderColor: "#1f2937",
+                      }}
+                    >
+                      {tab}
+                    </button>
+                  ))}
+                </div>
+                <button style={toolsButtonStyle} onClick={() => setBottomPanelOpen(false)} title="Collapse panel">
+                  ⤵
+                </button>
+              </div>
+              <div style={{ flex: 1, overflow: "auto" }}>{renderBottomPanel()}</div>
+            </section>
+          )}
         </div>
       </div>
+      {!isBottomPanelOpen && (
+        <div style={{ padding: "0.35rem 0.75rem", textAlign: "right" }}>
+          <button style={toolsButtonStyle} onClick={() => setBottomPanelOpen(true)}>
+            Show Panel
+          </button>
+        </div>
+      )}
       {openTools.map((toolId) => {
         const tool = availableTools.find((entry) => entry.id === toolId);
         if (!tool) return null;
