@@ -5,6 +5,7 @@ import { Assembler } from "../../src/core/assembler/Assembler";
 import { Pipeline, ProgramMemory } from "../../src/core/cpu/Pipeline";
 import { decodeInstruction } from "../../src/core/cpu/Instructions";
 import { InstructionDecoder } from "../../src/core/cpu/Cpu";
+import { BitmapDisplayDevice, type DirtyRegion } from "../../src/core/devices/BitmapDisplayDevice";
 import { DisplayDevice } from "../../src/core/devices/DisplayDevice";
 import { FileDevice } from "../../src/core/devices/FileDevice";
 import { KeyboardDevice, KEYBOARD_QUEUE_BYTE_LENGTH } from "../../src/core/devices/KeyboardDevice";
@@ -171,5 +172,61 @@ describe("MMIO device interrupts", () => {
 
     memory.writeByte(map.mmioBase + 4, 0x41);
     assert.strictEqual(interrupts, 2);
+  });
+});
+
+describe("KeyboardDevice queues", () => {
+  test("queues simultaneous key events, reports key-up, and clears queues", () => {
+    const keyboard = new KeyboardDevice();
+    const downQueue = keyboard.getQueueDevice("down");
+    const upQueue = keyboard.getQueueDevice("up");
+
+    let interrupts = 0;
+    keyboard.onInterrupt(() => interrupts++);
+
+    keyboard.queueKeyDown("A", "B");
+    keyboard.queueKeyUp("A");
+
+    assert.strictEqual(interrupts, 2, "down and up queues should trigger separate interrupts");
+    assert.strictEqual(downQueue.read(0), 2, "down queue tracks simultaneous key presses");
+    assert.strictEqual(upQueue.read(0), 1, "up queue captures releases independently");
+    assert.strictEqual(downQueue.read(2), "A".charCodeAt(0));
+    assert.strictEqual(downQueue.read(3), "B".charCodeAt(0));
+
+    downQueue.write(1, 0x1);
+    assert.strictEqual(downQueue.read(0), 0, "clearing flag empties queued key-down events");
+
+    keyboard.queueFromBytes("down", [0x43]);
+    assert.strictEqual(interrupts, 3, "subsequent enqueue triggers another interrupt");
+    assert.strictEqual(downQueue.read(0), 1);
+    assert.strictEqual(downQueue.read(2), 0x43);
+  });
+});
+
+describe("BitmapDisplayDevice", () => {
+  test("flushes only when the update bit is set", () => {
+    const FLUSH_OFFSET = 12;
+    const FRAMEBUFFER_OFFSET = 16;
+    const flushes: DirtyRegion[][] = [];
+
+    const device = new BitmapDisplayDevice({
+      width: 2,
+      height: 2,
+      onFlush: (regions) => flushes.push(regions.map((region) => ({ ...region }))),
+    });
+
+    device.write(FRAMEBUFFER_OFFSET, 0xaa);
+    assert.strictEqual(flushes.length, 0, "writes do not flush until the update bit is set");
+
+    device.write(FLUSH_OFFSET, 0x0);
+    assert.strictEqual(flushes.length, 0, "clearing the control word alone does not flush");
+
+    device.write(FRAMEBUFFER_OFFSET + 8, 0xbb);
+    device.write(FLUSH_OFFSET, 0x1);
+
+    assert.strictEqual(device.read(FLUSH_OFFSET) & 0x1, 0, "update bit is cleared after flush");
+    assert.strictEqual(flushes.length, 1, "setting the update bit triggers a flush");
+    assert.deepStrictEqual(flushes[0], [{ x: 0, y: 0, width: 1, height: 2 }]);
+    assert.deepStrictEqual(device.getDirtyRegions(), [], "dirty regions are reset after flushing");
   });
 });
