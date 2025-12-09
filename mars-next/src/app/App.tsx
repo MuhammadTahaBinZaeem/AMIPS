@@ -686,9 +686,9 @@ export function App(): React.JSX.Element {
   };
 
   const toolsButtonStyle: React.CSSProperties = {
-    backgroundColor: "#1f2937",
-    color: "#e5e7eb",
-    border: "1px solid #374151",
+    backgroundColor: "var(--color-elevated)",
+    color: "var(--color-text)",
+    border: "1px solid var(--color-border)",
     borderRadius: "0.5rem",
     padding: "0.4rem 0.75rem",
     cursor: "pointer",
@@ -699,10 +699,10 @@ export function App(): React.JSX.Element {
     right: 0,
     top: "100%",
     marginTop: "0.25rem",
-    backgroundColor: "#0f172a",
-    border: "1px solid #1f2937",
+    backgroundColor: "var(--color-surface)",
+    border: "1px solid var(--color-border)",
     borderRadius: "0.5rem",
-    boxShadow: "0 10px 25px rgba(0, 0, 0, 0.35)",
+    boxShadow: "var(--shadow-strong)",
     padding: "0.25rem",
     minWidth: "200px",
     zIndex: 10,
@@ -722,7 +722,7 @@ export function App(): React.JSX.Element {
     width: "100%",
     textAlign: "left",
     backgroundColor: "transparent",
-    color: "#e5e7eb",
+    color: "var(--color-text)",
     border: "none",
     padding: "0.5rem 0.75rem",
     borderRadius: "0.4rem",
@@ -976,31 +976,22 @@ export function App(): React.JSX.Element {
   };
 
   return (
-    <main
-      style={{
-        fontFamily: "Inter, system-ui, sans-serif",
-        background: "#0b1220",
-        minHeight: "100vh",
-        color: "#e5e7eb",
-        display: "flex",
-        flexDirection: "column",
-      }}
-    >
+    <main className="app-shell">
       <header
         style={{
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
           padding: "0.75rem 1rem",
-          borderBottom: "1px solid #111827",
-          background: "linear-gradient(90deg, #0f172a, #0b1220)",
+          borderBottom: "1px solid var(--color-border)",
+          background: "linear-gradient(90deg, var(--color-elevated), var(--color-surface-strong))",
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
           <div
             style={{
-              background: "#111827",
-              border: "1px solid #1f2937",
+              background: "var(--color-elevated)",
+              border: "1px solid var(--color-border)",
               borderRadius: "0.4rem",
               padding: "0.35rem 0.5rem",
               fontWeight: 700,
@@ -1009,7 +1000,7 @@ export function App(): React.JSX.Element {
           >
             MARS Next
           </div>
-          <span style={{ color: "#9ca3af" }}>Modern IDE shell</span>
+          <span style={{ color: "var(--color-muted)" }}>Modern IDE shell</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
           <button style={toolsButtonStyle} onClick={handleNewFile} title="New file">

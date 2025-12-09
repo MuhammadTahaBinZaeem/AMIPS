@@ -79,40 +79,23 @@ export function EditorPane({
   );
 
   return (
-    <div
-      style={{
-        border: "1px solid #1f2937",
-        borderRadius: "0.75rem",
-        backgroundColor: "#0f172a",
-        overflow: "hidden",
-        boxShadow: "0 10px 40px rgba(0,0,0,0.35)",
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          padding: "0.65rem 1rem",
-          borderBottom: "1px solid #1f2937",
-          background: "linear-gradient(90deg, #111827, #0b1220)",
-        }}
-      >
+    <div className="amips-card">
+      <div className="amips-card__header">
         <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
-          <div style={{ color: "#e2e8f0", fontWeight: 700 }}>Editor Pane</div>
-          <div style={{ color: "#94a3b8", fontSize: "0.9rem" }}>{status}</div>
+          <div className="amips-card__title">Editor Pane</div>
+          <div className="amips-card__meta">{status}</div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", color: "#cbd5e1", fontSize: "0.9rem" }}>
-          <span style={{ display: "flex", gap: "0.35rem", alignItems: "center" }}>
-            <span style={{ width: 8, height: 8, borderRadius: "999px", backgroundColor: "#22c55e" }} />
+        <div className="amips-toolbar" style={{ color: "var(--color-text)", fontSize: "0.9rem" }}>
+          <span className="amips-badge">
+            <span style={{ width: 8, height: 8, borderRadius: "999px", backgroundColor: "var(--color-success)" }} />
             Breakpoints: {breakpoints.length + resolvedBreakpoints.length}
           </span>
-          <span style={{ display: "flex", gap: "0.35rem", alignItems: "center" }}>
-            <span style={{ width: 8, height: 8, borderRadius: "999px", backgroundColor: "#38bdf8" }} />
+          <span className="amips-badge">
+            <span style={{ width: 8, height: 8, borderRadius: "999px", backgroundColor: "var(--color-highlight)" }} />
             Watches: {watches.length}
           </span>
           {activeLine !== null && activeLine !== undefined && (
-            <span style={{ color: "#a5b4fc" }}>
+            <span className="amips-badge" style={{ color: "var(--color-accent)" }}>
               {activeFile ?? "<input>"}:{activeLine}
             </span>
           )}
@@ -120,7 +103,7 @@ export function EditorPane({
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 2fr) minmax(320px, 1fr)", gap: "1px" }}>
-        <div style={{ padding: "1rem" }}>
+        <div style={{ padding: "1rem", background: "var(--color-surface)" }}>
           <EditorView
             value={source}
             onChange={onChange}
@@ -131,77 +114,51 @@ export function EditorPane({
           />
         </div>
 
-        <aside
-          style={{
-            borderLeft: "1px solid #1f2937",
-            backgroundColor: "#0b1220",
-            padding: "1rem",
-            display: "flex",
-            flexDirection: "column",
-            gap: "0.75rem",
-          }}
-        >
+        <aside className="amips-side-panel">
           <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
-            <div style={{ color: "#e2e8f0", fontWeight: 700 }}>Breakpoint Manager</div>
-            <div style={{ color: "#94a3b8", fontSize: "0.9rem" }}>
-              Legacy-inspired list combining editor and address breakpoints.
-            </div>
+            <div className="amips-card__title">Breakpoint Manager</div>
+            <div className="amips-card__meta">Legacy-inspired list combining editor and address breakpoints.</div>
             <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
               {breakpoints.map((line) => (
-                <span key={`editor:${line}`} style={{ color: "#38bdf8", fontSize: "0.9rem" }}>
-                  Source line {line + 1}
+                <span key={`editor:${line}`} className="amips-card__meta" style={{ color: "var(--color-highlight)" }}>
+                  Source line {line}
                 </span>
               ))}
               {resolvedBreakpoints.map((entry) => (
-                <span key={entry.id} style={{ color: entry.address !== null ? "#f8fafc" : "#fca5a5", fontSize: "0.9rem" }}>
+                <span
+                  key={entry.id}
+                  className="amips-card__meta"
+                  style={{ color: entry.address !== null ? "var(--color-text)" : "var(--color-danger)" }}
+                >
                   {entry.spec} → {entry.address !== null ? `0x${entry.address.toString(16)}` : "Unresolved"}
                 </span>
               ))}
               {breakpoints.length === 0 && resolvedBreakpoints.length === 0 && (
-                <span style={{ color: "#64748b", fontSize: "0.9rem" }}>No breakpoints configured.</span>
+                <span className="amips-card__meta">No breakpoints configured.</span>
               )}
             </div>
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
-            <div style={{ color: "#e2e8f0", fontWeight: 700 }}>Watch window</div>
-            <div style={{ color: "#94a3b8", fontSize: "0.9rem" }}>
-              Expressions resolve against registers, labels, and live memory.
-            </div>
+            <div className="amips-card__title">Watch window</div>
+            <div className="amips-card__meta">Expressions resolve against registers, labels, and live memory.</div>
             <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
               {renderedWatches.map((watch) => (
-                <div
-                  key={watch.key}
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    padding: "0.35rem 0.6rem",
-                    border: "1px solid #1f2937",
-                    borderRadius: "0.4rem",
-                    backgroundColor: "#0f172a",
-                  }}
-                >
+                <div key={watch.key} className="amips-list-tile">
                   <div style={{ display: "flex", flexDirection: "column", gap: "0.1rem" }}>
-                    <span style={{ color: "#e2e8f0", fontWeight: 600 }}>{watch.display}</span>
-                    <span style={{ color: "#38bdf8", fontSize: "0.9rem" }}>
+                    <span className="amips-card__title" style={{ fontSize: "0.95rem" }}>
+                      {watch.display}
+                    </span>
+                    <span style={{ color: "var(--color-highlight)", fontSize: "0.9rem" }}>
                       {watch.value !== undefined ? watch.value : "No data yet"}
                     </span>
                   </div>
-                  <span
-                    style={{
-                      color: "#94a3b8",
-                      fontSize: "0.85rem",
-                      textTransform: "capitalize",
-                    }}
-                  >
+                  <span className="amips-card__meta" style={{ textTransform: "capitalize" }}>
                     {watch.kind}
                   </span>
                 </div>
               ))}
-              {renderedWatches.length === 0 && (
-                <span style={{ color: "#64748b", fontSize: "0.9rem" }}>No watches configured.</span>
-              )}
+              {renderedWatches.length === 0 && <span className="amips-card__meta">No watches configured.</span>}
             </div>
           </div>
         </aside>
