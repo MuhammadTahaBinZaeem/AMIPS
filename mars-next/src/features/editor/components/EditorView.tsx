@@ -1,9 +1,9 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Gutter } from "./Gutter";
-import { UndoManager } from "../undoRedo/UndoManager";
+import Editor, { OnMount } from "@monaco-editor/react";
+import type * as monacoEditor from "monaco-editor";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RedoAction } from "../undoRedo/RedoAction";
 import { UndoAction } from "../undoRedo/UndoAction";
-import { FindReplaceResult, SelectionRange, findNext, replace, replaceAll } from "../undoRedo/FindReplace";
+import { UndoManager } from "../undoRedo/UndoManager";
 
 export interface EditorViewProps {
   value: string;
@@ -14,35 +14,120 @@ export interface EditorViewProps {
   activeLine?: number | null;
 }
 
+interface Palette {
+  surface: string;
+  text: string;
+  muted: string;
+  border: string;
+  highlight: string;
+}
+
 export function EditorView({ value, onChange, undoManager, breakpoints, onToggleBreakpoint, activeLine }: EditorViewProps): React.JSX.Element {
-  const lines = useMemo(() => value.split(/\r?\n/), [value]);
-  const textAreaRef = useRef<HTMLTextAreaElement | null>(null);
-  const highlightRef = useRef<HTMLDivElement | null>(null);
-  const [showFindReplace, setShowFindReplace] = useState(false);
-  const [findValue, setFindValue] = useState("");
-  const [replaceValue, setReplaceValue] = useState("");
-  const pendingSelection = useRef<SelectionRange | null>(null);
+  const editorRef = useRef<monacoEditor.editor.IStandaloneCodeEditor | null>(null);
+  const monacoRef = useRef<typeof monacoEditor | null>(null);
+  const decorations = useRef<string[]>([]);
+  const [fontSize, setFontSize] = useState(14);
 
-  const matches = useMemo(() => {
-    if (!findValue) return [] as SelectionRange[];
+  const palette = useMemo<Palette>(() => {
+    const resolveVar = (name: string, fallback: string): string => {
+      if (typeof window === "undefined") return fallback;
+      const value = getComputedStyle(document.documentElement).getPropertyValue(name);
+      return value.trim() || fallback;
+    };
 
-    const locations: SelectionRange[] = [];
-    let cursor = value.indexOf(findValue);
-    while (cursor !== -1) {
-      locations.push({ start: cursor, end: cursor + findValue.length });
-      cursor = value.indexOf(findValue, cursor + Math.max(1, findValue.length));
-    }
-    return locations;
-  }, [findValue, value]);
+    return {
+      surface: resolveVar("--color-surface", "#0f172a"),
+      text: resolveVar("--color-text", "#e5e7eb"),
+      muted: resolveVar("--color-muted", "#94a3b8"),
+      border: resolveVar("--color-border", "#1f2937"),
+      highlight: resolveVar("--color-highlight", "#38bdf8"),
+    };
+  }, []);
+
+  const defineTheme = useCallback(() => {
+    if (!monacoRef.current) return;
+    monacoRef.current.editor.defineTheme("amips-dark", {
+      base: "vs-dark",
+      inherit: true,
+      rules: [
+        { token: "comment", foreground: "8093aa" },
+        { token: "keyword", foreground: "a78bfa" },
+        { token: "string", foreground: "7dd3fc" },
+        { token: "number", foreground: "fcd34d" },
+      ],
+      colors: {
+        "editor.background": palette.surface,
+        "editor.foreground": palette.text,
+        "editorLineNumber.foreground": palette.muted,
+        "editorLineNumber.activeForeground": palette.highlight,
+        "editorGutter.background": palette.surface,
+        "editorWidget.background": palette.surface,
+        "editor.selectionBackground": "#1f2937",
+        "editor.lineHighlightBackground": "rgba(56, 189, 248, 0.08)",
+        "editorCursor.foreground": palette.highlight,
+        "editorIndentGuide.background": "#1f2937",
+        "editorIndentGuide.activeBackground": "#334155",
+        "editor.selectionHighlightBackground": "rgba(99, 102, 241, 0.25)",
+        "editorOverviewRuler.border": palette.border,
+        "editorGutter.addedBackground": palette.border,
+      },
+    });
+    monacoRef.current.editor.setTheme("amips-dark");
+  }, [palette]);
 
   useEffect(() => {
-    if (pendingSelection.current && textAreaRef.current) {
-      const selection = pendingSelection.current;
-      pendingSelection.current = null;
-      textAreaRef.current.focus();
-      textAreaRef.current.setSelectionRange(selection.start, selection.end);
-    }
-  }, [value]);
+    defineTheme();
+  }, [defineTheme]);
+
+  const handleEditorDidMount: OnMount = (editor, monaco) => {
+    editorRef.current = editor;
+    monacoRef.current = monaco;
+    defineTheme();
+
+    editor.updateOptions({ fontSize });
+    editor.focus();
+
+    editor.onMouseDown((event) => {
+      if (event.target.type === monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN) {
+        const line = event.target.position?.lineNumber;
+        if (line && onToggleBreakpoint) {
+          onToggleBreakpoint(line);
+        }
+      }
+    });
+  };
+
+  useEffect(() => {
+    if (!editorRef.current || !monacoRef.current) return;
+    const monaco = monacoRef.current;
+
+    const breakpointDecorations = (breakpoints ?? []).map((line) => ({
+      range: new monaco.Range(line, 1, line, 1),
+      options: {
+        isWholeLine: true,
+        glyphMarginClassName: "amips-breakpoint-glyph",
+        glyphMarginHoverMessage: { value: `Breakpoint at line ${line}` },
+      },
+    }));
+
+    const activeLineDecoration = activeLine
+      ? [
+          {
+            range: new monaco.Range(activeLine, 1, activeLine, 1),
+            options: {
+              isWholeLine: true,
+              className: "amips-active-line",
+              marginClassName: "amips-active-line",
+            },
+          },
+        ]
+      : [];
+
+    decorations.current = editorRef.current.deltaDecorations(decorations.current, [
+      ...breakpointDecorations,
+      ...activeLineDecoration,
+    ]);
+  }, [activeLine, breakpoints, value]);
 
   const handleUndo = (): void => {
     const result = new UndoAction(undoManager).trigger();
@@ -54,335 +139,89 @@ export function EditorView({ value, onChange, undoManager, breakpoints, onToggle
     if (result !== null) onChange(result);
   };
 
+  const triggerEditorAction = (actionId: string): void => {
+    void editorRef.current?.getAction(actionId)?.run();
+  };
+
+  const handleZoom = (delta: number): void => {
+    const next = Math.min(Math.max(fontSize + delta, 12), 26);
+    setFontSize(next);
+    editorRef.current?.updateOptions({ fontSize: next });
+  };
+
   const handleChange = (newContent: string): void => {
     undoManager.registerChange(newContent);
     onChange(newContent);
   };
 
-  const handleKeyDown: React.KeyboardEventHandler<HTMLTextAreaElement> = (event) => {
-    const isModKey = event.ctrlKey || event.metaKey;
-    const key = event.key.toLowerCase();
-
-    if (isModKey && key === "z") {
-      event.preventDefault();
-      if (event.shiftKey) handleRedo();
-      else handleUndo();
-    }
-
-    if (isModKey && key === "y") {
-      event.preventDefault();
-      handleRedo();
-    }
-  };
-
-  const captureSelection = (): SelectionRange => {
-    const textarea = textAreaRef.current;
-    if (!textarea) return { start: 0, end: 0 };
-    return { start: textarea.selectionStart, end: textarea.selectionEnd };
-  };
-
-  const applySelection = (selection: SelectionRange | null): void => {
-    if (!selection) return;
-    pendingSelection.current = selection;
-  };
-
-  const handleFindNext = (): void => {
-    const selection = captureSelection();
-    const nextSelection = findNext(value, findValue, selection.end);
-    applySelection(nextSelection);
-  };
-
-  const handleReplace = (): void => {
-    const selection = captureSelection();
-    const result: FindReplaceResult = replace(value, selection, findValue, replaceValue);
-    applySelection(result.selection);
-    onChange(result.content);
-  };
-
-  const handleReplaceAll = (): void => {
-    const result = replaceAll(value, findValue, replaceValue);
-    applySelection(result.selection);
-    onChange(result.content);
-  };
-
-  const highlightedText = useMemo(() => {
-    if (matches.length === 0) return value;
-
-    const segments: Array<string | React.ReactElement> = [];
-    let cursor = 0;
-    matches.forEach((match, index) => {
-      segments.push(value.slice(cursor, match.start));
-      segments.push(
-        <mark
-          key={`match-${index}-${match.start}`}
-          style={{ backgroundColor: "rgba(56, 189, 248, 0.35)", color: "transparent" }}
-        >
-          {value.slice(match.start, match.end)}
-        </mark>,
-      );
-      cursor = match.end;
-    });
-    segments.push(value.slice(cursor));
-    return segments;
-  }, [matches, value]);
-
-  const syncHighlightScroll = (): void => {
-    if (highlightRef.current && textAreaRef.current) {
-      highlightRef.current.scrollTop = textAreaRef.current.scrollTop;
-      highlightRef.current.scrollLeft = textAreaRef.current.scrollLeft;
-    }
-  };
+  const editorOptions = useMemo<monacoEditor.editor.IStandaloneEditorConstructionOptions>(
+    () => ({
+      fontSize,
+      fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+      minimap: { enabled: true },
+      smoothScrolling: true,
+      glyphMargin: true,
+      folding: true,
+      scrollBeyondLastLine: false,
+      renderLineHighlight: "none",
+      automaticLayout: true,
+      lineDecorationsWidth: 14,
+      padding: { top: 12, bottom: 12 },
+    }),
+    [fontSize],
+  );
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.75rem" }}>
-        <label style={{ color: "#cfd1d4", fontWeight: 600 }}>MIPS Source</label>
-        <div style={{ display: "flex", gap: "0.5rem" }}>
-          <button
-            type="button"
-            onClick={handleUndo}
-            disabled={!undoManager.canUndo}
-            style={{
-              backgroundColor: "#1f2937",
-              color: "#e2e8f0",
-              border: "1px solid #334155",
-              borderRadius: "0.35rem",
-              padding: "0.35rem 0.65rem",
-              cursor: undoManager.canUndo ? "pointer" : "not-allowed",
-            }}
-          >
-            Undo
+    <div className="amips-editor-container">
+      <div className="amips-editor-toolbar">
+        <div className="amips-toolbar">
+          <span className="amips-card__title">MIPS Source</span>
+          <span className="amips-pill" aria-live="polite">
+            Font {fontSize}px
+          </span>
+        </div>
+        <div className="amips-toolbar">
+          <button type="button" className="amips-button" onClick={() => handleZoom(1)} aria-label="Zoom in">
+            ＋
+          </button>
+          <button type="button" className="amips-button" onClick={() => handleZoom(-1)} aria-label="Zoom out">
+            －
           </button>
           <button
             type="button"
-            onClick={handleRedo}
-            disabled={!undoManager.canRedo}
-            style={{
-              backgroundColor: "#1f2937",
-              color: "#e2e8f0",
-              border: "1px solid #334155",
-              borderRadius: "0.35rem",
-              padding: "0.35rem 0.65rem",
-              cursor: undoManager.canRedo ? "pointer" : "not-allowed",
-            }}
-          >
-            Redo
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowFindReplace(true)}
-            style={{
-              backgroundColor: "#1f2937",
-              color: "#e2e8f0",
-              border: "1px solid #334155",
-              borderRadius: "0.35rem",
-              padding: "0.35rem 0.65rem",
-              cursor: "pointer",
-            }}
+            className="amips-button"
+            onClick={() => triggerEditorAction("actions.find")}
+            aria-label="Find"
           >
             Find
           </button>
           <button
             type="button"
-            onClick={() => setShowFindReplace(true)}
-            style={{
-              backgroundColor: "#1f2937",
-              color: "#e2e8f0",
-              border: "1px solid #334155",
-              borderRadius: "0.35rem",
-              padding: "0.35rem 0.65rem",
-              cursor: "pointer",
-            }}
+            className="amips-button"
+            onClick={() => triggerEditorAction("editor.action.startFindReplaceAction")}
+            aria-label="Find and replace"
           >
             Replace
           </button>
+          <button type="button" className="amips-button" onClick={handleUndo} disabled={!undoManager.canUndo}>
+            Undo
+          </button>
+          <button type="button" className="amips-button" onClick={handleRedo} disabled={!undoManager.canRedo}>
+            Redo
+          </button>
         </div>
       </div>
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "auto 1fr",
-          gap: "0.75rem",
-          alignItems: "stretch",
-        }}
-      >
-        <Gutter
-          lineCount={lines.length}
-          breakpoints={breakpoints}
-          onToggleBreakpoint={onToggleBreakpoint}
-          activeLine={activeLine}
+      <div className="amips-editor-surface">
+        <Editor
+          height="100%"
+          defaultLanguage="asm"
+          value={value}
+          theme="amips-dark"
+          onMount={handleEditorDidMount}
+          options={editorOptions}
+          onChange={(newValue) => handleChange(newValue ?? "")}
         />
-        <div style={{ position: "relative" }}>
-          <div
-            ref={highlightRef}
-            aria-hidden={true}
-            style={{
-              position: "absolute",
-              inset: 0,
-              overflow: "auto",
-              pointerEvents: "none",
-              whiteSpace: "pre-wrap",
-              fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-              fontSize: "0.95rem",
-              lineHeight: 1.5,
-              padding: "1rem",
-              color: "transparent",
-              zIndex: 1,
-            }}
-          >
-            {highlightedText}
-          </div>
-          <textarea
-            ref={textAreaRef}
-            value={value}
-            onChange={(event) => handleChange(event.target.value)}
-            onKeyDown={handleKeyDown}
-            onScroll={syncHighlightScroll}
-            spellCheck={false}
-            style={{
-              width: "100%",
-              minHeight: "16rem",
-              backgroundColor: "rgba(15, 23, 42, 0.85)",
-              color: "#e2e8f0",
-              border: "1px solid #1f2937",
-              borderRadius: "0.5rem",
-              padding: "1rem",
-              fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-              fontSize: "0.95rem",
-              lineHeight: 1.5,
-              resize: "vertical",
-              position: "relative",
-              zIndex: 2,
-            }}
-          />
-        </div>
       </div>
-
-      {showFindReplace && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            backgroundColor: "rgba(0,0,0,0.55)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 20,
-          }}
-        >
-          <div
-            style={{
-              backgroundColor: "#0f172a",
-              border: "1px solid #1f2937",
-              borderRadius: "0.75rem",
-              padding: "1rem",
-              width: "min(500px, 90vw)",
-              display: "flex",
-              flexDirection: "column",
-              gap: "0.75rem",
-              boxShadow: "0 10px 40px rgba(0,0,0,0.45)",
-            }}
-          >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div>
-                <div style={{ color: "#e2e8f0", fontWeight: 700 }}>Find & Replace</div>
-                <div style={{ color: "#94a3b8", fontSize: "0.9rem" }}>
-                  {matches.length} match{matches.length === 1 ? "" : "es"} highlighted
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowFindReplace(false)}
-                style={{
-                  background: "none",
-                  border: "none",
-                  color: "#94a3b8",
-                  cursor: "pointer",
-                  fontSize: "1.1rem",
-                }}
-                aria-label="Close find dialog"
-              >
-                ✕
-              </button>
-            </div>
-
-            <label style={{ display: "flex", flexDirection: "column", gap: "0.25rem", color: "#cbd5e1" }}>
-              Find
-              <input
-                value={findValue}
-                onChange={(event) => setFindValue(event.target.value)}
-                style={{
-                  backgroundColor: "#0b1220",
-                  border: "1px solid #1f2937",
-                  color: "#e2e8f0",
-                  borderRadius: "0.35rem",
-                  padding: "0.45rem 0.6rem",
-                }}
-              />
-            </label>
-
-            <label style={{ display: "flex", flexDirection: "column", gap: "0.25rem", color: "#cbd5e1" }}>
-              Replace with
-              <input
-                value={replaceValue}
-                onChange={(event) => setReplaceValue(event.target.value)}
-                style={{
-                  backgroundColor: "#0b1220",
-                  border: "1px solid #1f2937",
-                  color: "#e2e8f0",
-                  borderRadius: "0.35rem",
-                  padding: "0.45rem 0.6rem",
-                }}
-              />
-            </label>
-
-            <div style={{ display: "flex", gap: "0.5rem", justifyContent: "flex-end" }}>
-              <button
-                type="button"
-                onClick={handleFindNext}
-                style={{
-                  backgroundColor: "#1f2937",
-                  color: "#e2e8f0",
-                  border: "1px solid #334155",
-                  borderRadius: "0.35rem",
-                  padding: "0.35rem 0.65rem",
-                  cursor: "pointer",
-                }}
-              >
-                Find next
-              </button>
-              <button
-                type="button"
-                onClick={handleReplace}
-                style={{
-                  backgroundColor: "#22c55e",
-                  color: "#0b1220",
-                  border: "1px solid #16a34a",
-                  borderRadius: "0.35rem",
-                  padding: "0.35rem 0.65rem",
-                  cursor: "pointer",
-                }}
-              >
-                Replace
-              </button>
-              <button
-                type="button"
-                onClick={handleReplaceAll}
-                style={{
-                  backgroundColor: "#38bdf8",
-                  color: "#0b1220",
-                  border: "1px solid #0ea5e9",
-                  borderRadius: "0.35rem",
-                  padding: "0.35rem 0.65rem",
-                  cursor: "pointer",
-                }}
-              >
-                Replace all
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
