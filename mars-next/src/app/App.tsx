@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useReducer, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { MemoryTable } from "../features/memory-view";
 import { RunToolbar, setActiveSource } from "../features/run-control";
 import { EditorPane, StatusBar } from "../features/editor";
@@ -44,7 +44,9 @@ import {
   reloadPseudoOpTable,
   subscribeToPipelineSnapshots,
   subscribeToRuntimeSnapshots,
+  TerminalDevice,
 } from "../core";
+import { UnifiedTerminal, type TerminalLine, type TerminalSource } from "../features/console-io";
 import { BitmapDisplayState, type AppContext, type MarsTool } from "../core/tools/MarsTool";
 import { ToolLoader } from "../core/tools/ToolLoader";
 import { HelpSidebar } from "../features/help/components/HelpSidebar";
@@ -132,12 +134,15 @@ export function App(): React.JSX.Element {
   const [isHelpOpen, setHelpOpen] = useState(false);
   const [helpState, helpDispatch] = useReducer(helpReducer, initialHelpState);
   const [activeSidebarView, setActiveSidebarView] = useState<"explorer" | "settings" | "tools">("explorer");
-  const [bottomPanelTab, setBottomPanelTab] = useState<"console" | "memory" | "debug">("console");
+  const [bottomPanelTab, setBottomPanelTab] = useState<"terminal" | "memory" | "debug">("terminal");
   const [isBottomPanelOpen, setBottomPanelOpen] = useState(true);
   const [splitMode, setSplitMode] = useState<"single" | "vertical" | "horizontal">("single");
   const [secondaryActiveFile, setSecondaryActiveFile] = useState<string | null>(null);
   const [isRegisterSidebarOpen, setRegisterSidebarOpen] = useState(true);
   const [hasRegisterUpdate, setHasRegisterUpdate] = useState(false);
+  const [terminalLines, setTerminalLines] = useState<TerminalLine[]>([]);
+  const [terminalSearch, setTerminalSearch] = useState("");
+  const terminalViewportRef = useRef<HTMLDivElement | null>(null);
 
   const assembler = useMemo(() => new Assembler(), []);
   const fallbackState = useMemo(() => new MachineState(), []);
@@ -177,6 +182,50 @@ export function App(): React.JSX.Element {
     window.addEventListener("keydown", handleKeydown);
     return () => window.removeEventListener("keydown", handleKeydown);
   }, [toggleRegisterSidebar]);
+
+  const appendTerminalLine = useCallback(
+    (source: TerminalSource, message: string): void => {
+      setTerminalLines((previous) => [
+        ...previous,
+        ...message.split(/\r?\n/).map((text, index) => ({
+          id: `${Date.now().toString(16)}-${previous.length + index}`,
+          source,
+          text,
+        })),
+      ]);
+      setBottomPanelTab("terminal");
+      setBottomPanelOpen(true);
+    },
+    [],
+  );
+
+  const clearTerminal = useCallback((): void => {
+    setTerminalLines([]);
+  }, []);
+
+  const scrollTerminalToTop = useCallback((): void => {
+    if (terminalViewportRef.current) {
+      terminalViewportRef.current.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }, []);
+
+  const scrollTerminalToBottom = useCallback((): void => {
+    if (terminalViewportRef.current) {
+      terminalViewportRef.current.scrollTo({ top: terminalViewportRef.current.scrollHeight, behavior: "smooth" });
+    }
+  }, []);
+
+  useEffect(() => {
+    if (terminalLines.length > 0) {
+      setBottomPanelOpen(true);
+      setBottomPanelTab("terminal");
+    }
+    scrollTerminalToBottom();
+  }, [scrollTerminalToBottom, terminalLines.length]);
+
+  const handleTerminalSearchChange = useCallback((value: string): void => {
+    setTerminalSearch(value);
+  }, []);
 
   const handleToggleEditorBreakpoint = useCallback(
     (line: number, fileOverride?: string): void => {
@@ -578,6 +627,9 @@ export function App(): React.JSX.Element {
     setError(null);
     setActiveLine(null);
     setKeyboardDevice(null);
+    let runStage: TerminalSource = "asm";
+    const terminalDevice = new TerminalDevice((message) => appendTerminalLine("run", message));
+    appendTerminalLine("asm", "Assembling program...");
     try {
       setStatus("Assembling...");
       const bitmapDevice = new BitmapDisplayDevice({
@@ -643,6 +695,7 @@ export function App(): React.JSX.Element {
         forwardingEnabled,
         hazardDetectionEnabled,
         executionMode,
+        devices: { terminal: terminalDevice },
       });
       setKeyboardDevice(keyboardDeviceInstance);
       setEngine(loadedEngine);
@@ -653,6 +706,8 @@ export function App(): React.JSX.Element {
       applyBreakpoints(loadedEngine, breakpoints, layout.symbols, layout.sourceMap, editorBreakpoints, activeFile);
       applyWatches(loadedEngine, watches, layout.symbols);
 
+      appendTerminalLine("asm", "Assembly complete. Starting execution...");
+      runStage = "run";
       setStatus("Running...");
       loadedEngine.run(2_000);
 
@@ -683,12 +738,16 @@ export function App(): React.JSX.Element {
             ? layout.sourceMap.find((entry) => entry.segment === "text" && entry.segmentIndex === hitInfo.value)
             : layout.sourceMap.find((entry) => entry.address === hitInfo.value);
         setStatus(location ? `Paused at ${location.file}:${location.line}` : "Paused on breakpoint");
+        appendTerminalLine("run", location ? `Paused at ${location.file}:${location.line}` : "Paused on breakpoint");
         return;
       }
 
-      setStatus(state.isTerminated() ? "Program terminated" : "Execution halted");
+      const statusMessage = state.isTerminated() ? "Program terminated" : "Execution halted";
+      setStatus(statusMessage);
+      appendTerminalLine("run", statusMessage);
     } catch (runError) {
       const message = runError instanceof Error ? runError.message : String(runError);
+      appendTerminalLine(runStage, message);
       setError(message);
       setStatus("Encountered an error");
     }
@@ -878,28 +937,49 @@ export function App(): React.JSX.Element {
   };
 
   const renderBottomPanel = (): React.ReactNode => {
-    if (bottomPanelTab === "console") {
+    if (bottomPanelTab === "terminal") {
       return (
-        <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-          <div style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
+        <div style={{ display: "grid", gridTemplateRows: "auto auto 1fr", gap: "0.65rem", height: "100%", minHeight: 0 }}>
+          <div style={{ display: "flex", gap: "0.75rem", alignItems: "center", flexWrap: "wrap" }}>
             <span style={{ color: "#a5b4fc", fontWeight: 700 }}>Status:</span>
             <span>{status}</span>
             {activeLine !== null && <span style={{ color: "#38bdf8" }}>Line {activeLine}</span>}
           </div>
-          {error && (
-            <div style={{ padding: "0.75rem", borderRadius: "0.5rem", backgroundColor: "#2b0f1c", border: "1px solid #7f1d1d" }}>
-              <div style={{ color: "#fca5a5" }}>{error}</div>
-              <button style={{ ...toolsButtonStyle, marginTop: "0.5rem" }} onClick={() => openHelp(error)}>
-                View related help
-              </button>
-            </div>
-          )}
-          <RunToolbar
-            onRun={handleRun}
-            status={status}
-            onFlushInstructionCache={handleFlushInstructionCache}
-            flushEnabled={engine !== null}
-          />
+          <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "0.5rem", alignItems: "start" }}>
+            <RunToolbar
+              onRun={handleRun}
+              status={status}
+              onFlushInstructionCache={handleFlushInstructionCache}
+              flushEnabled={engine !== null}
+            />
+            {error && (
+              <div
+                style={{
+                  padding: "0.75rem",
+                  borderRadius: "0.5rem",
+                  backgroundColor: "#2b0f1c",
+                  border: "1px solid #7f1d1d",
+                  maxWidth: "320px",
+                }}
+              >
+                <div style={{ color: "#fca5a5" }}>{error}</div>
+                <button style={{ ...toolsButtonStyle, marginTop: "0.5rem" }} onClick={() => openHelp(error)}>
+                  View related help
+                </button>
+              </div>
+            )}
+          </div>
+          <div style={{ minHeight: 0 }}>
+            <UnifiedTerminal
+              lines={terminalLines}
+              searchQuery={terminalSearch}
+              onSearchChange={handleTerminalSearchChange}
+              onClear={clearTerminal}
+              onScrollToTop={scrollTerminalToTop}
+              onScrollToBottom={scrollTerminalToBottom}
+              viewportRef={terminalViewportRef}
+            />
+          </div>
         </div>
       );
     }
@@ -1068,7 +1148,7 @@ export function App(): React.JSX.Element {
         <div
           style={{
             display: "grid",
-            gridTemplateRows: isBottomPanelOpen ? "1fr 280px" : "1fr",
+            gridTemplateRows: isBottomPanelOpen ? "1fr 320px" : "1fr",
             gap: "0.75rem",
             flex: 1,
             minHeight: 0,
@@ -1120,9 +1200,10 @@ export function App(): React.JSX.Element {
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns: `${isRegisterSidebarOpen ? "300px" : "20px"} 320px 1fr`,
+                gridTemplateColumns: `${isRegisterSidebarOpen ? "320px" : "28px"} 320px 1fr`,
                 gap: "0.5rem",
                 minHeight: 0,
+                transition: "grid-template-columns 200ms ease",
               }}
             >
               <div
@@ -1133,6 +1214,7 @@ export function App(): React.JSX.Element {
                   display: "flex",
                   minHeight: 0,
                   transition: "background-color 150ms ease, border-color 150ms ease",
+                  boxShadow: isRegisterSidebarOpen ? "0 10px 30px rgba(0,0,0,0.35)" : "none",
                 }}
               >
                 <div
@@ -1344,7 +1426,7 @@ export function App(): React.JSX.Element {
             >
               <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", justifyContent: "space-between" }}>
                 <div style={{ display: "flex", gap: "0.35rem", alignItems: "center" }}>
-                  {["console", "memory", "debug"].map((tab) => (
+                  {["terminal", "memory", "debug"].map((tab) => (
                     <button
                       key={tab}
                       onClick={() => setBottomPanelTab(tab as typeof bottomPanelTab)}
@@ -1354,7 +1436,7 @@ export function App(): React.JSX.Element {
                         borderColor: "#1f2937",
                       }}
                     >
-                      {tab}
+                      {tab.charAt(0).toUpperCase() + tab.slice(1)}
                     </button>
                   ))}
                 </div>
@@ -1362,7 +1444,7 @@ export function App(): React.JSX.Element {
                   ⤵
                 </button>
               </div>
-              <div style={{ flex: 1, overflow: "auto" }}>{renderBottomPanel()}</div>
+              <div style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>{renderBottomPanel()}</div>
             </section>
           )}
         </div>
