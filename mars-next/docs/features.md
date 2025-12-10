@@ -9,6 +9,6 @@
 
 ## Renderer prototype
 - **Editor and run control:** `src/app/App.tsx` hosts a built-in sample program, a breakpoint-aware editor surface, and the `RunToolbar` for assembling/running against the core engine.
-- **State inspection:** `RegisterTable` and `MemoryTable` render current register/HI/LO/PC values and the first 128 memory bytes; symbol tables and source maps are captured after assembly.
+- **State inspection:** The execute pane shows interactive register, byte-level memory, and aggregated word tables with live sorting/filtering; symbol tables and source maps are captured after assembly.
 - **Breakpoints and watches:** Feature panels collect breakpoints (by address, label, or instruction index) and watches (registers or symbol names) and apply them to the debugger engines before execution.
 - **Planned surfaces:** Console I/O views, file manager affordances, settings, tools, and CLI wiring exist as stubs so future work can slot into the existing feature folders. The legacy comparison report in [`docs/legacy-comparison.md`](legacy-comparison.md) lists the renderer and tooling behaviors that remain to be ported.
