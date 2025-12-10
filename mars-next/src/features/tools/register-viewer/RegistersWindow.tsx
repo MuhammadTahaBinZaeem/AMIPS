@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MachineState } from "../../../core";
 import { MarsTool, type MarsToolComponentProps } from "../../../core/tools/MarsTool";
 import { getLatestCpuState, subscribeToCpuState, type CpuStateSnapshot } from "./registerEvents";
@@ -43,6 +43,7 @@ const HIGHLIGHT_DURATION_MS = 1200;
 export interface RegistersWindowProps {
   title?: string;
   onClose?: () => void;
+  onHighlightChange?: (active: boolean) => void;
 }
 
 function formatHex(value: number): string {
@@ -59,10 +60,19 @@ function createDefaultSnapshot(): CpuStateSnapshot {
   };
 }
 
-export function RegistersWindow({ title = "Registers", onClose }: RegistersWindowProps): React.JSX.Element {
+export function RegistersWindow({ title = "Registers", onClose, onHighlightChange }: RegistersWindowProps): React.JSX.Element {
   const [snapshot, setSnapshot] = useState<CpuStateSnapshot>(() => getLatestCpuState() ?? createDefaultSnapshot());
   const [highlighted, setHighlighted] = useState<Set<string>>(new Set());
   const clearTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const notifyHighlightChange = useCallback(
+    (active: boolean): void => {
+      if (onHighlightChange) {
+        onHighlightChange(active);
+      }
+    },
+    [onHighlightChange],
+  );
 
   useEffect(() => {
     const unsubscribe = subscribeToCpuState((nextState) => {
@@ -86,10 +96,19 @@ export function RegistersWindow({ title = "Registers", onClose }: RegistersWindo
           }
 
           if (changes.size === 0) {
-            return current.size > 0 ? new Set<string>() : current;
+            if (current.size > 0) {
+              notifyHighlightChange(false);
+              return new Set<string>();
+            }
+
+            return current;
           }
 
-          clearTimeoutRef.current = setTimeout(() => setHighlighted(new Set()), HIGHLIGHT_DURATION_MS);
+          clearTimeoutRef.current = setTimeout(() => {
+            setHighlighted(new Set());
+            notifyHighlightChange(false);
+          }, HIGHLIGHT_DURATION_MS);
+          notifyHighlightChange(true);
           return changes;
         });
 
@@ -108,7 +127,7 @@ export function RegistersWindow({ title = "Registers", onClose }: RegistersWindo
       }
       unsubscribe();
     };
-  }, []);
+  }, [notifyHighlightChange]);
 
   const registerRows = useMemo(
     () =>
@@ -136,19 +155,23 @@ export function RegistersWindow({ title = "Registers", onClose }: RegistersWindo
         ) : null}
       </header>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "0.35rem 0.6rem" }}>
-        {registerRows.map((row) => (
-          <div key={row.key} style={{ ...cellStyle, ...(row.highlighted ? highlightedCellStyle : {}) }}>
-            <div style={{ color: "#9ca3af", fontSize: "0.85rem" }}>
-              {row.name}
-              <span style={{ color: "#6b7280", marginLeft: "0.3rem" }}>({row.number})</span>
-            </div>
-            <div style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 600 }}>{formatHex(row.value)}</div>
-          </div>
-        ))}
-      </div>
+      <table style={tableStyle}>
+        <tbody>
+          {registerRows.map((row) => (
+            <tr key={row.key}>
+              <th style={{ ...cellBaseStyle, ...(row.highlighted ? highlightedCellStyle : {}), ...nameCellStyle }} scope="row">
+                {row.name}
+                <span style={registerIndexStyle}>({row.number})</span>
+              </th>
+              <td style={{ ...cellBaseStyle, ...(row.highlighted ? highlightedCellStyle : {}), ...valueCellStyle }}>
+                {formatHex(row.value)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "0.5rem", marginTop: "0.75rem" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "0.4rem", marginTop: "0.65rem" }}>
         <LabeledValue label="HI" value={snapshot.hi} highlighted={highlighted.has("hi")} />
         <LabeledValue label="LO" value={snapshot.lo} highlighted={highlighted.has("lo")} />
         <LabeledValue label="PC" value={snapshot.pc} highlighted={highlighted.has("pc")} />
@@ -183,8 +206,16 @@ function LabeledValue({
   highlighted: boolean;
 }): React.JSX.Element {
   return (
-    <div style={{ ...cellStyle, ...(highlighted ? highlightedCellStyle : {}) }}>
-      <span style={{ color: "#9ca3af", fontSize: "0.85rem" }}>{label}</span>
+    <div
+      style={{
+        ...cellBaseStyle,
+        ...(highlighted ? highlightedCellStyle : {}),
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+      }}
+    >
+      <span style={{ color: "#cbd5e1", fontSize: "0.9rem" }}>{label}</span>
       <span style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 600 }}>{formatHex(value)}</span>
     </div>
   );
@@ -206,21 +237,47 @@ const headerStyle: React.CSSProperties = {
   marginBottom: "0.75rem",
 };
 
-const cellStyle: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  padding: "0.55rem 0.65rem",
-  backgroundColor: "#111827",
-  borderRadius: "0.4rem",
+const tableStyle: React.CSSProperties = {
+  width: "100%",
+  borderCollapse: "separate",
+  color: "#e5e7eb",
+  tableLayout: "fixed",
+  borderSpacing: "0 6px",
+};
+
+const cellBaseStyle: React.CSSProperties = {
+  backgroundColor: "#0f172a",
   border: "1px solid #1f2937",
-  transition: "background-color 150ms ease, border-color 150ms ease",
+  transition: "background-color 150ms ease, border-color 150ms ease, box-shadow 150ms ease",
 };
 
 const highlightedCellStyle: React.CSSProperties = {
   backgroundColor: "#1f2937",
   borderColor: "#22c55e",
   boxShadow: "0 0 0 1px #22c55e inset",
+};
+
+const nameCellStyle: React.CSSProperties = {
+  textAlign: "left",
+  padding: "0.45rem 0.6rem",
+  color: "#cbd5e1",
+  fontWeight: 600,
+  whiteSpace: "nowrap",
+  width: "45%",
+};
+
+const valueCellStyle: React.CSSProperties = {
+  padding: "0.45rem 0.6rem",
+  textAlign: "right",
+  fontFamily: "'JetBrains Mono', monospace",
+  fontWeight: 600,
+  width: "55%",
+};
+
+const registerIndexStyle: React.CSSProperties = {
+  color: "#6b7280",
+  marginLeft: "0.35rem",
+  fontWeight: 500,
 };
 
 const closeButtonStyle: React.CSSProperties = {
