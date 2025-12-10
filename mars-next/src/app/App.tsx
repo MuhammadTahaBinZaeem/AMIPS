@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { MemoryTable } from "../features/memory-view";
+import { ExecutePane } from "../features/execute-pane";
 import { RunToolbar, setActiveSource } from "../features/run-control";
 import { EditorPane, StatusBar } from "../features/editor";
 import { BreakpointManagerPanel, BreakpointList, BreakpointSpec, WatchManagerPanel, WatchSpec } from "../features/breakpoints";
@@ -134,7 +134,7 @@ export function App(): React.JSX.Element {
   const [isHelpOpen, setHelpOpen] = useState(false);
   const [helpState, helpDispatch] = useReducer(helpReducer, initialHelpState);
   const [activeSidebarView, setActiveSidebarView] = useState<"explorer" | "settings" | "tools">("explorer");
-  const [bottomPanelTab, setBottomPanelTab] = useState<"terminal" | "memory" | "debug">("terminal");
+  const [bottomPanelTab, setBottomPanelTab] = useState<"terminal" | "execute" | "debug">("terminal");
   const [isBottomPanelOpen, setBottomPanelOpen] = useState(true);
   const [splitMode, setSplitMode] = useState<"single" | "vertical" | "horizontal">("single");
   const [secondaryActiveFile, setSecondaryActiveFile] = useState<string | null>(null);
@@ -984,8 +984,8 @@ export function App(): React.JSX.Element {
       );
     }
 
-    if (bottomPanelTab === "memory") {
-      return <MemoryTable entries={memoryEntries} />;
+    if (bottomPanelTab === "execute") {
+      return <ExecutePane memoryEntries={memoryEntries} />;
     }
 
     return (
@@ -1426,7 +1426,7 @@ export function App(): React.JSX.Element {
             >
               <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", justifyContent: "space-between" }}>
                 <div style={{ display: "flex", gap: "0.35rem", alignItems: "center" }}>
-                  {["terminal", "memory", "debug"].map((tab) => (
+                  {["terminal", "execute", "debug"].map((tab) => (
                     <button
                       key={tab}
                       onClick={() => setBottomPanelTab(tab as typeof bottomPanelTab)}
