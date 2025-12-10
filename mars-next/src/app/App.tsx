@@ -131,11 +131,13 @@ export function App(): React.JSX.Element {
   const [availableTools, setAvailableTools] = useState<MarsTool[]>([]);
   const [isHelpOpen, setHelpOpen] = useState(false);
   const [helpState, helpDispatch] = useReducer(helpReducer, initialHelpState);
-  const [activeSidebarView, setActiveSidebarView] = useState<"explorer" | "registers" | "settings" | "tools">("explorer");
-  const [bottomPanelTab, setBottomPanelTab] = useState<"console" | "registers" | "memory" | "debug">("console");
+  const [activeSidebarView, setActiveSidebarView] = useState<"explorer" | "settings" | "tools">("explorer");
+  const [bottomPanelTab, setBottomPanelTab] = useState<"console" | "memory" | "debug">("console");
   const [isBottomPanelOpen, setBottomPanelOpen] = useState(true);
   const [splitMode, setSplitMode] = useState<"single" | "vertical" | "horizontal">("single");
   const [secondaryActiveFile, setSecondaryActiveFile] = useState<string | null>(null);
+  const [isRegisterSidebarOpen, setRegisterSidebarOpen] = useState(true);
+  const [hasRegisterUpdate, setHasRegisterUpdate] = useState(false);
 
   const assembler = useMemo(() => new Assembler(), []);
   const fallbackState = useMemo(() => new MachineState(), []);
@@ -159,6 +161,22 @@ export function App(): React.JSX.Element {
       setSecondaryActiveFile(null);
     }
   }, [fileManager.openFiles, secondaryActiveFile]);
+
+  const toggleRegisterSidebar = useCallback((): void => {
+    setRegisterSidebarOpen((open) => !open);
+  }, []);
+
+  useEffect(() => {
+    const handleKeydown = (event: KeyboardEvent): void => {
+      if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "r") {
+        event.preventDefault();
+        toggleRegisterSidebar();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeydown);
+    return () => window.removeEventListener("keydown", handleKeydown);
+  }, [toggleRegisterSidebar]);
 
   const handleToggleEditorBreakpoint = useCallback(
     (line: number, fileOverride?: string): void => {
@@ -796,42 +814,35 @@ export function App(): React.JSX.Element {
       );
     }
 
-    if (activeSidebarView === "registers") {
+    if (activeSidebarView === "settings") {
       return (
         <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-          <span style={{ fontWeight: 700, color: "#e2e8f0" }}>Registers & Memory</span>
-          <RegistersWindow />
+          <SettingsDialog
+            enablePseudoInstructions={enablePseudoInstructions}
+            assembleAllFiles={assembleAllFiles}
+            delayedBranching={delayedBranching}
+            compactMemoryMap={compactMemoryMap}
+            selfModifyingCodeEnabled={selfModifyingCodeEnabled}
+            showPipelineDelays={showPipelineDelays}
+            forwardingEnabled={forwardingEnabled}
+            hazardDetectionEnabled={hazardDetectionEnabled}
+            executionMode={executionMode}
+            onTogglePseudoInstructions={setEnablePseudoInstructions}
+            onToggleAssembleAllFiles={setAssembleAllFiles}
+            onToggleDelayedBranching={setDelayedBranching}
+            onToggleCompactMemoryMap={setCompactMemoryMap}
+            onToggleSelfModifyingCode={setSelfModifyingCodeEnabled}
+            onToggleShowPipelineDelays={setShowPipelineDelays}
+            onToggleForwarding={handleToggleForwarding}
+            onToggleHazardDetection={handleToggleHazardDetection}
+            onChangeExecutionMode={handleChangeExecutionMode}
+            onReloadPseudoOps={handleReloadPseudoOps}
+          />
           <MemoryConfiguration
             onChange={(configuration) => setMemoryConfiguration(configuration)}
             configuration={memoryConfiguration}
           />
         </div>
-      );
-    }
-
-    if (activeSidebarView === "settings") {
-      return (
-        <SettingsDialog
-          enablePseudoInstructions={enablePseudoInstructions}
-          assembleAllFiles={assembleAllFiles}
-          delayedBranching={delayedBranching}
-          compactMemoryMap={compactMemoryMap}
-          selfModifyingCodeEnabled={selfModifyingCodeEnabled}
-          showPipelineDelays={showPipelineDelays}
-          forwardingEnabled={forwardingEnabled}
-          hazardDetectionEnabled={hazardDetectionEnabled}
-          executionMode={executionMode}
-          onTogglePseudoInstructions={setEnablePseudoInstructions}
-          onToggleAssembleAllFiles={setAssembleAllFiles}
-          onToggleDelayedBranching={setDelayedBranching}
-          onToggleCompactMemoryMap={setCompactMemoryMap}
-          onToggleSelfModifyingCode={setSelfModifyingCodeEnabled}
-          onToggleShowPipelineDelays={setShowPipelineDelays}
-          onToggleForwarding={handleToggleForwarding}
-          onToggleHazardDetection={handleToggleHazardDetection}
-          onChangeExecutionMode={handleChangeExecutionMode}
-          onReloadPseudoOps={handleReloadPseudoOps}
-        />
       );
     }
 
@@ -891,10 +902,6 @@ export function App(): React.JSX.Element {
           />
         </div>
       );
-    }
-
-    if (bottomPanelTab === "registers") {
-      return <RegistersWindow />;
     }
 
     if (bottomPanelTab === "memory") {
@@ -1070,7 +1077,7 @@ export function App(): React.JSX.Element {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "60px 320px 1fr",
+              gridTemplateColumns: "60px 1fr",
               gap: "0.5rem",
               minHeight: 0,
             }}
@@ -1087,16 +1094,9 @@ export function App(): React.JSX.Element {
                 gap: "0.5rem",
               }}
             >
-              {["explorer", "registers", "settings", "tools"].map((item) => {
+              {["explorer", "settings", "tools"].map((item) => {
                 const isActive = activeSidebarView === item;
-                const icon =
-                  item === "explorer"
-                    ? "📁"
-                    : item === "registers"
-                      ? "🧮"
-                      : item === "settings"
-                        ? "⚙️"
-                        : "🛠️";
+                const icon = item === "explorer" ? "📁" : item === "settings" ? "⚙️" : "🛠️";
                 return (
                   <button
                     key={item}
@@ -1117,30 +1117,107 @@ export function App(): React.JSX.Element {
               })}
             </div>
 
-            <aside
+            <div
               style={{
-                border: "1px solid #111827",
-                borderRadius: "0.5rem",
-                padding: "0.75rem",
-                background: "#0f172a",
-                overflow: "auto",
-              }}
-            >
-              {renderSidebarContent()}
-            </aside>
-
-            <section
-              style={{
-                border: "1px solid #111827",
-                borderRadius: "0.5rem",
-                padding: "0.5rem 0.75rem",
-                background: "#0f172a",
-                display: "flex",
-                flexDirection: "column",
+                display: "grid",
+                gridTemplateColumns: `${isRegisterSidebarOpen ? "300px" : "20px"} 320px 1fr`,
                 gap: "0.5rem",
                 minHeight: 0,
               }}
             >
+              <div
+                style={{
+                  border: isRegisterSidebarOpen ? "1px solid #111827" : "1px solid transparent",
+                  borderRadius: "0.5rem",
+                  background: isRegisterSidebarOpen ? "#0f172a" : "transparent",
+                  display: "flex",
+                  minHeight: 0,
+                  transition: "background-color 150ms ease, border-color 150ms ease",
+                }}
+              >
+                <div
+                  style={{
+                    flex: isRegisterSidebarOpen ? 1 : 0,
+                    padding: isRegisterSidebarOpen ? "0.75rem" : 0,
+                    overflow: "hidden",
+                    opacity: isRegisterSidebarOpen ? 1 : 0,
+                    transition: "flex 180ms ease, padding 180ms ease, opacity 150ms ease",
+                    minWidth: 0,
+                    pointerEvents: isRegisterSidebarOpen ? "auto" : "none",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                      <span style={{ fontWeight: 700, color: "#e2e8f0" }}>Registers</span>
+                      <span style={{ color: "#64748b", fontSize: "0.85rem" }}>Ctrl+Shift+R</span>
+                    </div>
+                    <button
+                      style={toolsButtonStyle}
+                      onClick={toggleRegisterSidebar}
+                      title="Collapse registers (Ctrl+Shift+R)"
+                    >
+                      ◀
+                    </button>
+                  </div>
+                  <RegistersWindow onHighlightChange={setHasRegisterUpdate} />
+                </div>
+                <button
+                  aria-label={isRegisterSidebarOpen ? "Collapse register sidebar" : "Expand register sidebar"}
+                  onClick={toggleRegisterSidebar}
+                  style={{
+                    width: "18px",
+                    border: "none",
+                    background: "linear-gradient(180deg, #111827, #0f172a)",
+                    color: "#cbd5e1",
+                    cursor: "pointer",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "0.35rem",
+                    borderRadius: "0 0.5rem 0.5rem 0",
+                  }}
+                  title={isRegisterSidebarOpen ? "Collapse registers" : "Expand registers"}
+                >
+                  <span style={{ transform: isRegisterSidebarOpen ? "rotate(180deg)" : "none", transition: "transform 150ms ease" }}>
+                    ▶
+                  </span>
+                  <span
+                    style={{
+                      width: "6px",
+                      height: "6px",
+                      borderRadius: "9999px",
+                      backgroundColor: hasRegisterUpdate ? "#22c55e" : "#475569",
+                      boxShadow: hasRegisterUpdate ? "0 0 0 2px rgba(34,197,94,0.35)" : "none",
+                    }}
+                  />
+                </button>
+              </div>
+
+              <aside
+                style={{
+                  border: "1px solid #111827",
+                  borderRadius: "0.5rem",
+                  padding: "0.75rem",
+                  background: "#0f172a",
+                  overflow: "auto",
+                }}
+              >
+                {renderSidebarContent()}
+              </aside>
+
+              <section
+                style={{
+                  border: "1px solid #111827",
+                  borderRadius: "0.5rem",
+                  padding: "0.5rem 0.75rem",
+                  background: "#0f172a",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "0.5rem",
+                  minHeight: 0,
+                }}
+              >
               <div
                 style={{
                   display: "flex",
@@ -1267,7 +1344,7 @@ export function App(): React.JSX.Element {
             >
               <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", justifyContent: "space-between" }}>
                 <div style={{ display: "flex", gap: "0.35rem", alignItems: "center" }}>
-                  {["console", "registers", "memory", "debug"].map((tab) => (
+                  {["console", "memory", "debug"].map((tab) => (
                     <button
                       key={tab}
                       onClick={() => setBottomPanelTab(tab as typeof bottomPanelTab)}
