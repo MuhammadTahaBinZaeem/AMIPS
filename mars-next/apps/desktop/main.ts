@@ -20,6 +20,75 @@ const rawDevServerUrl = process.env.VITE_DEV_SERVER_URL;
 const devServerUrl = normalizeDevServerUrl(rawDevServerUrl);
 const devToolsEnabled = process.env.ELECTRON_OPEN_DEVTOOLS === "true";
 
+const renderErrorFallback = async (
+  window: BrowserWindow,
+  title: string,
+  message: string,
+  details?: unknown,
+): Promise<void> => {
+  const detailText = details instanceof Error ? details.message : String(details ?? "");
+  const html = `<!doctype html>
+    <html lang="en">
+      <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>${title}</title>
+        <style>
+          :root {
+            color-scheme: dark;
+          }
+          body {
+            margin: 0;
+            padding: 2.5rem;
+            background: #0b1220;
+            color: #e5e7eb;
+            font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            line-height: 1.6;
+          }
+          h1 {
+            margin-bottom: 0.75rem;
+            font-size: 1.35rem;
+          }
+          p {
+            margin: 0.35rem 0;
+            color: #cbd5e1;
+          }
+          code {
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+            background: #111827;
+            padding: 0.15rem 0.35rem;
+            border-radius: 0.35rem;
+            border: 1px solid #1f2937;
+          }
+          .panel {
+            border: 1px solid #1f2937;
+            border-radius: 0.75rem;
+            background: #0f172a;
+            padding: 1rem 1.25rem;
+            max-width: 720px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35);
+          }
+          .muted {
+            color: #94a3b8;
+            margin-top: 0.85rem;
+            font-size: 0.95rem;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="panel">
+          <h1>${title}</h1>
+          <p>${message}</p>
+          ${detailText ? `<p class="muted">${detailText}</p>` : ""}
+          <p class="muted">The renderer bundle could not be loaded. Ensure <code>npm run dev</code> is running or rerun <code>npm run build</code> before launching Electron.</p>
+        </div>
+      </body>
+    </html>`;
+
+  const dataUrl = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+  await window.loadURL(dataUrl);
+};
+
 async function createWindow(): Promise<void> {
   const window = new BrowserWindow({
     width: 1200,
@@ -32,6 +101,7 @@ async function createWindow(): Promise<void> {
 
   if (process.env.NODE_ENV === "development") {
     let loaded = false;
+    let lastError: unknown;
     const devUrls = [devServerUrl];
 
     // When the dev server URL points at HTTPS with an invalid certificate, Electron will throw
@@ -48,21 +118,41 @@ async function createWindow(): Promise<void> {
         loaded = true;
         break;
       } catch (error) {
+        lastError = error;
         console.warn(`Failed to load dev server at ${url}`, error);
       }
     }
 
     if (!loaded) {
       console.error("Failed to load dev server, falling back to bundled renderer");
-      await window.loadURL(rendererFileUrl);
+      try {
+        await window.loadURL(rendererFileUrl);
+        loaded = true;
+      } catch (fallbackError) {
+        console.error("Failed to load bundled renderer", fallbackError);
+        await renderErrorFallback(
+          window,
+          "Renderer unavailable",
+          "Neither the dev server nor the packaged renderer could be loaded.",
+          lastError ?? fallbackError,
+        );
+      }
     }
     if (devToolsEnabled) {
       window.webContents.openDevTools({ mode: "detach" });
     }
   } else {
-    window
-      .loadURL(rendererFileUrl)
-      .catch((error) => console.error("Failed to load renderer", error));
+    try {
+      await window.loadURL(rendererFileUrl);
+    } catch (error) {
+      console.error("Failed to load renderer", error);
+      await renderErrorFallback(
+        window,
+        "Renderer unavailable",
+        "The packaged renderer bundle could not be loaded.",
+        error,
+      );
+    }
   }
 }
 
