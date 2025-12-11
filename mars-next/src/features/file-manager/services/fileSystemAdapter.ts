@@ -1,6 +1,4 @@
-import fs from "fs";
-import fsPromises from "fs/promises";
-import path from "path";
+import path from "path-browserify";
 
 export interface FileEntry {
   name: string;
@@ -11,7 +9,7 @@ export interface FileEntry {
 }
 
 const ASSEMBLY_EXTENSIONS = new Set([".asm", ".s"]);
-const WORKSPACE_ROOT = path.resolve(process.cwd(), "mars-next/src/workspace");
+const WORKSPACE_ROOT = "workspace";
 
 let workingDirectory = WORKSPACE_ROOT;
 const handleCache = new Map<string, FileSystemFileHandle | FileSystemDirectoryHandle>();
@@ -33,35 +31,8 @@ async function readDirectory(
     return readDirectoryFromHandle(directoryHandle, directoryPath);
   }
 
-  try {
-    const entries = await fsPromises.readdir(directoryPath, { withFileTypes: true });
-    const resolved: FileEntry[] = await Promise.all(
-      entries
-        .filter((entry) => entry.isDirectory() || shouldIncludeFile(entry.name))
-        .map(async (entry) => {
-          const fullPath = path.join(directoryPath, entry.name);
-          if (entry.isDirectory()) {
-            return {
-              name: entry.name,
-              path: fullPath,
-              isDirectory: true,
-              children: await readDirectory(fullPath),
-            } satisfies FileEntry;
-          }
-
-          return {
-            name: entry.name,
-            path: fullPath,
-            isDirectory: false,
-          } satisfies FileEntry;
-        }),
-    );
-
-    return resolved.sort((a, b) => a.name.localeCompare(b.name));
-  } catch (error) {
-    console.warn(`Failed to read directory ${directoryPath}`, error);
-    return [];
-  }
+  console.warn("Cannot read directory without File System Access support", directoryPath);
+  return [];
 }
 
 async function readDirectoryFromHandle(
@@ -144,13 +115,7 @@ export async function selectWorkspaceDirectory(): Promise<string | null> {
     }
   }
 
-  // Fallback for Node/Electron environments
-  if (fs.existsSync(WORKSPACE_ROOT)) {
-    workingDirectory = WORKSPACE_ROOT;
-    return WORKSPACE_ROOT;
-  }
-
-  workingDirectory = process.cwd();
+  // No File System Access support available
   return workingDirectory;
 }
 
@@ -172,12 +137,8 @@ export async function readFile(targetPath: string): Promise<string> {
     }
   }
 
-  try {
-    return await fsPromises.readFile(targetPath, "utf8");
-  } catch (error) {
-    console.warn(`Failed to read workspace file: ${targetPath}`, error);
-    return "";
-  }
+  console.warn("File System Access API is not available; cannot read file", targetPath);
+  return "";
 }
 
 export async function writeFile(targetPath: string, content: string): Promise<void> {
@@ -195,12 +156,7 @@ export async function writeFile(targetPath: string, content: string): Promise<vo
     }
   }
 
-  try {
-    await fsPromises.mkdir(path.dirname(targetPath), { recursive: true });
-    await fsPromises.writeFile(targetPath, content, "utf8");
-  } catch (error) {
-    console.warn(`Failed to write workspace file: ${targetPath}`, error);
-  }
+  console.warn("File System Access API is not available; cannot write file", targetPath);
 }
 
 export async function renameFile(oldPath: string, newPath: string): Promise<void> {
@@ -227,10 +183,5 @@ export async function renameFile(oldPath: string, newPath: string): Promise<void
     }
   }
 
-  try {
-    await fsPromises.mkdir(path.dirname(newPath), { recursive: true });
-    await fsPromises.rename(oldPath, newPath);
-  } catch (error) {
-    console.warn(`Failed to rename workspace file: ${oldPath} -> ${newPath}`, error);
-  }
+  console.warn("File System Access API is not available; cannot rename file", oldPath, newPath);
 }

@@ -1,5 +1,3 @@
-import fs from "fs";
-import path from "path";
 import { FileEntry, getWorkingDirectory } from "../services/fileSystemAdapter";
 
 export interface OpenFileRecord {
@@ -19,44 +17,25 @@ export interface FileManagerState {
 
 const RECENT_FILES_KEY = "mars-next.recentFiles";
 const RECENT_FILES_MAX = 10;
-const RECENT_FILES_FALLBACK = path.resolve(process.cwd(), "mars-next/config/recent-files.json");
-
 function loadRecentFromDisk(): string[] {
-  if (typeof localStorage !== "undefined") {
-    const raw = localStorage.getItem(RECENT_FILES_KEY);
-    if (raw) {
-      try {
-        return JSON.parse(raw) as string[];
-      } catch (error) {
-        console.warn("Failed to parse persisted recent files", error);
-      }
-    }
-  }
+  if (typeof localStorage === "undefined") return [];
 
-  try {
-    if (fs.existsSync(RECENT_FILES_FALLBACK)) {
-      const contents = fs.readFileSync(RECENT_FILES_FALLBACK, "utf8");
-      return JSON.parse(contents) as string[];
+  const raw = localStorage.getItem(RECENT_FILES_KEY);
+  if (raw) {
+    try {
+      return JSON.parse(raw) as string[];
+    } catch (error) {
+      console.warn("Failed to parse persisted recent files", error);
     }
-  } catch (error) {
-    console.warn("Failed to load recent files from disk", error);
   }
 
   return [];
 }
 
 function persistRecentFiles(entries: string[]): void {
-  if (typeof localStorage !== "undefined") {
-    localStorage.setItem(RECENT_FILES_KEY, JSON.stringify(entries));
-    return;
-  }
+  if (typeof localStorage === "undefined") return;
 
-  try {
-    fs.mkdirSync(path.dirname(RECENT_FILES_FALLBACK), { recursive: true });
-    fs.writeFileSync(RECENT_FILES_FALLBACK, JSON.stringify(entries, null, 2));
-  } catch (error) {
-    console.warn("Failed to persist recent files", error);
-  }
+  localStorage.setItem(RECENT_FILES_KEY, JSON.stringify(entries));
 }
 
 export function recordRecentFile(state: FileManagerState, filePath: string): FileManagerState {
