@@ -11,6 +11,14 @@ TypeScript/Electron workspace for the next-generation MARS simulator. The reposi
 - Run the test suite: `npm test`
 - Clean build artifacts: `npm run clean` (or `npm run clean:modules` to also remove dependencies)
 
+### Previewing the renderer build
+
+If you only need to inspect the React UI (for example, to grab screenshots), you can serve the production renderer bundle without starting Electron:
+
+1. Build the workspace: `npm run build`.
+2. Launch a preview server on all interfaces: `npm exec -- vite preview --config config/vite.config.ts --host 0.0.0.0 --port 9010` (adjust the port as needed).
+3. Open `http://localhost:9010` in a browser to view the packaged renderer.
+
 ## Workspace layout
 
 - [`apps/desktop/`](apps/desktop/): Electron entry points (`main.ts`, `preload.ts`, and `ipcRoutes.ts`).
