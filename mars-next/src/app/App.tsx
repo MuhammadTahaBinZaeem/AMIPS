@@ -176,6 +176,7 @@ export function App(): React.JSX.Element {
   const [openTools, setOpenTools] = useState<OpenToolInstance[]>([]);
   const [activeToolId, setActiveToolId] = useState<string | null>(null);
   const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
+  const toolsMenuRef = useRef<HTMLDivElement | null>(null);
   const [bitmapDisplay, setBitmapDisplay] = useState<BitmapDisplayState | null>(null);
   const [keyboardDevice, setKeyboardDevice] = useState<KeyboardDevice | null>(null);
   const [availableTools, setAvailableTools] = useState<MarsTool[]>([]);
@@ -204,6 +205,33 @@ export function App(): React.JSX.Element {
   useEffect(() => {
     setActiveSource(source);
   }, [source]);
+
+  useEffect(() => {
+    if (!toolsMenuOpen) return undefined;
+
+    const handleDismiss = (event: MouseEvent | KeyboardEvent): void => {
+      if (event instanceof KeyboardEvent) {
+        if (event.key === "Escape") {
+          setToolsMenuOpen(false);
+        }
+        return;
+      }
+
+      if (toolsMenuRef.current) {
+        const target = event.target as Node | null;
+        if (target && !toolsMenuRef.current.contains(target)) {
+          setToolsMenuOpen(false);
+        }
+      }
+    };
+
+    window.addEventListener("pointerdown", handleDismiss);
+    window.addEventListener("keydown", handleDismiss);
+    return () => {
+      window.removeEventListener("pointerdown", handleDismiss);
+      window.removeEventListener("keydown", handleDismiss);
+    };
+  }, [toolsMenuOpen]);
 
   useEffect(() => {
     if (activeToolId && visibleDockedTools.some((tool) => tool.id === activeToolId)) {
@@ -1275,7 +1303,7 @@ export function App(): React.JSX.Element {
           <button style={toolsButtonStyle} onClick={() => void handleSaveAs()} title="Save the file as">
             📁
           </button>
-          <div style={{ position: "relative" }}>
+            <div style={{ position: "relative" }} ref={toolsMenuRef}>
             <button
               style={toolsButtonStyle}
               onClick={() => setToolsMenuOpen((open) => !open)}
