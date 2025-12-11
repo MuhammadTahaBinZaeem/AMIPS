@@ -1,2 +1,2 @@
-export * from "./RegistersWindow";
+export * from "./LazyRegistersView";
 export * from "./registerEvents";
