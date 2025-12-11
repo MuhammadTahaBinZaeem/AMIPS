@@ -1,8 +1,10 @@
 import { app, BrowserWindow, session } from "electron";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 const preloadPath = join(__dirname, "preload.js");
 const rendererIndexPath = join(__dirname, "../renderer/index.html");
+const rendererFileUrl = pathToFileURL(rendererIndexPath).toString();
 
 const normalizeDevServerUrl = (rawUrl?: string): string => {
   const value = rawUrl ?? "http://localhost:5173";
@@ -52,14 +54,14 @@ async function createWindow(): Promise<void> {
 
     if (!loaded) {
       console.error("Failed to load dev server, falling back to bundled renderer");
-      await window.loadFile(rendererIndexPath);
+      await window.loadURL(rendererFileUrl);
     }
     if (devToolsEnabled) {
       window.webContents.openDevTools({ mode: "detach" });
     }
   } else {
     window
-      .loadFile(rendererIndexPath)
+      .loadURL(rendererFileUrl)
       .catch((error) => console.error("Failed to load renderer", error));
   }
 }
