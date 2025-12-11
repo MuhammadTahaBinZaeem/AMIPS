@@ -32,6 +32,14 @@ const passthrough = [];
 const patterns = [];
 
 for (const arg of argv) {
+  if (arg === "--runInBand") {
+    // Preserve the intent of Jest's --runInBand flag by limiting Node's test
+    // runner to a single worker. Passing the Jest flag through directly causes
+    // Node to treat it as a CLI option and exit early with "bad option".
+    passthrough.push("--test-concurrency=1");
+    continue;
+  }
+
   if (arg.startsWith("-")) {
     passthrough.push(arg);
     continue;
