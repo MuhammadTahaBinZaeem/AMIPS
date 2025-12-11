@@ -31,6 +31,7 @@ export function StagePanel({ title, stage }: StagePanelProps): React.JSX.Element
   if (stage.stalled) badges.push({ label: "Stall", color: "#f59e0b" });
   if (stage.bubble) badges.push({ label: "Bubble", color: "#6b7280" });
   if (stage.flushed) badges.push({ label: "Flushed", color: "#ef4444" });
+  if (stage.resolution === "forward") badges.push({ label: "Forwarded", color: "#22c55e" });
 
   return (
     <div style={containerStyle(stage)}>
@@ -51,6 +52,11 @@ export function StagePanel({ title, stage }: StagePanelProps): React.JSX.Element
       <div style={{ marginTop: "0.25rem", color: "#d1d5db", fontFamily: "'JetBrains Mono', monospace" }}>
         {describeInstruction(stage)}
       </div>
+      {stage.note && (
+        <div style={{ marginTop: "0.35rem", color: "#9ca3af", fontSize: "0.85rem", lineHeight: 1.3 }}>
+          {stage.note}
+        </div>
+      )}
     </div>
   );
 }
