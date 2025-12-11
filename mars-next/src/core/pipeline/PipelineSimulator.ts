@@ -11,6 +11,7 @@ import {
   publishPipelineSnapshot,
   type PipelineSnapshot,
   type PipelineStageState,
+  type PipelineHazard,
 } from "../tools/pipelineEvents";
 import { hasRuntimeListeners, publishRuntimeSnapshot, type RuntimeStatus } from "../tools/runtimeEvents";
 import { PipelineRegister } from "./PipelineRegister";
@@ -41,6 +42,12 @@ interface PipelineSnapshotContext {
   branchRegistered?: boolean;
   stalledStages?: Partial<Record<keyof PipelineSnapshot["registers"], boolean>>;
   pipelineCleared?: boolean;
+  dataHazards?: Array<{
+    sourceRegister: number;
+    destinationRegister: number | null;
+    producerStage: keyof PipelineSnapshot["registers"] | null;
+    resolution: "stall" | "forward";
+  }>;
 }
 
 export class ProgramMemory implements InstructionMemory {
@@ -290,13 +297,41 @@ export class PipelineSimulator {
       }
 
       const decoding = this.ifId.getCurrent();
+      const executingPayload = this.idEx.getCurrent();
+      const memoryPayload = this.exMem.getCurrent();
       const decodingHazard =
         this.hazardDetectionEnabled && decoding ? decodeHazardInfo(decoding.instruction) : EMPTY_HAZARD;
+      const executingHazard = executingPayload ? decodeHazardInfo(executingPayload.instruction) : EMPTY_HAZARD;
+      const memoryHazard = memoryPayload ? decodeHazardInfo(memoryPayload.instruction) : EMPTY_HAZARD;
       const { loadUseHazard, structuralHazard } = this.hazardDetectionEnabled
-        ? this.hazardUnit.detect(decodingHazard, this.idEx.getCurrent(), this.exMem.getCurrent(), {
+        ? this.hazardUnit.detect(decodingHazard, executingPayload, memoryPayload, {
             forwardingEnabled: this.forwardingEnabled,
           })
         : { loadUseHazard: false, structuralHazard: false };
+
+      const dataHazards: NonNullable<PipelineSnapshotContext["dataHazards"]> = [];
+
+      decodingHazard.sources.forEach((sourceRegister) => {
+        if (executingHazard.destination !== null && executingHazard.destination === sourceRegister && executingHazard.destination !== 0) {
+          dataHazards.push({
+            sourceRegister,
+            destinationRegister: executingHazard.destination,
+            producerStage: "idEx",
+            resolution: loadUseHazard ? "stall" : "forward",
+          });
+        }
+
+        if (memoryHazard.destination !== null && memoryHazard.destination === sourceRegister && memoryHazard.destination !== 0) {
+          dataHazards.push({
+            sourceRegister,
+            destinationRegister: memoryHazard.destination,
+            producerStage: "exMem",
+            resolution: loadUseHazard ? "stall" : "forward",
+          });
+        }
+      });
+
+      snapshotContext.dataHazards = dataHazards;
 
       snapshotContext.loadUseHazard = loadUseHazard;
       snapshotContext.structuralHazard = structuralHazard;
@@ -441,6 +476,7 @@ export class PipelineSimulator {
   private publishPipelineState(context: PipelineSnapshotContext = {}): void {
     const flushed = context.pipelineCleared ?? false;
     const stalledStages = context.stalledStages ?? {};
+    const stateSnapshot = this.cpu.getState();
 
     const registerPayloads: Record<"ifId" | "idEx" | "exMem" | "memWb", PipelineRegisterPayload> = {
       ifId: this.ifId.getCurrent(),
@@ -457,28 +493,129 @@ export class PipelineSimulator {
       return;
     }
 
-    const toStageState = (payload: PipelineRegisterPayload, stalled?: boolean): PipelineStageState => ({
-      pc: payload?.pc ?? null,
-      instruction: payload?.instruction ?? null,
-      decodedName: payload?.decoded?.name ?? null,
-      bubble: payload === null,
-      stalled: stalled ?? false,
-      flushed,
+    const registerFileSnapshot = {
+      general: Array.from({ length: MachineState.REGISTER_COUNT }, (_, registerIndex) =>
+        stateSnapshot.getRegister(registerIndex),
+      ),
+      hi: stateSnapshot.getHi(),
+      lo: stateSnapshot.getLo(),
+    };
+
+    const hazards: PipelineHazard[] = [];
+    const dataHazards = context.dataHazards ?? [];
+
+    dataHazards.forEach((hazard) => {
+      hazards.push({
+        type: "data",
+        resolution: hazard.resolution,
+        stages: ["ifId", hazard.producerStage ?? "idEx"],
+        description:
+          hazard.resolution === "forward"
+            ? "Forwarded operand to dependent instruction"
+            : "Stall inserted for data dependency",
+        registers: { source: hazard.sourceRegister, destination: hazard.destinationRegister },
+      });
     });
+
+    if (context.structuralHazard) {
+      hazards.push({
+        type: "structural",
+        resolution: "stall",
+        stages: ["ifId"],
+        description: "Memory stage busy; fetch held to avoid structural hazard",
+      });
+    }
+
+    if (context.branchRegistered) {
+      hazards.push({
+        type: "control",
+        resolution: flushed ? "flush" : "stall",
+        stages: ["idEx", "exMem"],
+        description: "Branch registered; following instruction delayed or flushed",
+      });
+    }
+
+    const readRegisterValue = (register: number | null): number | null => {
+      if (register === null) return null;
+      if (register === MachineState.HI_REGISTER) return stateSnapshot.getHi();
+      if (register === MachineState.LO_REGISTER) return stateSnapshot.getLo();
+      if (register >= 0 && register < MachineState.REGISTER_COUNT) return stateSnapshot.getRegister(register);
+      return null;
+    };
+
+    const toRegisterView = (
+      stage: keyof PipelineSnapshot["registers"],
+      payload: PipelineRegisterPayload,
+    ) => {
+      const hazardInfo = payload ? decodeHazardInfo(payload.instruction) : EMPTY_HAZARD;
+      const operands = hazardInfo.sources.map((register) => ({
+        register,
+        value: readRegisterValue(register),
+      }));
+
+      return {
+        stage,
+        controlSignals: {
+          bubble: payload === null,
+          stalled: stalledStages[stage] ?? false,
+          flushed,
+        },
+        dataValues: {
+          pc: payload?.pc ?? null,
+          instruction: payload?.instruction ?? null,
+          decodedName: payload?.decoded?.name ?? null,
+          operands,
+          destination: hazardInfo.destination,
+          aluResult: null,
+          memoryAddress: null,
+        },
+      };
+    };
+
+    const toStageState = (stage: keyof PipelineSnapshot["registers"], payload: PipelineRegisterPayload): PipelineStageState => {
+      const stageHazards = hazards.filter((hazard) => hazard.stages.includes(stage));
+      const resolution = flushed
+        ? "flush"
+        : stalledStages[stage]
+          ? "stall"
+          : stageHazards.some((hazard) => hazard.resolution === "forward")
+            ? "forward"
+            : "none";
+
+      return {
+        pc: payload?.pc ?? null,
+        instruction: payload?.instruction ?? null,
+        decodedName: payload?.decoded?.name ?? null,
+        bubble: payload === null,
+        stalled: stalledStages[stage] ?? false,
+        flushed,
+        note: stageHazards.map((hazard) => hazard.description).join(" · ") || null,
+        resolution,
+        hazards: stageHazards.map((hazard) => hazard.type),
+      };
+    };
 
     publishPipelineSnapshot({
       cycle: this.statistics.getCycleCount(),
       registers: {
-        ifId: toStageState(registerPayloads.ifId, stalledStages.ifId),
-        idEx: toStageState(registerPayloads.idEx, stalledStages.idEx),
-        exMem: toStageState(registerPayloads.exMem, stalledStages.exMem),
-        memWb: toStageState(registerPayloads.memWb, stalledStages.memWb),
+        ifId: toStageState("ifId", registerPayloads.ifId),
+        idEx: toStageState("idEx", registerPayloads.idEx),
+        exMem: toStageState("exMem", registerPayloads.exMem),
+        memWb: toStageState("memWb", registerPayloads.memWb),
       },
       loadUseHazard: context.loadUseHazard ?? false,
       structuralHazard: context.structuralHazard ?? false,
       branchRegistered: context.branchRegistered ?? false,
       forwardingEnabled: this.forwardingEnabled,
       hazardDetectionEnabled: this.hazardDetectionEnabled,
+      hazards,
+      pipelineRegisters: {
+        ifId: toRegisterView("ifId", registerPayloads.ifId),
+        idEx: toRegisterView("idEx", registerPayloads.idEx),
+        exMem: toRegisterView("exMem", registerPayloads.exMem),
+        memWb: toRegisterView("memWb", registerPayloads.memWb),
+      },
+      registerFile: registerFileSnapshot,
       statistics: this.statistics.getSnapshot(),
     });
   }
