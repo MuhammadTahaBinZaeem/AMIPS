@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import React, { Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ExecutePane } from "../features/execute-pane";
 import { RunToolbar, setActiveSource } from "../features/run-control";
@@ -6,7 +6,8 @@ import { EditorPane, StatusBar } from "../features/editor";
 import { BreakpointManagerPanel, BreakpointList, BreakpointSpec, WatchManagerPanel, WatchSpec } from "../features/breakpoints";
 import { resolveInstructionIndex, toggleBreakpoint } from "../features/breakpoints/services/breakpointService";
 import { SettingsDialog, loadSettings, saveSettings } from "../features/settings";
-import { MemoryConfiguration, RegistersWindow } from "../features/tools";
+import { MemoryConfiguration } from "../features/tools/data-viewer";
+import { LazyRegistersWindow } from "../features/tools/register-viewer";
 import { publishCpuState } from "../features/tools/register-viewer";
 import {
   FileExplorer,
@@ -1441,7 +1442,9 @@ export function App(): React.JSX.Element {
                       ◀
                     </button>
                   </div>
-                  <RegistersWindow onHighlightChange={setHasRegisterUpdate} />
+                  <Suspense fallback={<div style={{ color: "#94a3b8" }}>Loading registers…</div>}>
+                    <LazyRegistersWindow onHighlightChange={setHasRegisterUpdate} />
+                  </Suspense>
                 </div>
                 <button
                   aria-label={isRegisterSidebarOpen ? "Collapse register sidebar" : "Expand register sidebar"}

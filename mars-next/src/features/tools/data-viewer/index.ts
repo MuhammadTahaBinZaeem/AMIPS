@@ -1,2 +1,2 @@
-export * from "./DataSegmentWindow";
-export * from "./MemoryConfiguration";
+export { MemoryConfiguration } from "./MemoryConfiguration";
+export type { MemorySegmentDescriptor } from "./MemoryConfiguration";
