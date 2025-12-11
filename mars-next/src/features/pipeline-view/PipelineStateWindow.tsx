@@ -99,7 +99,11 @@ function HazardList({ hazards }: { hazards: PipelineSnapshot["hazards"] }): Reac
   );
 }
 
-export function PipelineStateWindow({ appContext, onClose }: MarsToolComponentProps): React.JSX.Element {
+export function PipelineStateWindow({
+  appContext,
+  onClose,
+  presentation = "window",
+}: MarsToolComponentProps): React.JSX.Element {
   const runtime = (appContext.runtime as RuntimeController | null | undefined) ?? null;
   const [timeline, setTimeline] = useState<PipelineSnapshot[]>(() => [getLatestPipelineSnapshot()]);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -211,9 +215,12 @@ export function PipelineStateWindow({ appContext, onClose }: MarsToolComponentPr
     return () => window.clearInterval(interval);
   }, [isPlaying, runtime, playSpeed, activeIndex, timeline.length]);
 
+  const containerStyle = presentation === "panel" ? panelContainerStyle : overlayStyle;
+  const surfaceStyle = presentation === "panel" ? panelWindowStyle : windowStyle;
+
   return (
-    <div style={overlayStyle}>
-      <div style={windowStyle}>
+    <div style={containerStyle}>
+      <div style={surfaceStyle}>
         <header style={headerStyle}>
           <div>
             <h2 style={{ margin: 0 }}>Pipeline Viewer</h2>
@@ -454,7 +461,10 @@ function StatCard({ title, value, description }: StatCardProps): React.JSX.Eleme
 export const PipelineStateTool: MarsTool = {
   id: "pipeline-viewer",
   name: "Pipeline Viewer",
-  description: "Visualize pipeline registers and hazards.",
+  description: "Inspect per-cycle pipeline snapshots, hazards, and stalls.",
+  category: "Execution",
+  icon: "pipeline",
+  shortcut: "Ctrl+Alt+P",
   Component: PipelineStateWindow,
   isAvailable: (context) => Boolean(context.runtime),
   run: () => {
@@ -487,6 +497,29 @@ const windowStyle: React.CSSProperties = {
   gap: "0.75rem",
   maxHeight: "95vh",
   overflowY: "auto",
+};
+
+const panelContainerStyle: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  height: "100%",
+  backgroundColor: "#0b1220",
+  borderRadius: "0.9rem",
+  border: "1px solid #1f2937",
+  overflow: "hidden",
+};
+
+const panelWindowStyle: React.CSSProperties = {
+  backgroundColor: "#0b1220",
+  borderRadius: "0.9rem",
+  padding: "1rem",
+  boxShadow: "0 15px 45px rgba(0,0,0,0.35)",
+  color: "#e5e7eb",
+  display: "flex",
+  flexDirection: "column",
+  gap: "0.75rem",
+  height: "100%",
+  overflow: "hidden",
 };
 
 const statCardStyle: React.CSSProperties = {

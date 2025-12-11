@@ -44,6 +44,7 @@ export interface RegistersWindowProps {
   title?: string;
   onClose?: () => void;
   onHighlightChange?: (active: boolean) => void;
+  presentation?: "window" | "panel";
 }
 
 function formatHex(value: number): string {
@@ -60,7 +61,12 @@ function createDefaultSnapshot(): CpuStateSnapshot {
   };
 }
 
-export function RegistersWindow({ title = "Registers", onClose, onHighlightChange }: RegistersWindowProps): React.JSX.Element {
+export function RegistersWindow({
+  title = "Registers",
+  onClose,
+  onHighlightChange,
+  presentation = "window",
+}: RegistersWindowProps): React.JSX.Element {
   const [snapshot, setSnapshot] = useState<CpuStateSnapshot>(() => getLatestCpuState() ?? createDefaultSnapshot());
   const [highlighted, setHighlighted] = useState<Set<string>>(new Set());
   const clearTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -144,6 +150,13 @@ export function RegistersWindow({ title = "Registers", onClose, onHighlightChang
     [highlighted, snapshot.registers],
   );
 
+  const containerStyle = {
+    ...baseContainerStyle,
+    ...(presentation === "panel"
+      ? { height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }
+      : {}),
+  } satisfies React.CSSProperties;
+
   return (
     <div style={containerStyle}>
       <header style={headerStyle}>
@@ -155,23 +168,32 @@ export function RegistersWindow({ title = "Registers", onClose, onHighlightChang
         ) : null}
       </header>
 
-      <table style={tableStyle}>
-        <tbody>
-          {registerRows.map((row) => (
-            <tr key={row.key}>
-              <th style={{ ...cellBaseStyle, ...(row.highlighted ? highlightedCellStyle : {}), ...nameCellStyle }} scope="row">
-                {row.name}
-                <span style={registerIndexStyle}>({row.number})</span>
-              </th>
-              <td style={{ ...cellBaseStyle, ...(row.highlighted ? highlightedCellStyle : {}), ...valueCellStyle }}>
-                {formatHex(row.value)}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <div style={{ overflow: "auto", flex: 1 }}>
+        <table style={tableStyle}>
+          <tbody>
+            {registerRows.map((row) => (
+              <tr key={row.key}>
+                <th style={{ ...cellBaseStyle, ...(row.highlighted ? highlightedCellStyle : {}), ...nameCellStyle }} scope="row">
+                  {row.name}
+                  <span style={registerIndexStyle}>({row.number})</span>
+                </th>
+                <td style={{ ...cellBaseStyle, ...(row.highlighted ? highlightedCellStyle : {}), ...valueCellStyle }}>
+                  {formatHex(row.value)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "0.4rem", marginTop: "0.65rem" }}>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+          gap: "0.4rem",
+          marginTop: "0.65rem",
+        }}
+      >
         <LabeledValue label="HI" value={snapshot.hi} highlighted={highlighted.has("hi")} />
         <LabeledValue label="LO" value={snapshot.lo} highlighted={highlighted.has("lo")} />
         <LabeledValue label="PC" value={snapshot.pc} highlighted={highlighted.has("pc")} />
@@ -180,14 +202,17 @@ export function RegistersWindow({ title = "Registers", onClose, onHighlightChang
   );
 }
 
-export function RegistersToolWindow({ onClose }: MarsToolComponentProps): React.JSX.Element {
-  return <RegistersWindow onClose={onClose} />;
+export function RegistersToolWindow({ onClose, presentation }: MarsToolComponentProps): React.JSX.Element {
+  return <RegistersWindow onClose={onClose} presentation={presentation} />;
 }
 
 export const RegistersTool: MarsTool = {
   id: "registers-viewer",
   name: "Registers Viewer",
   description: "Watch general purpose registers update in real time.",
+  category: "CPU",
+  icon: "registers",
+  shortcut: "Ctrl+R",
   Component: RegistersToolWindow,
   run: () => {
     // Rendering handled by the host application.
@@ -221,7 +246,7 @@ function LabeledValue({
   );
 }
 
-const containerStyle: React.CSSProperties = {
+const baseContainerStyle: React.CSSProperties = {
   backgroundColor: "#0b1220",
   border: "1px solid #1f2937",
   borderRadius: "0.75rem",

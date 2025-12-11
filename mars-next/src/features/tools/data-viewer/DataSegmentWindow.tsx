@@ -56,7 +56,11 @@ function selectInitialAddress(
   return preferred - (preferred % BYTES_PER_ROW);
 }
 
-export function DataSegmentWindow({ appContext, onClose }: MarsToolComponentProps): React.JSX.Element {
+export function DataSegmentWindow({
+  appContext,
+  onClose,
+  presentation = "window",
+}: MarsToolComponentProps): React.JSX.Element {
   const [entries, setEntries] = useState<Array<{ address: number; value: number }>>(
     () => getLatestDataState().entries,
   );
@@ -89,10 +93,13 @@ export function DataSegmentWindow({ appContext, onClose }: MarsToolComponentProp
     setChunkStart(selectInitialAddress(entries, segmentToUse));
   }, [entries, activeSegment, segments]);
 
+  const containerStyle = presentation === "panel" ? panelContainerStyle : overlayStyle;
+  const surfaceStyle = presentation === "panel" ? panelWindowStyle : windowStyle;
+
   if (!activeSegment) {
     return (
-      <div style={overlayStyle}>
-        <div style={windowStyle}>
+      <div style={containerStyle}>
+        <div style={surfaceStyle}>
           <header style={headerStyle}>
             <h2 style={{ margin: 0 }}>Data Segment Viewer</h2>
             <button style={closeButtonStyle} onClick={onClose}>
@@ -117,8 +124,8 @@ export function DataSegmentWindow({ appContext, onClose }: MarsToolComponentProp
   const activeRange = normalizeRange(activeSegment);
 
   return (
-    <div style={overlayStyle}>
-      <div style={windowStyle}>
+    <div style={containerStyle}>
+      <div style={surfaceStyle}>
         <header style={headerStyle}>
           <h2 style={{ margin: 0 }}>Data Segment Viewer</h2>
           <button style={closeButtonStyle} onClick={onClose}>
@@ -208,6 +215,9 @@ export const DataSegmentTool: MarsTool = {
   id: "data-segment-viewer",
   name: "Data Segment Viewer",
   description: "Inspect the contents of the MIPS data segment in memory.",
+  category: "Memory",
+  icon: "memory",
+  shortcut: "Ctrl+Alt+D",
   Component: DataSegmentWindow,
   isAvailable: (context) => (context.memoryEntries?.length ?? 0) > 0,
   run: () => {
@@ -236,6 +246,26 @@ const windowStyle: React.CSSProperties = {
   borderRadius: "0.75rem",
   boxShadow: "0 10px 30px rgba(0, 0, 0, 0.35)",
   padding: "1rem",
+};
+
+const panelContainerStyle: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  height: "100%",
+  backgroundColor: "#0b1220",
+  borderRadius: "0.75rem",
+  border: "1px solid #1f2937",
+  overflow: "hidden",
+};
+
+const panelWindowStyle: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "0.5rem",
+  padding: "1rem",
+  height: "100%",
+  overflow: "hidden",
+  color: "#e5e7eb",
 };
 
 const headerStyle: React.CSSProperties = {

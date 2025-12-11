@@ -54,6 +54,11 @@ export interface AppContext {
 export interface MarsToolComponentProps {
   appContext: AppContext;
   onClose: () => void;
+  /**
+   * Allows the host to request a presentation mode. Tools can use this to
+   * switch from modal overlays to docked panels without duplicating layouts.
+   */
+  presentation?: "window" | "panel";
 }
 
 export interface MarsTool {
@@ -63,6 +68,12 @@ export interface MarsTool {
   name: string;
   /** Short description of the tool. */
   description: string;
+  /** Visual identity used in menus and tab headers. */
+  icon?: string;
+  /** Optional category label for grouping within menus. */
+  category?: string;
+  /** Keyboard shortcut hint, e.g., Ctrl+R. */
+  shortcut?: string;
   /**
    * Optional availability guard. Returning false will disable the menu entry.
    */

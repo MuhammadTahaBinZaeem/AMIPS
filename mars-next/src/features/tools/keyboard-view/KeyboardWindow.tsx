@@ -21,7 +21,11 @@ function formatKeycode(value: number): string {
   return `0x${(value & 0xff).toString(16).padStart(2, "0")}`;
 }
 
-export function KeyboardWindow({ appContext, onClose }: MarsToolComponentProps): React.JSX.Element {
+export function KeyboardWindow({
+  appContext,
+  onClose,
+  presentation = "window",
+}: MarsToolComponentProps): React.JSX.Element {
   const device = (appContext.keyboardDevice as KeyboardDevice | null | undefined) ?? null;
   const [snapshot, setSnapshot] = useState<QueueSnapshot>({ down: [], up: [] });
 
@@ -73,9 +77,12 @@ export function KeyboardWindow({ appContext, onClose }: MarsToolComponentProps):
     [],
   );
 
+  const containerStyle = presentation === "panel" ? panelContainerStyle : overlayStyle;
+  const surfaceStyle = presentation === "panel" ? panelWindowStyle : windowStyle;
+
   return (
-    <div style={overlayStyle}>
-      <div style={windowStyle}>
+    <div style={containerStyle}>
+      <div style={surfaceStyle}>
         <header style={headerStyle}>
           <div style={{ display: "flex", flexDirection: "column" }}>
             <h2 style={{ margin: 0 }}>Keyboard Input</h2>
@@ -89,7 +96,7 @@ export function KeyboardWindow({ appContext, onClose }: MarsToolComponentProps):
         </header>
 
         {device ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "1rem", flex: 1, overflow: "auto" }}>
             <section style={sectionStyle}>
               <div style={sectionHeaderStyle}>
                 <strong>Pending keycodes</strong>
@@ -135,6 +142,9 @@ export const KeyboardTool: MarsTool = {
   id: "keyboard-viewer",
   name: "Keyboard Input",
   description: "Inspect and simulate keyboard device input.",
+  category: "Peripherals",
+  icon: "keyboard",
+  shortcut: "Ctrl+Alt+K",
   Component: KeyboardWindow,
   isAvailable: (context) => Boolean(context.keyboardDevice),
   run: () => {
@@ -163,6 +173,25 @@ const windowStyle: React.CSSProperties = {
   minWidth: "380px",
   maxWidth: "min(90vw, 720px)",
   boxShadow: "0 25px 60px rgba(0, 0, 0, 0.4)",
+};
+
+const panelContainerStyle: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  height: "100%",
+  backgroundColor: "#0f172a",
+  borderRadius: "0.75rem",
+  border: "1px solid #1f2937",
+  overflow: "hidden",
+};
+
+const panelWindowStyle: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  height: "100%",
+  gap: "0.5rem",
+  padding: "1rem",
+  color: "#e5e7eb",
 };
 
 const headerStyle: React.CSSProperties = {

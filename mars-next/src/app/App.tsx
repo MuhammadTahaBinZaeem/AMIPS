@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { ExecutePane } from "../features/execute-pane";
 import { RunToolbar, setActiveSource } from "../features/run-control";
 import { EditorPane, StatusBar } from "../features/editor";
@@ -51,6 +52,7 @@ import { BitmapDisplayState, type AppContext, type MarsTool } from "../core/tool
 import { ToolLoader } from "../core/tools/ToolLoader";
 import { HelpSidebar } from "../features/help/components/HelpSidebar";
 import { helpReducer, initialHelpState } from "../features/help";
+import { renderToolIcon } from "../ui/icons/ToolIcons";
 
 const initialSettings = loadSettings();
 
@@ -91,12 +93,56 @@ const EXTENDED_SCANCODES: Record<string, number[]> = {
   Escape: [0x1b],
 };
 
+type OpenToolInstance = {
+  id: string;
+  mode: "docked" | "detached";
+};
+
 function mapKeyboardEventToBytes(event: KeyboardEvent): number[] {
   if (event.key.length === 1) {
     return [event.key.codePointAt(0) ?? 0];
   }
 
   return EXTENDED_SCANCODES[event.key] ?? [];
+}
+
+function DetachedToolWindow({
+  tool,
+  appContext,
+  onClose,
+}: {
+  tool: MarsTool;
+  appContext: AppContext;
+  onClose: () => void;
+}): React.JSX.Element | null {
+  const [container, setContainer] = useState<HTMLElement | null>(null);
+  const windowRef = useRef<Window | null>(null);
+
+  useEffect(() => {
+    const newWindow = window.open("", tool.id, "width=1100,height=720");
+    if (!newWindow) return undefined;
+    windowRef.current = newWindow;
+    newWindow.document.title = `${tool.name} – Tools`;
+    newWindow.document.body.style.margin = "0";
+    const mountPoint = newWindow.document.createElement("div");
+    newWindow.document.body.appendChild(mountPoint);
+    const handleUnload = (): void => onClose();
+    newWindow.addEventListener("beforeunload", handleUnload);
+    setContainer(mountPoint);
+    return () => {
+      newWindow.removeEventListener("beforeunload", handleUnload);
+      newWindow.close();
+    };
+  }, [onClose, tool.id, tool.name]);
+
+  useEffect(() => () => windowRef.current?.close(), []);
+
+  if (!container || !tool.Component) return null;
+  const ToolComponent = tool.Component;
+  return createPortal(
+    <ToolComponent appContext={appContext} onClose={onClose} presentation="window" />,
+    container,
+  );
 }
 
 export function App(): React.JSX.Element {
@@ -126,7 +172,8 @@ export function App(): React.JSX.Element {
   const [forwardingEnabled, setForwardingEnabled] = useState(initialSettings.forwardingEnabled);
   const [hazardDetectionEnabled, setHazardDetectionEnabled] = useState(initialSettings.hazardDetectionEnabled);
   const [executionMode, setExecutionMode] = useState<ExecutionMode>(initialSettings.executionMode);
-  const [openTools, setOpenTools] = useState<string[]>([]);
+  const [openTools, setOpenTools] = useState<OpenToolInstance[]>([]);
+  const [activeToolId, setActiveToolId] = useState<string | null>(null);
   const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
   const [bitmapDisplay, setBitmapDisplay] = useState<BitmapDisplayState | null>(null);
   const [keyboardDevice, setKeyboardDevice] = useState<KeyboardDevice | null>(null);
@@ -150,10 +197,20 @@ export function App(): React.JSX.Element {
   const workingDirectory = fileManager.workingDirectory ?? getWorkingDirectory();
   const activeFileRecord = activeFile ? fileManager.openFiles[activeFile] ?? null : null;
   const isDirty = activeFile ? Boolean(activeFileRecord?.isDirty) : source.trim().length > 0;
+  const dockedTools = useMemo(() => openTools.filter((tool) => tool.mode === "docked"), [openTools]);
+  const detachedTools = useMemo(() => openTools.filter((tool) => tool.mode === "detached"), [openTools]);
 
   useEffect(() => {
     setActiveSource(source);
   }, [source]);
+
+  useEffect(() => {
+    if (activeToolId && visibleDockedTools.some((tool) => tool.id === activeToolId)) {
+      return;
+    }
+    const nextActive = visibleDockedTools[0]?.id ?? null;
+    setActiveToolId(nextActive);
+  }, [activeToolId, visibleDockedTools]);
 
   useEffect(() => {
     if (fileManager.activeFile && fileManager.activeFile !== activeFile) {
@@ -182,6 +239,37 @@ export function App(): React.JSX.Element {
     window.addEventListener("keydown", handleKeydown);
     return () => window.removeEventListener("keydown", handleKeydown);
   }, [toggleRegisterSidebar]);
+
+  useEffect(() => {
+    const normalizeShortcut = (shortcut: string): string => shortcut.toLowerCase().replace(/\s+/g, "");
+    const shortcutMap = new Map<string, MarsTool>();
+    availableTools.forEach((tool) => {
+      if (tool.shortcut) {
+        shortcutMap.set(normalizeShortcut(tool.shortcut), tool);
+      }
+    });
+
+    const handleToolShortcut = (event: KeyboardEvent): void => {
+      const target = event.target as HTMLElement | null;
+      const tagName = target?.tagName;
+      if (tagName === "INPUT" || tagName === "TEXTAREA" || target?.isContentEditable) return;
+
+      const parts: string[] = [];
+      if (event.ctrlKey || event.metaKey) parts.push("ctrl");
+      if (event.altKey) parts.push("alt");
+      if (event.shiftKey) parts.push("shift");
+      parts.push(event.key.toLowerCase());
+      const key = parts.join("+");
+      const tool = shortcutMap.get(key);
+      if (tool && (!tool.isAvailable || tool.isAvailable(toolContext))) {
+        event.preventDefault();
+        openTool(tool);
+      }
+    };
+
+    window.addEventListener("keydown", handleToolShortcut);
+    return () => window.removeEventListener("keydown", handleToolShortcut);
+  }, [availableTools, openTool, toolContext]);
 
   const appendTerminalLine = useCallback(
     (source: TerminalSource, message: string): void => {
@@ -391,6 +479,22 @@ export function App(): React.JSX.Element {
     ],
   );
 
+  const visibleDockedTools = useMemo(
+    () =>
+      dockedTools.filter((entry) => {
+        const tool = availableTools.find((item) => item.id === entry.id);
+        if (!tool || !tool.Component) return false;
+        if (tool.isAvailable && !tool.isAvailable(toolContext)) return false;
+        return true;
+      }),
+    [availableTools, dockedTools, toolContext],
+  );
+
+  const hasDockedTools = visibleDockedTools.length > 0;
+  const gridRows = ["1fr", hasDockedTools ? "360px" : null, isBottomPanelOpen ? "320px" : null]
+    .filter(Boolean)
+    .join(" ");
+
   useEffect(() => {
     if (!engine) return undefined;
 
@@ -451,14 +555,35 @@ export function App(): React.JSX.Element {
     (tool: MarsTool): void => {
       tool.run(toolContext);
       if (tool.Component) {
-        setOpenTools((current) => (current.includes(tool.id) ? current : [...current, tool.id]));
+        setOpenTools((current) => {
+          if (current.some((entry) => entry.id === tool.id)) {
+            return current.map((entry) => (entry.id === tool.id ? { ...entry, mode: "docked" } : entry));
+          }
+          return [...current, { id: tool.id, mode: "docked" }];
+        });
+        setActiveToolId(tool.id);
       }
     },
     [toolContext],
   );
 
   const closeTool = useCallback((toolId: string): void => {
-    setOpenTools((current) => current.filter((id) => id !== toolId));
+    setOpenTools((current) => current.filter((entry) => entry.id !== toolId));
+    setActiveToolId((current) => (current === toolId ? null : current));
+  }, []);
+
+  const detachTool = useCallback((toolId: string): void => {
+    setOpenTools((current) =>
+      current.map((entry) => (entry.id === toolId ? { ...entry, mode: "detached" } : entry)),
+    );
+    setActiveToolId((current) => (current === toolId ? null : current));
+  }, []);
+
+  const dockTool = useCallback((toolId: string): void => {
+    setOpenTools((current) =>
+      current.map((entry) => (entry.id === toolId ? { ...entry, mode: "docked" } : entry)),
+    );
+    setActiveToolId(toolId);
   }, []);
 
   const handleToggleForwarding = (enabled: boolean): void => {
@@ -806,12 +931,54 @@ export function App(): React.JSX.Element {
     cursor: "pointer",
   };
 
+  const toolsMenuHeaderStyle: React.CSSProperties = {
+    padding: "0.25rem 0.65rem",
+    textTransform: "uppercase",
+    letterSpacing: "0.05em",
+    fontSize: "0.75rem",
+    color: "#94a3b8",
+  };
+
+  const toolsShortcutStyle: React.CSSProperties = {
+    backgroundColor: "#0f172a",
+    border: "1px solid #1f2937",
+    color: "#cbd5e1",
+    borderRadius: "0.35rem",
+    padding: "0.15rem 0.4rem",
+    fontSize: "0.8rem",
+  };
+
   const orderedOpenFiles = useMemo(() => {
     const known = new Set(Object.keys(fileManager.openFiles));
     const ordered = fileManager.openFileOrder.filter((entry) => known.has(entry));
     const remainder = Array.from(known).filter((entry) => !fileManager.openFileOrder.includes(entry));
     return [...ordered, ...remainder];
   }, [fileManager.openFileOrder, fileManager.openFiles]);
+
+  const groupedTools = useMemo(() => {
+    const groups = new Map<string, MarsTool[]>();
+    availableTools.forEach((tool) => {
+      const category = tool.category ?? "General";
+      const current = groups.get(category) ?? [];
+      current.push(tool);
+      groups.set(category, current);
+    });
+
+    return Array.from(groups.entries()).map(([category, tools]) => {
+      const sorted = [...tools].sort((a, b) => a.name.localeCompare(b.name));
+      const chunks: MarsTool[][] = [];
+      sorted.forEach((tool) => {
+        const activeChunk = chunks[chunks.length - 1];
+        if (!activeChunk || activeChunk.length >= 4) {
+          chunks.push([tool]);
+        } else {
+          activeChunk.push(tool);
+        }
+      });
+
+      return { category, chunks };
+    });
+  }, [availableTools]);
 
   useEffect(() => {
     if (splitMode === "single") {
@@ -1090,56 +1257,89 @@ export function App(): React.JSX.Element {
           <span style={{ color: "var(--color-muted)" }}>Modern IDE shell</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-          <button style={toolsButtonStyle} onClick={handleNewFile} title="New file">
+          <button style={toolsButtonStyle} onClick={handleNewFile} title="Create a new file">
             🆕
           </button>
-          <button style={toolsButtonStyle} onClick={() => void handleOpenFilePicker()} title="Open file">
+          <button style={toolsButtonStyle} onClick={() => void handleOpenFilePicker()} title="Open a file">
             📂
           </button>
           <button
             style={{ ...toolsButtonStyle, opacity: activeFile ? 1 : 0.6 }}
             disabled={!activeFile}
             onClick={() => void handleSave()}
-            title="Save"
+            title="Save current file"
           >
             💾
           </button>
-          <button style={toolsButtonStyle} onClick={() => void handleSaveAs()} title="Save as">
+          <button style={toolsButtonStyle} onClick={() => void handleSaveAs()} title="Save the file as">
             📁
           </button>
           <div style={{ position: "relative" }}>
-            <button style={toolsButtonStyle} onClick={() => setToolsMenuOpen((open) => !open)} title="Tool drawer">
-              🧰
+            <button
+              style={toolsButtonStyle}
+              onClick={() => setToolsMenuOpen((open) => !open)}
+              title="Open tools menu"
+              aria-haspopup="true"
+              aria-expanded={toolsMenuOpen}
+              aria-label="Open tools menu"
+            >
+              {renderToolIcon("tools")}
             </button>
             {toolsMenuOpen && (
-              <div style={toolsMenuStyle}>
-                {availableTools.map((tool) => {
-                  const toolId = tool.id;
-                  const isEnabled = tool.isAvailable ? tool.isAvailable(toolContext) : true;
-                  const menuItemStyle: React.CSSProperties = {
-                    ...toolsMenuItemStyle,
-                    ...(isEnabled ? {} : { opacity: 0.6, cursor: "not-allowed" }),
-                  };
+              <div style={toolsMenuStyle} role="menu" aria-label="Tools">
+                {groupedTools.map((group, groupIndex) => (
+                  <div key={group.category} style={{ padding: "0.1rem 0" }}>
+                    <div style={toolsMenuHeaderStyle}>{group.category}</div>
+                    {group.chunks.map((chunk, chunkIndex) => (
+                      <div
+                        key={`${group.category}-${chunkIndex}`}
+                        style={{ display: "flex", flexDirection: "column", gap: "0.15rem" }}
+                      >
+                        {chunk.map((tool) => {
+                          const toolId = tool.id;
+                          const isEnabled = tool.isAvailable ? tool.isAvailable(toolContext) : true;
+                          const menuItemStyle: React.CSSProperties = {
+                            ...toolsMenuItemStyle,
+                            ...(isEnabled ? {} : { opacity: 0.6, cursor: "not-allowed" }),
+                          };
+                          const title = `${tool.name}${tool.shortcut ? ` (${tool.shortcut})` : ""}. ${tool.description}`;
 
-                  return (
-                    <button
-                      key={toolId}
-                      style={menuItemStyle}
-                      disabled={!isEnabled}
-                      onClick={() => {
-                        if (!isEnabled) return;
-                        openTool(tool);
-                        setToolsMenuOpen(false);
-                      }}
-                    >
-                      {tool.name}
-                    </button>
-                  );
-                })}
+                          return (
+                            <button
+                              key={toolId}
+                              style={menuItemStyle}
+                              role="menuitem"
+                              aria-label={`${tool.name}${tool.shortcut ? ` (${tool.shortcut})` : ""}`}
+                              disabled={!isEnabled}
+                              onClick={() => {
+                                if (!isEnabled) return;
+                                openTool(tool);
+                                setToolsMenuOpen(false);
+                              }}
+                              title={title}
+                            >
+                              <span style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem", width: "100%" }}>
+                                <span aria-hidden>{renderToolIcon(tool.icon)}</span>
+                                <span style={{ flex: 1 }}>{tool.name}</span>
+                                {tool.shortcut && <span style={toolsShortcutStyle}>{tool.shortcut}</span>}
+                              </span>
+                            </button>
+                          );
+                        })}
+                        {chunkIndex < group.chunks.length - 1 && (
+                          <hr style={{ borderColor: "#1f2937", margin: "0.35rem 0" }} />
+                        )}
+                      </div>
+                    ))}
+                    {groupIndex < groupedTools.length - 1 && (
+                      <hr style={{ borderColor: "#1f2937", margin: "0.45rem 0" }} />
+                    )}
+                  </div>
+                ))}
               </div>
             )}
           </div>
-          <button style={toolsButtonStyle} onClick={() => openHelp()} title="Help">
+          <button style={toolsButtonStyle} onClick={() => openHelp()} title="Open help panel">
             ❔
           </button>
         </div>
@@ -1148,7 +1348,7 @@ export function App(): React.JSX.Element {
         <div
           style={{
             display: "grid",
-            gridTemplateRows: isBottomPanelOpen ? "1fr 320px" : "1fr",
+            gridTemplateRows: gridRows,
             gap: "0.75rem",
             flex: 1,
             minHeight: 0,
@@ -1411,6 +1611,128 @@ export function App(): React.JSX.Element {
             </section>
           </div>
 
+          {hasDockedTools && (
+            <section
+              style={{
+                border: "1px solid #111827",
+                borderRadius: "0.5rem",
+                padding: "0.5rem 0.75rem",
+                background: "#0f172a",
+                display: "flex",
+                flexDirection: "column",
+                gap: "0.5rem",
+                minHeight: 0,
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.75rem" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexWrap: "wrap" }}>
+                  {visibleDockedTools.map((toolRef) => {
+                    const tool = availableTools.find((entry) => entry.id === toolRef.id);
+                    if (!tool || !tool.Component || (tool.isAvailable && !tool.isAvailable(toolContext))) return null;
+                    const isActive = activeToolId === tool.id;
+
+                    return (
+                      <div
+                        key={tool.id}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "0.3rem",
+                          padding: "0.35rem 0.5rem",
+                          borderRadius: "0.5rem",
+                          border: "1px solid #1f2937",
+                          backgroundColor: isActive ? "#1f2937" : "#111827",
+                        }}
+                      >
+                        <button
+                          style={{
+                            background: "transparent",
+                            border: "none",
+                            color: "inherit",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "0.35rem",
+                            cursor: "pointer",
+                          }}
+                          onClick={() => setActiveToolId(tool.id)}
+                          title={`Show ${tool.name} panel`}
+                          aria-label={`Show ${tool.name} panel`}
+                        >
+                          <span aria-hidden>{renderToolIcon(tool.icon)}</span>
+                          <span>{tool.name}</span>
+                        </button>
+                        <div style={{ display: "flex", gap: "0.2rem" }}>
+                          <button
+                            style={{ ...toolsButtonStyle, padding: "0.25rem 0.45rem" }}
+                            onClick={() => detachTool(tool.id)}
+                            title={`Open ${tool.name} in a separate window`}
+                            aria-label={`Detach ${tool.name}`}
+                          >
+                            ↗
+                          </button>
+                          <button
+                            style={{ ...toolsButtonStyle, padding: "0.25rem 0.45rem" }}
+                            onClick={() => closeTool(tool.id)}
+                            title={`Close ${tool.name}`}
+                            aria-label={`Close ${tool.name}`}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                {detachedTools.length > 0 && (
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", color: "#94a3b8", flexWrap: "wrap" }}>
+                    <span style={{ fontWeight: 600 }}>Detached:</span>
+                    {detachedTools.map((entry) => {
+                      const tool = availableTools.find((item) => item.id === entry.id);
+                      if (!tool) return null;
+                      return (
+                        <button
+                          key={entry.id}
+                          style={{ ...toolsButtonStyle, padding: "0.25rem 0.45rem" }}
+                          onClick={() => dockTool(entry.id)}
+                          title={`Re-dock ${tool.name}`}
+                          aria-label={`Re-dock ${tool.name}`}
+                        >
+                          {tool.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div
+                style={{
+                  flex: 1,
+                  border: "1px solid #111827",
+                  borderRadius: "0.5rem",
+                  padding: "0.5rem",
+                  background: "#0b1220",
+                  minHeight: 0,
+                  overflow: "auto",
+                }}
+              >
+                {visibleDockedTools.map((toolRef) => {
+                  const tool = availableTools.find((entry) => entry.id === toolRef.id);
+                  if (!tool || !tool.Component) return null;
+                  if (tool.isAvailable && !tool.isAvailable(toolContext)) return null;
+                  const ToolComponent = tool.Component;
+                  const isHidden = activeToolId && activeToolId !== tool.id;
+
+                  return (
+                    <div key={tool.id} style={{ display: isHidden ? "none" : "block", height: "100%" }}>
+                      <ToolComponent appContext={toolContext} onClose={() => closeTool(tool.id)} presentation="panel" />
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+
           {isBottomPanelOpen && (
             <section
               style={{
@@ -1456,19 +1778,18 @@ export function App(): React.JSX.Element {
           </button>
         </div>
       )}
-      {openTools.map((toolId) => {
-        const tool = availableTools.find((entry) => entry.id === toolId);
-        if (!tool) return null;
-        if (tool.isAvailable && !tool.isAvailable(toolContext)) {
-          return null;
-        }
-        if (!tool.Component) return null;
+      {detachedTools.map((entry) => {
+        const tool = availableTools.find((item) => item.id === entry.id);
+        if (!tool || !tool.Component) return null;
+        if (tool.isAvailable && !tool.isAvailable(toolContext)) return null;
 
-        const ToolComponent = tool.Component;
         return (
-          <React.Fragment key={toolId}>
-            <ToolComponent appContext={toolContext} onClose={() => closeTool(toolId)} />
-          </React.Fragment>
+          <DetachedToolWindow
+            key={tool.id}
+            tool={tool}
+            appContext={toolContext}
+            onClose={() => closeTool(tool.id)}
+          />
         );
       })}
       <HelpSidebar state={helpState} dispatch={helpDispatch} isOpen={isHelpOpen} onClose={() => setHelpOpen(false)} />

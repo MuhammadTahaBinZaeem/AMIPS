@@ -101,7 +101,11 @@ function buildSegmentRows(
   });
 }
 
-export function TextSegmentWindow({ appContext, onClose }: MarsToolComponentProps): React.JSX.Element {
+export function TextSegmentWindow({
+  appContext,
+  onClose,
+  presentation = "window",
+}: MarsToolComponentProps): React.JSX.Element {
   const program = (appContext.program as BinaryImage | null | undefined) ?? null;
   const sourceMap = appContext.sourceMap as SourceMapEntry[] | undefined;
   const [dataSnapshot, setDataSnapshot] = useState<DataStateSnapshot>(() => getLatestDataState());
@@ -123,9 +127,12 @@ export function TextSegmentWindow({ appContext, onClose }: MarsToolComponentProp
     ];
   }, [byteMap, effectiveSourceMap, program?.ktext, program?.ktextBase, program?.text, program?.textBase]);
 
+  const containerStyle = presentation === "panel" ? panelContainerStyle : overlayStyle;
+  const surfaceStyle = presentation === "panel" ? panelWindowStyle : windowStyle;
+
   return (
-    <div style={overlayStyle}>
-      <div style={windowStyle}>
+    <div style={containerStyle}>
+      <div style={surfaceStyle}>
         <header style={headerStyle}>
           <h2 style={{ margin: 0 }}>Text Segment Viewer</h2>
           <button style={closeButtonStyle} onClick={onClose}>
@@ -137,7 +144,7 @@ export function TextSegmentWindow({ appContext, onClose }: MarsToolComponentProp
           View assembled instructions with their addresses, machine code, and originating source lines.
         </div>
 
-        <div style={{ overflow: "auto", border: "1px solid #1f2937", borderRadius: "0.5rem" }}>
+        <div style={{ overflow: "auto", border: "1px solid #1f2937", borderRadius: "0.5rem", flex: 1 }}>
           <table style={tableStyle}>
             <thead>
               <tr>
@@ -179,6 +186,9 @@ export const TextSegmentTool: MarsTool = {
   id: "text-segment-viewer",
   name: "Text Segment Viewer",
   description: "Disassemble the text and kernel text segments with source mapping.",
+  category: "Code",
+  icon: "code",
+  shortcut: "Ctrl+Alt+T",
   Component: TextSegmentWindow,
   isAvailable: (context) => Boolean(context.program),
   run: () => {
@@ -196,6 +206,25 @@ const overlayStyle: React.CSSProperties = {
   alignItems: "center",
   justifyContent: "center",
   zIndex: 1000,
+};
+
+const panelContainerStyle: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  height: "100%",
+  backgroundColor: "#0f172a",
+  borderRadius: "0.75rem",
+  border: "1px solid #1f2937",
+  overflow: "hidden",
+};
+
+const panelWindowStyle: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "0.5rem",
+  padding: "1rem",
+  height: "100%",
+  color: "#e5e7eb",
 };
 
 const windowStyle: React.CSSProperties = {
