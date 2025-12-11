@@ -18,10 +18,10 @@ import {
   openFile as trackOpenFile,
   closeFile,
   setActiveFile as setActiveFileRecord,
-  setWorkingDirectory as setFileManagerWorkingDirectory,
   updateFileContent as setOpenFileContent,
   writeFile as writeWorkspaceFile,
 } from "../features/file-manager";
+import { setWorkingDirectory as setFileManagerWorkingDirectory } from "../features/file-manager/state/fileManagerSlice";
 import {
   Assembler,
   AudioDevice,
@@ -1770,6 +1770,7 @@ export function App(): React.JSX.Element {
             </section>
           )}
         </div>
+      </div>
       </div>
       {!isBottomPanelOpen && (
         <div style={{ padding: "0.35rem 0.75rem", textAlign: "right" }}>
