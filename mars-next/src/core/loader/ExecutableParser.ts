@@ -348,24 +348,27 @@ export class ExecutableParser {
   }
 
   private mapRelocationType(type: number): RelocationType | null {
-    switch (type) {
-      case ElfRelocationType.MIPS_32:
-      case CoffRelocationType.MIPS32:
-        return "MIPS_32";
-      case ElfRelocationType.MIPS_26:
-      case CoffRelocationType.MIPS26:
-        return "MIPS_26";
-      case ElfRelocationType.MIPS_PC16:
-        return "MIPS_PC16";
-      case ElfRelocationType.MIPS_HI16:
-      case CoffRelocationType.MIPS_HI16:
-        return "MIPS_HI16";
-      case ElfRelocationType.MIPS_LO16:
-      case CoffRelocationType.MIPS_LO16:
-        return "MIPS_LO16";
-      default:
-        return null;
+    if (type === ElfRelocationType.MIPS_32 || type === CoffRelocationType.MIPS32) {
+      return "MIPS_32";
     }
+
+    if (type === ElfRelocationType.MIPS_26 || type === CoffRelocationType.MIPS26) {
+      return "MIPS_26";
+    }
+
+    if (type === ElfRelocationType.MIPS_PC16) {
+      return "MIPS_PC16";
+    }
+
+    if (type === ElfRelocationType.MIPS_HI16 || type === CoffRelocationType.MIPS_HI16) {
+      return "MIPS_HI16";
+    }
+
+    if (type === ElfRelocationType.MIPS_LO16 || type === CoffRelocationType.MIPS_LO16) {
+      return "MIPS_LO16";
+    }
+
+    return null;
   }
 
   private resolveSymbolAddress(symbol: SymbolInfo | undefined, sections: SectionInfo[]): number {
