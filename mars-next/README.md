@@ -5,7 +5,8 @@ TypeScript/Electron workspace for the next-generation MARS simulator. The reposi
 ## Quick start
 
 - Install dependencies: `npm install`
-- Run the desktop dev stack: `npm run dev` (watches the Electron main/preload bundle, serves the renderer with Vite, and launches Electron)
+- Run the desktop dev stack: `npm run dev` (watches the Electron main/preload bundle, serves the renderer with Vite, and launches Electron).
+- Enable Electron DevTools during development by setting `ELECTRON_OPEN_DEVTOOLS=true` when starting the dev stack (DevTools stay closed by default to avoid noisy console warnings in some environments).
 - Build production bundles: `npm run build`
 - Run the test suite: `npm test`
 - Clean build artifacts: `npm run clean` (or `npm run clean:modules` to also remove dependencies)

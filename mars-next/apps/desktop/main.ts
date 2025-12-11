@@ -4,6 +4,7 @@ import { join } from "node:path";
 const preloadPath = join(__dirname, "preload.js");
 const rendererIndexPath = join(__dirname, "../renderer/index.html");
 const devServerUrl = process.env.VITE_DEV_SERVER_URL ?? "http://localhost:5173";
+const devToolsEnabled = process.env.ELECTRON_OPEN_DEVTOOLS === "true";
 
 function createWindow(): void {
   const window = new BrowserWindow({
@@ -19,7 +20,9 @@ function createWindow(): void {
     window.loadURL(devServerUrl).catch((error) => {
       console.error("Failed to load dev server", error);
     });
-    window.webContents.openDevTools({ mode: "detach" });
+    if (devToolsEnabled) {
+      window.webContents.openDevTools({ mode: "detach" });
+    }
   } else {
     window
       .loadFile(rendererIndexPath)
