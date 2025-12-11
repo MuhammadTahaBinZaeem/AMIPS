@@ -2,7 +2,11 @@ import React, { useEffect, useMemo, useRef } from "react";
 import type { DirtyRegion } from "../../../core";
 import { BitmapDisplayState, MarsTool, type MarsToolComponentProps } from "../../../core/tools/MarsTool";
 
-export function BitmapDisplayWindow({ appContext, onClose }: MarsToolComponentProps): React.JSX.Element {
+export function BitmapDisplayWindow({
+  appContext,
+  onClose,
+  presentation = "window",
+}: MarsToolComponentProps): React.JSX.Element {
   const bitmap = (appContext.bitmapDisplay as BitmapDisplayState | null | undefined) ?? null;
 
   const width = bitmap?.width ?? 0;
@@ -48,9 +52,12 @@ export function BitmapDisplayWindow({ appContext, onClose }: MarsToolComponentPr
 
   const statusText = useMemo(() => `${width} × ${height} (${buffer.length / 4} pixels)`, [width, height, buffer.length]);
 
+  const containerStyle = presentation === "panel" ? panelContainerStyle : overlayStyle;
+  const surfaceStyle = presentation === "panel" ? panelWindowStyle : windowStyle;
+
   return (
-    <div style={overlayStyle}>
-      <div style={windowStyle}>
+    <div style={containerStyle}>
+      <div style={surfaceStyle}>
         <header style={headerStyle}>
           <h2 style={{ margin: 0 }}>Bitmap Display</h2>
           <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
@@ -61,7 +68,7 @@ export function BitmapDisplayWindow({ appContext, onClose }: MarsToolComponentPr
           </div>
         </header>
 
-        <div style={{ display: "flex", justifyContent: "center", padding: "0.5rem 0" }}>
+        <div style={{ display: "flex", justifyContent: "center", padding: "0.5rem 0", flex: 1 }}>
           <canvas
             ref={canvasRef}
             width={width}
@@ -85,6 +92,9 @@ export const BitmapDisplayTool: MarsTool = {
   id: "bitmap-display",
   name: "Bitmap Display",
   description: "Render the bitmap display peripheral output.",
+  category: "Peripherals",
+  icon: "display",
+  shortcut: "Ctrl+Alt+B",
   Component: BitmapDisplayWindow,
   isAvailable: (context) => Boolean(context.bitmapDisplay),
   run: () => {
@@ -113,6 +123,25 @@ const windowStyle: React.CSSProperties = {
   minWidth: "320px",
   maxWidth: "min(90vw, 1000px)",
   boxShadow: "0 25px 60px rgba(0, 0, 0, 0.4)",
+};
+
+const panelContainerStyle: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  height: "100%",
+  backgroundColor: "#0f172a",
+  borderRadius: "0.75rem",
+  border: "1px solid #1f2937",
+  overflow: "hidden",
+};
+
+const panelWindowStyle: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  height: "100%",
+  gap: "0.5rem",
+  padding: "1rem",
+  color: "#e5e7eb",
 };
 
 const headerStyle: React.CSSProperties = {

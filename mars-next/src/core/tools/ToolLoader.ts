@@ -2,14 +2,14 @@ import type { MarsTool } from "./MarsTool";
 
 type ToolModule = { default?: MarsTool };
 
-const TOOL_IMPORTS: Array<{ label: string; loader: () => Promise<ToolModule> }> = [
-  { label: "data-segment", loader: () => import("../../features/tools/data-viewer/DataSegmentWindow") },
-  { label: "text-segment", loader: () => import("../../features/tools/text-viewer/TextSegmentWindow") },
-  { label: "registers", loader: () => import("../../features/tools/register-viewer/RegistersWindow") },
-  { label: "bitmap-display", loader: () => import("../../features/tools/bitmap-display/BitmapDisplayWindow") },
-  { label: "keyboard", loader: () => import("../../features/tools/keyboard-view/KeyboardWindow") },
-  { label: "pipeline", loader: () => import("../../features/pipeline-view/PipelineStateWindow") },
-];
+const TOOL_MODULES = import.meta.glob<ToolModule>(
+  [
+    "../../features/**/*.tool.{ts,tsx}",
+    "../../features/**/*Tool.{ts,tsx}",
+    "../../features/**/*Window.{ts,tsx}",
+  ],
+  { eager: false },
+);
 
 export class ToolLoader {
   private static registry: MarsTool[] | null = null;
@@ -20,8 +20,7 @@ export class ToolLoader {
     const loaded: MarsTool[] = [];
 
     await Promise.all(
-      TOOL_IMPORTS.map(async ({ loader, label }, index) => {
-        const pathLabel = label || `tool-${index}`;
+      Object.entries(TOOL_MODULES).map(async ([pathLabel, loader], index) => {
         try {
           const module = await loader();
           const tool = module.default;
@@ -35,7 +34,7 @@ export class ToolLoader {
             return;
           }
 
-          const id = tool.id ?? pathLabel;
+          const id = tool.id ?? `tool-${index}`;
           loaded.push({ ...tool, id });
         } catch (error) {
           console.error(`[ToolLoader] Failed to load tool from ${pathLabel}:`, error);
