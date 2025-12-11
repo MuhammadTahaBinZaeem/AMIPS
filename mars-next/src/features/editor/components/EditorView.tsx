@@ -28,6 +28,80 @@ export function EditorView({ value, onChange, undoManager, breakpoints, onToggle
   const decorations = useRef<string[]>([]);
   const [fontSize, setFontSize] = useState(14);
 
+  const toolbarIcons = useMemo(
+    () => ({
+      zoomIn: (
+        <svg aria-hidden="true" focusable="false" viewBox="0 0 32 32" width={28} height={28}>
+          <circle cx="13" cy="13" r="8" stroke="currentColor" strokeWidth="2" fill="none" />
+          <path d="M13 9v8M9 13h8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          <path d="M18.5 18.5 26 26" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        </svg>
+      ),
+      zoomOut: (
+        <svg aria-hidden="true" focusable="false" viewBox="0 0 32 32" width={28} height={28}>
+          <circle cx="13" cy="13" r="8" stroke="currentColor" strokeWidth="2" fill="none" />
+          <path d="M9 13h8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          <path d="M18.5 18.5 26 26" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        </svg>
+      ),
+      find: (
+        <svg aria-hidden="true" focusable="false" viewBox="0 0 32 32" width={28} height={28}>
+          <circle cx="14" cy="14" r="7" stroke="currentColor" strokeWidth="2" fill="none" />
+          <path d="M18.5 18.5 25 25" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          <path d="M11 14h6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        </svg>
+      ),
+      replace: (
+        <svg aria-hidden="true" focusable="false" viewBox="0 0 32 32" width={28} height={28}>
+          <path
+            d="M8 12h11l-3-3m3 3-3 3"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          <path
+            d="M24 20H13l3-3m-3 3 3 3"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          <circle cx="24" cy="12" r="2" fill="currentColor" />
+        </svg>
+      ),
+      undo: (
+        <svg aria-hidden="true" focusable="false" viewBox="0 0 32 32" width={28} height={28}>
+          <path
+            d="M12 10 7 15l5 5"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          <path d="M24 22a8 8 0 0 0-8-8h-9" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        </svg>
+      ),
+      redo: (
+        <svg aria-hidden="true" focusable="false" viewBox="0 0 32 32" width={28} height={28}>
+          <path
+            d="M20 10.02 25 15l-5 4.98"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          <path d="M8 22a8 8 0 0 1 8-8h9" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        </svg>
+      ),
+    }),
+    [],
+  );
+
   const palette = useMemo<Palette>(() => {
     const resolveVar = (name: string, fallback: string): string => {
       if (typeof window === "undefined") return fallback;
@@ -154,6 +228,33 @@ export function EditorView({ value, onChange, undoManager, breakpoints, onToggle
     onChange(newContent);
   };
 
+  const renderToolbarButton = (
+    id: string,
+    label: string,
+    icon: React.ReactNode,
+    onClick: () => void,
+    disabled = false,
+  ): React.JSX.Element => (
+    <div className="amips-icon-button-wrapper" key={id}>
+      <button
+        type="button"
+        className="amips-icon-button"
+        onClick={onClick}
+        aria-label={label}
+        aria-describedby={`${id}-tooltip`}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") event.currentTarget.blur();
+        }}
+        disabled={disabled}
+      >
+        {icon}
+      </button>
+      <span id={`${id}-tooltip`} className="amips-tooltip" role="tooltip">
+        {label}
+      </span>
+    </div>
+  );
+
   const editorOptions = useMemo<monacoEditor.editor.IStandaloneEditorConstructionOptions>(
     () => ({
       fontSize,
@@ -180,35 +281,26 @@ export function EditorView({ value, onChange, undoManager, breakpoints, onToggle
             Font {fontSize}px
           </span>
         </div>
-        <div className="amips-toolbar">
-          <button type="button" className="amips-button" onClick={() => handleZoom(1)} aria-label="Zoom in">
-            ＋
-          </button>
-          <button type="button" className="amips-button" onClick={() => handleZoom(-1)} aria-label="Zoom out">
-            －
-          </button>
-          <button
-            type="button"
-            className="amips-button"
-            onClick={() => triggerEditorAction("actions.find")}
-            aria-label="Find"
-          >
-            Find
-          </button>
-          <button
-            type="button"
-            className="amips-button"
-            onClick={() => triggerEditorAction("editor.action.startFindReplaceAction")}
-            aria-label="Find and replace"
-          >
-            Replace
-          </button>
-          <button type="button" className="amips-button" onClick={handleUndo} disabled={!undoManager.canUndo}>
-            Undo
-          </button>
-          <button type="button" className="amips-button" onClick={handleRedo} disabled={!undoManager.canRedo}>
-            Redo
-          </button>
+        <div className="amips-toolbar amips-toolbar--compact" aria-label="Editor toolbar">
+          <div className="amips-toolbar__group" aria-label="Zoom controls">
+            {renderToolbarButton("zoom-in", "Zoom in the editor", toolbarIcons.zoomIn, () => handleZoom(1))}
+            {renderToolbarButton("zoom-out", "Zoom out the editor", toolbarIcons.zoomOut, () => handleZoom(-1))}
+          </div>
+          <div className="amips-toolbar__separator" role="separator" aria-hidden="true" />
+          <div className="amips-toolbar__group" aria-label="Search controls">
+            {renderToolbarButton("find", "Find in the file", toolbarIcons.find, () => triggerEditorAction("actions.find"))}
+            {renderToolbarButton(
+              "replace",
+              "Find and replace in the file",
+              toolbarIcons.replace,
+              () => triggerEditorAction("editor.action.startFindReplaceAction"),
+            )}
+          </div>
+          <div className="amips-toolbar__separator" role="separator" aria-hidden="true" />
+          <div className="amips-toolbar__group" aria-label="History controls">
+            {renderToolbarButton("undo", "Undo last change", toolbarIcons.undo, handleUndo, !undoManager.canUndo)}
+            {renderToolbarButton("redo", "Redo last change", toolbarIcons.redo, handleRedo, !undoManager.canRedo)}
+          </div>
         </div>
       </div>
       <div className="amips-editor-surface">
