@@ -916,15 +916,6 @@ export function App(): React.JSX.Element {
     setStatus("Instruction cache flushed");
   };
 
-  const toolsButtonStyle: React.CSSProperties = {
-    backgroundColor: "var(--color-elevated)",
-    color: "var(--color-text)",
-    border: "1px solid var(--color-border)",
-    borderRadius: "0.5rem",
-    padding: "0.4rem 0.75rem",
-    cursor: "pointer",
-  };
-
   const toolsMenuStyle: React.CSSProperties = {
     position: "absolute",
     right: 0,
@@ -1053,8 +1044,11 @@ export function App(): React.JSX.Element {
         <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <span style={{ fontWeight: 700, color: "#e2e8f0" }}>Workspace</span>
-            <button style={toolsButtonStyle} onClick={() => void handleOpenFilePicker()}>
-              ⬆️ Open
+            <button className="shell-action-button" onClick={() => void handleOpenFilePicker()}>
+              <span className="shell-action-button__icon" aria-hidden>
+                ⬆️
+              </span>
+              <span>Open</span>
             </button>
           </div>
           <FileExplorer
@@ -1110,8 +1104,8 @@ export function App(): React.JSX.Element {
           return (
             <button
               key={toolId}
+              className="shell-action-button"
               style={{
-                ...toolsButtonStyle,
                 display: "flex",
                 justifyContent: "space-between",
                 alignItems: "center",
@@ -1125,7 +1119,7 @@ export function App(): React.JSX.Element {
             </button>
           );
         })}
-        <button style={toolsButtonStyle} onClick={() => openHelp()}>
+        <button className="shell-action-button" onClick={() => openHelp()}>
           Help & Docs
         </button>
       </div>
@@ -1159,7 +1153,7 @@ export function App(): React.JSX.Element {
                 }}
               >
                 <div style={{ color: "#fca5a5" }}>{error}</div>
-                <button style={{ ...toolsButtonStyle, marginTop: "0.5rem" }} onClick={() => openHelp(error)}>
+                <button className="shell-action-button" style={{ marginTop: "0.5rem" }} onClick={() => openHelp(error)}>
                   View related help
                 </button>
               </div>
@@ -1273,27 +1267,33 @@ export function App(): React.JSX.Element {
             {activeFile ? <span className="chip">{tabLabel(activeFile)}{isDirty ? " •" : ""}</span> : null}
           </div>
           <div className="header-buttons">
-            <button style={toolsButtonStyle} onClick={handleNewFile} title="Create a new file">🆕</button>
-            <button style={toolsButtonStyle} onClick={() => void handleOpenFilePicker()} title="Open a file">📂</button>
+            <button className="shell-action-button" onClick={handleNewFile} title="Create a new file">
+              🆕
+            </button>
+            <button className="shell-action-button" onClick={() => void handleOpenFilePicker()} title="Open a file">
+              📂
+            </button>
             <button
-              style={{ ...toolsButtonStyle, opacity: activeFile ? 1 : 0.6 }}
+              className="shell-action-button"
               disabled={!activeFile}
               onClick={() => void handleSave()}
               title="Save current file"
             >
               💾
             </button>
-            <button style={toolsButtonStyle} onClick={() => void handleSaveAs()} title="Save the file as">📁</button>
-            <button style={toolsButtonStyle} onClick={toggleRegisterSidebar} title="Toggle register viewer">
+            <button className="shell-action-button" onClick={() => void handleSaveAs()} title="Save the file as">
+              📁
+            </button>
+            <button className="shell-action-button" onClick={toggleRegisterSidebar} title="Toggle register viewer">
               🧮
               <span className="chip chip--inline" aria-hidden>
                 {isRegisterSidebarOpen ? "Visible" : "Hidden"}
               </span>
             </button>
-            <button style={toolsButtonStyle} onClick={() => openHelp()}>❓</button>
+            <button className="shell-action-button" onClick={() => openHelp()}>❓</button>
             <div style={{ position: "relative" }} ref={toolsMenuRef}>
               <button
-                style={toolsButtonStyle}
+                className="shell-action-button"
                 onClick={() => setToolsMenuOpen((open) => !open)}
                 title="Open tools menu"
                 aria-haspopup="true"
@@ -1401,31 +1401,31 @@ export function App(): React.JSX.Element {
                 onFlushInstructionCache={handleFlushInstructionCache}
                 flushEnabled={engine !== null}
               />
-              {error && (
-                <div className="error-banner">
-                  <div>{error}</div>
-                  <button style={toolsButtonStyle} onClick={() => openHelp(error)}>
-                    View related help
-                  </button>
-                </div>
-              )}
+                {error && (
+                  <div className="error-banner">
+                    <div>{error}</div>
+                    <button className="shell-action-button" onClick={() => openHelp(error)}>
+                      View related help
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
 
           <div className="panel surface editors-panel">
             <div className="panel__header">
-              <div className="editor-controls">
-                <button style={toolsButtonStyle} onClick={() => setSplitMode("single")} title="Single editor">
-                  ▢
-                </button>
-                <button style={toolsButtonStyle} onClick={() => setSplitMode("vertical")} title="Split vertically">
-                  ⇄
-                </button>
-                <button style={toolsButtonStyle} onClick={() => setSplitMode("horizontal")} title="Split horizontally">
-                  ⇅
-                </button>
-                <span className="muted">{activeFile ? `Editing ${tabLabel(activeFile)}` : "Scratch buffer"}</span>
-              </div>
+                <div className="editor-controls">
+                  <button className="shell-action-button" onClick={() => setSplitMode("single")} title="Single editor">
+                    ▢
+                  </button>
+                  <button className="shell-action-button" onClick={() => setSplitMode("vertical")} title="Split vertically">
+                    ⇄
+                  </button>
+                  <button className="shell-action-button" onClick={() => setSplitMode("horizontal")} title="Split horizontally">
+                    ⇅
+                  </button>
+                  <span className="muted">{activeFile ? `Editing ${tabLabel(activeFile)}` : "Scratch buffer"}</span>
+                </div>
               <div className="pill">{status}</div>
             </div>
 
@@ -1442,27 +1442,27 @@ export function App(): React.JSX.Element {
                       {tabLabel(filePath)}
                       {record?.isDirty ? " •" : ""}
                     </button>
-                    <div className="tab__actions">
-                      <button
-                        style={toolsButtonStyle}
-                        onClick={() => setFileManager((current) => moveOpenFile(current, filePath, -1))}
-                        title="Move left"
-                        disabled={index === 0}
-                      >
-                        ←
-                      </button>
-                      <button
-                        style={toolsButtonStyle}
-                        onClick={() => setFileManager((current) => moveOpenFile(current, filePath, 1))}
-                        title="Move right"
-                        disabled={index === orderedOpenFiles.length - 1}
-                      >
-                        →
-                      </button>
-                      <button style={toolsButtonStyle} onClick={() => handleCloseTab(filePath)} title="Close tab">
-                        ✕
-                      </button>
-                    </div>
+                      <div className="tab__actions">
+                        <button
+                          className="shell-action-button"
+                          onClick={() => setFileManager((current) => moveOpenFile(current, filePath, -1))}
+                          title="Move left"
+                          disabled={index === 0}
+                        >
+                          ←
+                        </button>
+                        <button
+                          className="shell-action-button"
+                          onClick={() => setFileManager((current) => moveOpenFile(current, filePath, 1))}
+                          title="Move right"
+                          disabled={index === orderedOpenFiles.length - 1}
+                        >
+                          →
+                        </button>
+                        <button className="shell-action-button" onClick={() => handleCloseTab(filePath)} title="Close tab">
+                          ✕
+                        </button>
+                      </div>
                   </div>
                 );
               })}
@@ -1516,20 +1516,20 @@ export function App(): React.JSX.Element {
 
                   return (
                     <div key={tool.id} className={isActive ? "tool-tab tool-tab--active" : "tool-tab"}>
-                      <button className="tab__label" onClick={() => setActiveToolId(tool.id)}>
-                        <span aria-hidden>{renderToolIcon(tool.icon)}</span>
-                        <span>{tool.name}</span>
-                      </button>
-                      <div className="tab__actions">
-                        <button style={toolsButtonStyle} onClick={() => detachTool(tool.id)} title={`Open ${tool.name} in a separate window`}>
-                          ↗
+                        <button className="tab__label" onClick={() => setActiveToolId(tool.id)}>
+                          <span aria-hidden>{renderToolIcon(tool.icon)}</span>
+                          <span>{tool.name}</span>
                         </button>
-                        <button style={toolsButtonStyle} onClick={() => closeTool(tool.id)} title={`Close ${tool.name}`}>
-                          ✕
-                        </button>
+                        <div className="tab__actions">
+                          <button className="shell-action-button" onClick={() => detachTool(tool.id)} title={`Open ${tool.name} in a separate window`}>
+                            ↗
+                          </button>
+                          <button className="shell-action-button" onClick={() => closeTool(tool.id)} title={`Close ${tool.name}`}>
+                            ✕
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  );
+                    );
                 })}
               </div>
               <div className="tool-panels">
@@ -1552,13 +1552,13 @@ export function App(): React.JSX.Element {
         </section>
 
         <aside className="panel panel--inspector">
-          <div className="panel surface">
-            <div className="panel__header">
-              <div className="panel__title">Registers</div>
-              <button style={toolsButtonStyle} onClick={toggleRegisterSidebar} title="Toggle register viewer">
-                {isRegisterSidebarOpen ? "Hide" : "Show"}
-              </button>
-            </div>
+            <div className="panel surface">
+              <div className="panel__header">
+                <div className="panel__title">Registers</div>
+                <button className="shell-action-button" onClick={toggleRegisterSidebar} title="Toggle register viewer">
+                  {isRegisterSidebarOpen ? "Hide" : "Show"}
+                </button>
+              </div>
             {isRegisterSidebarOpen ? (
               <Suspense fallback={<div className="muted">Loading registers...</div>}>
                 <LazyRegistersWindow
@@ -1572,26 +1572,26 @@ export function App(): React.JSX.Element {
             )}
           </div>
 
-          <div className="panel surface">
-            <div className="panel__header">
-              <div className="panel__title">Breakpoints</div>
-              <button style={toolsButtonStyle} onClick={() => setBottomPanelTab("debug")}>
-                Open debugger
-              </button>
-            </div>
+            <div className="panel surface">
+              <div className="panel__header">
+                <div className="panel__title">Breakpoints</div>
+                <button className="shell-action-button" onClick={() => setBottomPanelTab("debug")}>
+                  Open debugger
+                </button>
+              </div>
             <BreakpointList
               breakpoints={breakpoints}
               onRemove={(spec) => setBreakpoints((previous) => previous.filter((entry) => entry !== spec))}
             />
           </div>
 
-          <div className="panel surface">
-            <div className="panel__header">
-              <div className="panel__title">Watches</div>
-              <button style={toolsButtonStyle} onClick={() => setBottomPanelTab("debug")}>
-                Manage
-              </button>
-            </div>
+            <div className="panel surface">
+              <div className="panel__header">
+                <div className="panel__title">Watches</div>
+                <button className="shell-action-button" onClick={() => setBottomPanelTab("debug")}>
+                  Manage
+                </button>
+              </div>
             <WatchManagerPanel
               watches={watches}
               symbols={symbolTable}
@@ -1614,23 +1614,23 @@ export function App(): React.JSX.Element {
       </section>
 
       <section className="panel surface dock-panel">
-        <div className="panel__header">
-          <div className="panel__title">Output &amp; Diagnostics</div>
-          <div className="segmented">
-            {["terminal", "execute", "debug"].map((tab) => (
-              <button
+          <div className="panel__header">
+            <div className="panel__title">Output &amp; Diagnostics</div>
+            <div className="segmented">
+              {["terminal", "execute", "debug"].map((tab) => (
+                <button
                 key={tab}
                 className={bottomPanelTab === tab ? "segmented__item segmented__item--active" : "segmented__item"}
                 onClick={() => setBottomPanelTab(tab as typeof bottomPanelTab)}
               >
                 {tab.charAt(0).toUpperCase() + tab.slice(1)}
               </button>
-            ))}
+              ))}
+            </div>
+            <button className="shell-action-button" onClick={() => setBottomPanelOpen((open) => !open)}>
+              {isBottomPanelOpen ? "Collapse" : "Expand"} panel
+            </button>
           </div>
-          <button style={toolsButtonStyle} onClick={() => setBottomPanelOpen((open) => !open)}>
-            {isBottomPanelOpen ? "Collapse" : "Expand"} panel
-          </button>
-        </div>
         {isBottomPanelOpen ? <div className="dock-panel__content">{renderBottomPanel()}</div> : null}
       </section>
 
