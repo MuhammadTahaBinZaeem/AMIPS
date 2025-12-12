@@ -1258,340 +1258,273 @@ export function App(): React.JSX.Element {
     );
   };
 
-  return (
-    <main className="app-shell">
-      <header
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          padding: "0.75rem 1rem",
-          borderBottom: "1px solid var(--color-border)",
-          background: "linear-gradient(90deg, var(--color-elevated), var(--color-surface-strong))",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-          <div
-            style={{
-              background: "var(--color-elevated)",
-              border: "1px solid var(--color-border)",
-              borderRadius: "0.4rem",
-              padding: "0.35rem 0.5rem",
-              fontWeight: 700,
-              letterSpacing: "0.05em",
-            }}
-          >
-            MARS Next
-          </div>
-          <span style={{ color: "var(--color-muted)" }}>Modern IDE shell</span>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-          <button style={toolsButtonStyle} onClick={handleNewFile} title="Create a new file">
-            🆕
-          </button>
-          <button style={toolsButtonStyle} onClick={() => void handleOpenFilePicker()} title="Open a file">
-            📂
-          </button>
-          <button
-            style={{ ...toolsButtonStyle, opacity: activeFile ? 1 : 0.6 }}
-            disabled={!activeFile}
-            onClick={() => void handleSave()}
-            title="Save current file"
-          >
-            💾
-          </button>
-          <button style={toolsButtonStyle} onClick={() => void handleSaveAs()} title="Save the file as">
-            📁
-          </button>
-            <div style={{ position: "relative" }} ref={toolsMenuRef}>
-            <button
-              style={toolsButtonStyle}
-              onClick={() => setToolsMenuOpen((open) => !open)}
-              title="Open tools menu"
-              aria-haspopup="true"
-              aria-expanded={toolsMenuOpen}
-              aria-label="Open tools menu"
-            >
-              {renderToolIcon("tools")}
-            </button>
-            {toolsMenuOpen && (
-              <div style={toolsMenuStyle} role="menu" aria-label="Tools">
-                {groupedTools.map((group, groupIndex) => (
-                  <div key={group.category} style={{ padding: "0.1rem 0" }}>
-                    <div style={toolsMenuHeaderStyle}>{group.category}</div>
-                    {group.chunks.map((chunk, chunkIndex) => (
-                      <div
-                        key={`${group.category}-${chunkIndex}`}
-                        style={{ display: "flex", flexDirection: "column", gap: "0.15rem" }}
-                      >
-                        {chunk.map((tool) => {
-                          const toolId = tool.id;
-                          const isEnabled = tool.isAvailable ? tool.isAvailable(toolContext) : true;
-                          const menuItemStyle: React.CSSProperties = {
-                            ...toolsMenuItemStyle,
-                            ...(isEnabled ? {} : { opacity: 0.6, cursor: "not-allowed" }),
-                          };
-                          const title = `${tool.name}${tool.shortcut ? ` (${tool.shortcut})` : ""}. ${tool.description}`;
 
-                          return (
-                            <button
-                              key={toolId}
-                              style={menuItemStyle}
-                              role="menuitem"
-                              aria-label={`${tool.name}${tool.shortcut ? ` (${tool.shortcut})` : ""}`}
-                              disabled={!isEnabled}
-                              onClick={() => {
-                                if (!isEnabled) return;
-                                openTool(tool);
-                                setToolsMenuOpen(false);
-                              }}
-                              title={title}
-                            >
-                              <span style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem", width: "100%" }}>
-                                <span aria-hidden>{renderToolIcon(tool.icon)}</span>
-                                <span style={{ flex: 1 }}>{tool.name}</span>
-                                {tool.shortcut && <span style={toolsShortcutStyle}>{tool.shortcut}</span>}
-                              </span>
-                            </button>
-                          );
-                        })}
-                        {chunkIndex < group.chunks.length - 1 && (
-                          <hr style={{ borderColor: "#1f2937", margin: "0.35rem 0" }} />
-                        )}
-                      </div>
-                    ))}
-                    {groupIndex < groupedTools.length - 1 && (
-                      <hr style={{ borderColor: "#1f2937", margin: "0.45rem 0" }} />
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
+  return (
+    <main className="app-shell modern-shell">
+      <header className="shell-header">
+        <div className="shell-header__brand">
+          <div className="brand-mark">MARS Next</div>
+          <div className="brand-subtitle">Next-generation simulator workspace</div>
+        </div>
+        <div className="shell-header__actions">
+          <div className="header-chips">
+            <span className="chip">{workingDirectory}</span>
+            <span className="chip chip--status">{status}</span>
+            {activeFile ? <span className="chip">{tabLabel(activeFile)}{isDirty ? " •" : ""}</span> : null}
           </div>
-          <button style={toolsButtonStyle} onClick={() => openHelp()} title="Open help panel">
-            ❔
-          </button>
+          <div className="header-buttons">
+            <button style={toolsButtonStyle} onClick={handleNewFile} title="Create a new file">🆕</button>
+            <button style={toolsButtonStyle} onClick={() => void handleOpenFilePicker()} title="Open a file">📂</button>
+            <button
+              style={{ ...toolsButtonStyle, opacity: activeFile ? 1 : 0.6 }}
+              disabled={!activeFile}
+              onClick={() => void handleSave()}
+              title="Save current file"
+            >
+              💾
+            </button>
+            <button style={toolsButtonStyle} onClick={() => void handleSaveAs()} title="Save the file as">📁</button>
+            <button style={toolsButtonStyle} onClick={toggleRegisterSidebar} title="Toggle register viewer">
+              🧮
+              <span className="chip chip--inline" aria-hidden>
+                {isRegisterSidebarOpen ? "Visible" : "Hidden"}
+              </span>
+            </button>
+            <button style={toolsButtonStyle} onClick={() => openHelp()}>❓</button>
+            <div style={{ position: "relative" }} ref={toolsMenuRef}>
+              <button
+                style={toolsButtonStyle}
+                onClick={() => setToolsMenuOpen((open) => !open)}
+                title="Open tools menu"
+                aria-haspopup="true"
+                aria-expanded={toolsMenuOpen}
+                aria-label="Open tools menu"
+              >
+                {renderToolIcon("tools")}
+              </button>
+              {toolsMenuOpen && (
+                <div style={toolsMenuStyle} role="menu" aria-label="Tools">
+                  {groupedTools.map((group, groupIndex) => (
+                    <div key={group.category} style={{ padding: "0.1rem 0" }}>
+                      <div style={toolsMenuHeaderStyle}>{group.category}</div>
+                      {group.chunks.map((chunk, chunkIndex) => (
+                        <div
+                          key={`${group.category}-${chunkIndex}`}
+                          style={{ display: "flex", flexDirection: "column", gap: "0.15rem" }}
+                        >
+                          {chunk.map((tool) => {
+                            const toolId = tool.id;
+                            const isEnabled = tool.isAvailable ? tool.isAvailable(toolContext) : true;
+                            const menuItemStyle: React.CSSProperties = {
+                              ...toolsMenuItemStyle,
+                              ...(isEnabled ? {} : { opacity: 0.6, cursor: "not-allowed" }),
+                            };
+                            const title = `${tool.name}${tool.shortcut ? ` (${tool.shortcut})` : ""}. ${tool.description}`;
+
+                            return (
+                              <button
+                                key={toolId}
+                                style={menuItemStyle}
+                                role="menuitem"
+                                aria-label={`${tool.name}${tool.shortcut ? ` (${tool.shortcut})` : ""}`}
+                                disabled={!isEnabled}
+                                onClick={() => {
+                                  if (!isEnabled) return;
+                                  openTool(tool);
+                                  setToolsMenuOpen(false);
+                                }}
+                                title={title}
+                              >
+                                <span style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem", width: "100%" }}>
+                                  <span aria-hidden>{renderToolIcon(tool.icon)}</span>
+                                  <span style={{ flex: 1 }}>{tool.name}</span>
+                                  {tool.shortcut && <span style={toolsShortcutStyle}>{tool.shortcut}</span>}
+                                </span>
+                              </button>
+                            );
+                          })}
+                          {chunkIndex < group.chunks.length - 1 && (
+                            <hr style={{ borderColor: "#1f2937", margin: "0.35rem 0" }} />
+                          )}
+                        </div>
+                      ))}
+                      {groupIndex < groupedTools.length - 1 && (
+                        <hr style={{ borderColor: "#1f2937", margin: "0.35rem 0" }} />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </header>
-      <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", padding: "0.75rem" }}>
-        <div
-          style={{
-            display: "grid",
-            gridTemplateRows: gridRows,
-            gap: "0.75rem",
-            flex: 1,
-            minHeight: 0,
-          }}
-        >
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "60px 1fr",
-              gap: "0.5rem",
-              minHeight: 0,
-            }}
-          >
-            <div
-              style={{
-                border: "1px solid #111827",
-                borderRadius: "0.5rem",
-                background: "#0d1628",
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                padding: "0.5rem 0",
-                gap: "0.5rem",
-              }}
-            >
-              {["explorer", "settings", "tools"].map((item) => {
-                const isActive = activeSidebarView === item;
-                const icon = item === "explorer" ? "📁" : item === "settings" ? "⚙️" : "🛠️";
-                return (
-                  <button
-                    key={item}
-                    onClick={() => setActiveSidebarView(item as typeof activeSidebarView)}
-                    style={{
-                      background: isActive ? "#1e293b" : "transparent",
-                      color: isActive ? "#a5b4fc" : "#cbd5e1",
-                      border: "none",
-                      borderRadius: "0.4rem",
-                      width: "80%",
-                      padding: "0.5rem 0",
-                      cursor: "pointer",
-                    }}
-                  >
-                    {icon}
+
+      <section className="shell-grid">
+        <aside className="panel panel--sidebar">
+          <div className="panel__header">
+            <div className="panel__title">Navigation</div>
+            <div className="segmented">
+              <button
+                className={activeSidebarView === "explorer" ? "segmented__item segmented__item--active" : "segmented__item"}
+                onClick={() => setActiveSidebarView("explorer")}
+              >
+                Explorer
+              </button>
+              <button
+                className={activeSidebarView === "settings" ? "segmented__item segmented__item--active" : "segmented__item"}
+                onClick={() => setActiveSidebarView("settings")}
+              >
+                Settings
+              </button>
+              <button
+                className={activeSidebarView === "tools" ? "segmented__item segmented__item--active" : "segmented__item"}
+                onClick={() => setActiveSidebarView("tools")}
+              >
+                Tools
+              </button>
+            </div>
+          </div>
+          <div className="panel__body">{renderSidebarContent()}</div>
+        </aside>
+
+        <section className="panel panel--primary">
+          <div className="panel surface run-panel">
+            <div className="panel__header">
+              <div className="panel__title">Assembler &amp; Execution</div>
+              <StatusBar activeFile={activeFile} workingDirectory={workingDirectory} dirty={isDirty} />
+            </div>
+            <div className="run-panel__content">
+              <RunToolbar
+                onRun={handleRun}
+                status={status}
+                onFlushInstructionCache={handleFlushInstructionCache}
+                flushEnabled={engine !== null}
+              />
+              {error && (
+                <div className="error-banner">
+                  <div>{error}</div>
+                  <button style={toolsButtonStyle} onClick={() => openHelp(error)}>
+                    View related help
                   </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="panel surface editors-panel">
+            <div className="panel__header">
+              <div className="editor-controls">
+                <button style={toolsButtonStyle} onClick={() => setSplitMode("single")} title="Single editor">
+                  ▢
+                </button>
+                <button style={toolsButtonStyle} onClick={() => setSplitMode("vertical")} title="Split vertically">
+                  ⇄
+                </button>
+                <button style={toolsButtonStyle} onClick={() => setSplitMode("horizontal")} title="Split horizontally">
+                  ⇅
+                </button>
+                <span className="muted">{activeFile ? `Editing ${tabLabel(activeFile)}` : "Scratch buffer"}</span>
+              </div>
+              <div className="pill">{status}</div>
+            </div>
+
+            <div className="tab-strip">
+              {orderedOpenFiles.map((filePath, index) => {
+                const isActive = filePath === activeFile;
+                const record = fileManager.openFiles[filePath];
+                return (
+                  <div
+                    key={filePath}
+                    className={isActive ? "tab tab--active" : "tab"}
+                  >
+                    <button onClick={() => handleActivateTab(filePath)} className="tab__label">
+                      {tabLabel(filePath)}
+                      {record?.isDirty ? " •" : ""}
+                    </button>
+                    <div className="tab__actions">
+                      <button
+                        style={toolsButtonStyle}
+                        onClick={() => setFileManager((current) => moveOpenFile(current, filePath, -1))}
+                        title="Move left"
+                        disabled={index === 0}
+                      >
+                        ←
+                      </button>
+                      <button
+                        style={toolsButtonStyle}
+                        onClick={() => setFileManager((current) => moveOpenFile(current, filePath, 1))}
+                        title="Move right"
+                        disabled={index === orderedOpenFiles.length - 1}
+                      >
+                        →
+                      </button>
+                      <button style={toolsButtonStyle} onClick={() => handleCloseTab(filePath)} title="Close tab">
+                        ✕
+                      </button>
+                    </div>
+                  </div>
                 );
               })}
             </div>
 
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: `${isRegisterSidebarOpen ? "320px" : "28px"} 320px 1fr`,
-                gap: "0.5rem",
-                minHeight: 0,
-                transition: "grid-template-columns 200ms ease",
-              }}
-            >
-              <div
-                style={{
-                  border: isRegisterSidebarOpen ? "1px solid #111827" : "1px solid transparent",
-                  borderRadius: "0.5rem",
-                  background: isRegisterSidebarOpen ? "#0f172a" : "transparent",
-                  display: "flex",
-                  minHeight: 0,
-                  transition: "background-color 150ms ease, border-color 150ms ease",
-                  boxShadow: isRegisterSidebarOpen ? "0 10px 30px rgba(0,0,0,0.35)" : "none",
-                }}
-              >
-                <div
-                  style={{
-                    flex: isRegisterSidebarOpen ? 1 : 0,
-                    padding: isRegisterSidebarOpen ? "0.75rem" : 0,
-                    overflow: "hidden",
-                    opacity: isRegisterSidebarOpen ? 1 : 0,
-                    transition: "flex 180ms ease, padding 180ms ease, opacity 150ms ease",
-                    minWidth: 0,
-                    pointerEvents: isRegisterSidebarOpen ? "auto" : "none",
-                  }}
-                >
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
-                      <span style={{ fontWeight: 700, color: "#e2e8f0" }}>Registers</span>
-                      <span style={{ color: "#64748b", fontSize: "0.85rem" }}>Ctrl+Shift+R</span>
-                    </div>
-                    <button
-                      style={toolsButtonStyle}
-                      onClick={toggleRegisterSidebar}
-                      title="Collapse registers (Ctrl+Shift+R)"
-                    >
-                      ◀
-                    </button>
-                  </div>
-                  <Suspense fallback={<div style={{ color: "#94a3b8" }}>Loading registers…</div>}>
-                    <LazyRegistersWindow onHighlightChange={setHasRegisterUpdate} />
-                  </Suspense>
-                </div>
-                <button
-                  aria-label={isRegisterSidebarOpen ? "Collapse register sidebar" : "Expand register sidebar"}
-                  onClick={toggleRegisterSidebar}
-                  style={{
-                    width: "18px",
-                    border: "none",
-                    background: "linear-gradient(180deg, #111827, #0f172a)",
-                    color: "#cbd5e1",
-                    cursor: "pointer",
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: "0.35rem",
-                    borderRadius: "0 0.5rem 0.5rem 0",
-                  }}
-                  title={isRegisterSidebarOpen ? "Collapse registers" : "Expand registers"}
-                >
-                  <span style={{ transform: isRegisterSidebarOpen ? "rotate(180deg)" : "none", transition: "transform 150ms ease" }}>
-                    ▶
-                  </span>
-                  <span
-                    style={{
-                      width: "6px",
-                      height: "6px",
-                      borderRadius: "9999px",
-                      backgroundColor: hasRegisterUpdate ? "#22c55e" : "#475569",
-                      boxShadow: hasRegisterUpdate ? "0 0 0 2px rgba(34,197,94,0.35)" : "none",
-                    }}
-                  />
-                </button>
+            <div className={`editor-grid editor-grid--${splitMode}`}>
+              <EditorPane
+                source={primarySource}
+                status={status}
+                onChange={(value) => handleSourceChange(value, activeFile)}
+                breakpoints={editorBreakpoints}
+                managedBreakpoints={breakpoints}
+                watches={watches}
+                watchValues={watchValues}
+                symbols={symbolTable}
+                activeLine={activeLine}
+                activeFile={activeFile}
+                onToggleBreakpoint={(line) => handleToggleEditorBreakpoint(line, activeFile ?? undefined)}
+              />
+              {splitMode !== "single" && (
+                <EditorPane
+                  source={secondarySource}
+                  status={status}
+                  onChange={(value) => handleSourceChange(value, secondaryActiveFile)}
+                  breakpoints={editorBreakpoints}
+                  managedBreakpoints={breakpoints}
+                  watches={watches}
+                  watchValues={watchValues}
+                  symbols={symbolTable}
+                  activeLine={secondaryActiveFile === activeFile ? activeLine : null}
+                  activeFile={secondaryActiveFile}
+                  onToggleBreakpoint={(line) => handleToggleEditorBreakpoint(line, secondaryActiveFile ?? undefined)}
+                />
+              )}
+            </div>
+          </div>
+
+          {hasDockedTools && (
+            <div className="panel surface">
+              <div className="panel__header">
+                <div className="panel__title">Open tools</div>
+                {detachedTools.length > 0 && (
+                  <div className="muted">Detached: {detachedTools.map((entry) => entry.id).join(", ")}</div>
+                )}
               </div>
+              <div className="tool-tabs">
+                {visibleDockedTools.map((toolRef) => {
+                  const tool = availableTools.find((entry) => entry.id === toolRef.id);
+                  if (!tool || !tool.Component || (tool.isAvailable && !tool.isAvailable(toolContext))) return null;
+                  const isActive = activeToolId === tool.id;
 
-              <aside
-                style={{
-                  border: "1px solid #111827",
-                  borderRadius: "0.5rem",
-                  padding: "0.75rem",
-                  background: "#0f172a",
-                  overflow: "auto",
-                }}
-              >
-                {renderSidebarContent()}
-              </aside>
-
-              <section
-                style={{
-                  border: "1px solid #111827",
-                  borderRadius: "0.5rem",
-                  padding: "0.5rem 0.75rem",
-                  background: "#0f172a",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "0.5rem",
-                  minHeight: 0,
-                }}
-              >
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: "0.75rem",
-                  borderBottom: "1px solid #111827",
-                  paddingBottom: "0.35rem",
-                }}
-              >
-                <div style={{ display: "flex", gap: "0.35rem", alignItems: "center", flexWrap: "wrap" }}>
-                  <button style={toolsButtonStyle} onClick={() => setSplitMode("single")} title="Single editor">
-                    ▢
-                  </button>
-                  <button style={toolsButtonStyle} onClick={() => setSplitMode("vertical")} title="Split vertically">
-                    ⇄
-                  </button>
-                  <button style={toolsButtonStyle} onClick={() => setSplitMode("horizontal")} title="Split horizontally">
-                    ⇅
-                  </button>
-                  <div style={{ color: "#94a3b8", fontSize: "0.9rem" }}>
-                    {activeFile ? `Editing ${tabLabel(activeFile)}` : "Scratch buffer"}
-                  </div>
-                </div>
-                <StatusBar activeFile={activeFile} workingDirectory={workingDirectory} dirty={isDirty} />
-              </div>
-
-              <div style={{ display: "flex", gap: "0.35rem", alignItems: "center", overflowX: "auto" }}>
-                {orderedOpenFiles.map((filePath, index) => {
-                  const isActive = filePath === activeFile;
-                  const record = fileManager.openFiles[filePath];
                   return (
-                    <div
-                      key={filePath}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "0.35rem",
-                        padding: "0.4rem 0.6rem",
-                        borderRadius: "0.4rem",
-                        background: isActive ? "#1f2937" : "#111827",
-                        border: "1px solid #1f2937",
-                        boxShadow: isActive ? "0 10px 25px rgba(0,0,0,0.25)" : undefined,
-                      }}
-                    >
-                      <button onClick={() => handleActivateTab(filePath)} style={{ color: "inherit", background: "transparent", border: "none", cursor: "pointer" }}>
-                        {tabLabel(filePath)}{record?.isDirty ? " •" : ""}
+                    <div key={tool.id} className={isActive ? "tool-tab tool-tab--active" : "tool-tab"}>
+                      <button className="tab__label" onClick={() => setActiveToolId(tool.id)}>
+                        <span aria-hidden>{renderToolIcon(tool.icon)}</span>
+                        <span>{tool.name}</span>
                       </button>
-                      <div style={{ display: "flex", gap: "0.2rem" }}>
-                        <button style={toolsButtonStyle} onClick={() => setFileManager((current) => moveOpenFile(current, filePath, -1))} title="Move left" disabled={index === 0}>
-                          ←
+                      <div className="tab__actions">
+                        <button style={toolsButtonStyle} onClick={() => detachTool(tool.id)} title={`Open ${tool.name} in a separate window`}>
+                          ↗
                         </button>
-                        <button
-                          style={toolsButtonStyle}
-                          onClick={() => setFileManager((current) => moveOpenFile(current, filePath, 1))}
-                          title="Move right"
-                          disabled={index === orderedOpenFiles.length - 1}
-                        >
-                          →
-                        </button>
-                        <button style={toolsButtonStyle} onClick={() => handleCloseTab(filePath)} title="Close tab">
+                        <button style={toolsButtonStyle} onClick={() => closeTool(tool.id)} title={`Close ${tool.name}`}>
                           ✕
                         </button>
                       </div>
@@ -1599,154 +1532,7 @@ export function App(): React.JSX.Element {
                   );
                 })}
               </div>
-
-              <div
-                style={{
-                  flex: 1,
-                  display: "grid",
-                  gridTemplateColumns: splitMode === "vertical" ? "1fr 1fr" : "1fr",
-                  gridTemplateRows: splitMode === "horizontal" ? "1fr 1fr" : "1fr",
-                  gap: "0.5rem",
-                  minHeight: 0,
-                }}
-              >
-                <EditorPane
-                  source={primarySource}
-                  status={status}
-                  onChange={(value) => handleSourceChange(value, activeFile)}
-                  breakpoints={editorBreakpoints}
-                  managedBreakpoints={breakpoints}
-                  watches={watches}
-                  watchValues={watchValues}
-                  symbols={symbolTable}
-                  activeLine={activeLine}
-                  activeFile={activeFile}
-                  onToggleBreakpoint={(line) => handleToggleEditorBreakpoint(line, activeFile ?? undefined)}
-                />
-                {splitMode !== "single" && (
-                  <EditorPane
-                    source={secondarySource}
-                    status={status}
-                    onChange={(value) => handleSourceChange(value, secondaryActiveFile)}
-                    breakpoints={editorBreakpoints}
-                    managedBreakpoints={breakpoints}
-                    watches={watches}
-                    watchValues={watchValues}
-                    symbols={symbolTable}
-                    activeLine={secondaryActiveFile === activeFile ? activeLine : null}
-                    activeFile={secondaryActiveFile}
-                    onToggleBreakpoint={(line) => handleToggleEditorBreakpoint(line, secondaryActiveFile ?? undefined)}
-                  />
-                )}
-              </div>
-            </section>
-          </div>
-
-          {hasDockedTools && (
-            <section
-              style={{
-                border: "1px solid #111827",
-                borderRadius: "0.5rem",
-                padding: "0.5rem 0.75rem",
-                background: "#0f172a",
-                display: "flex",
-                flexDirection: "column",
-                gap: "0.5rem",
-                minHeight: 0,
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.75rem" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexWrap: "wrap" }}>
-                  {visibleDockedTools.map((toolRef) => {
-                    const tool = availableTools.find((entry) => entry.id === toolRef.id);
-                    if (!tool || !tool.Component || (tool.isAvailable && !tool.isAvailable(toolContext))) return null;
-                    const isActive = activeToolId === tool.id;
-
-                    return (
-                      <div
-                        key={tool.id}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "0.3rem",
-                          padding: "0.35rem 0.5rem",
-                          borderRadius: "0.5rem",
-                          border: "1px solid #1f2937",
-                          backgroundColor: isActive ? "#1f2937" : "#111827",
-                        }}
-                      >
-                        <button
-                          style={{
-                            background: "transparent",
-                            border: "none",
-                            color: "inherit",
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: "0.35rem",
-                            cursor: "pointer",
-                          }}
-                          onClick={() => setActiveToolId(tool.id)}
-                          title={`Show ${tool.name} panel`}
-                          aria-label={`Show ${tool.name} panel`}
-                        >
-                          <span aria-hidden>{renderToolIcon(tool.icon)}</span>
-                          <span>{tool.name}</span>
-                        </button>
-                        <div style={{ display: "flex", gap: "0.2rem" }}>
-                          <button
-                            style={{ ...toolsButtonStyle, padding: "0.25rem 0.45rem" }}
-                            onClick={() => detachTool(tool.id)}
-                            title={`Open ${tool.name} in a separate window`}
-                            aria-label={`Detach ${tool.name}`}
-                          >
-                            ↗
-                          </button>
-                          <button
-                            style={{ ...toolsButtonStyle, padding: "0.25rem 0.45rem" }}
-                            onClick={() => closeTool(tool.id)}
-                            title={`Close ${tool.name}`}
-                            aria-label={`Close ${tool.name}`}
-                          >
-                            ✕
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-                {detachedTools.length > 0 && (
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", color: "#94a3b8", flexWrap: "wrap" }}>
-                    <span style={{ fontWeight: 600 }}>Detached:</span>
-                    {detachedTools.map((entry) => {
-                      const tool = availableTools.find((item) => item.id === entry.id);
-                      if (!tool) return null;
-                      return (
-                        <button
-                          key={entry.id}
-                          style={{ ...toolsButtonStyle, padding: "0.25rem 0.45rem" }}
-                          onClick={() => dockTool(entry.id)}
-                          title={`Re-dock ${tool.name}`}
-                          aria-label={`Re-dock ${tool.name}`}
-                        >
-                          {tool.name}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-
-              <div
-                style={{
-                  flex: 1,
-                  border: "1px solid #111827",
-                  borderRadius: "0.5rem",
-                  padding: "0.5rem",
-                  background: "#0b1220",
-                  minHeight: 0,
-                  overflow: "auto",
-                }}
-              >
+              <div className="tool-panels">
                 {visibleDockedTools.map((toolRef) => {
                   const tool = availableTools.find((entry) => entry.id === toolRef.id);
                   if (!tool || !tool.Component) return null;
@@ -1761,55 +1547,93 @@ export function App(): React.JSX.Element {
                   );
                 })}
               </div>
-            </section>
+            </div>
           )}
+        </section>
 
-          {isBottomPanelOpen && (
-            <section
-              style={{
-                border: "1px solid #111827",
-                borderRadius: "0.5rem",
-                padding: "0.5rem 0.75rem",
-                background: "#0f172a",
-                display: "flex",
-                flexDirection: "column",
-                gap: "0.5rem",
-                minHeight: 0,
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", justifyContent: "space-between" }}>
-                <div style={{ display: "flex", gap: "0.35rem", alignItems: "center" }}>
-                  {["terminal", "execute", "debug"].map((tab) => (
-                    <button
-                      key={tab}
-                      onClick={() => setBottomPanelTab(tab as typeof bottomPanelTab)}
-                      style={{
-                        ...toolsButtonStyle,
-                        backgroundColor: bottomPanelTab === tab ? "#1f2937" : "#111827",
-                        borderColor: "#1f2937",
-                      }}
-                    >
-                      {tab.charAt(0).toUpperCase() + tab.slice(1)}
-                    </button>
-                  ))}
-                </div>
-                <button style={toolsButtonStyle} onClick={() => setBottomPanelOpen(false)} title="Collapse panel">
-                  ⤵
-                </button>
-              </div>
-              <div style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>{renderBottomPanel()}</div>
-            </section>
-          )}
-        </div>
-      </div>
-      </div>
-      {!isBottomPanelOpen && (
-        <div style={{ padding: "0.35rem 0.75rem", textAlign: "right" }}>
-          <button style={toolsButtonStyle} onClick={() => setBottomPanelOpen(true)}>
-            Show Panel
+        <aside className="panel panel--inspector">
+          <div className="panel surface">
+            <div className="panel__header">
+              <div className="panel__title">Registers</div>
+              <button style={toolsButtonStyle} onClick={toggleRegisterSidebar} title="Toggle register viewer">
+                {isRegisterSidebarOpen ? "Hide" : "Show"}
+              </button>
+            </div>
+            {isRegisterSidebarOpen ? (
+              <Suspense fallback={<div className="muted">Loading registers...</div>}>
+                <LazyRegistersWindow
+                  onHighlightChange={setHasRegisterUpdate}
+                  onClose={() => setRegisterSidebarOpen(false)}
+                  presentation="panel"
+                />
+              </Suspense>
+            ) : (
+              <div className="muted">Register viewer hidden</div>
+            )}
+          </div>
+
+          <div className="panel surface">
+            <div className="panel__header">
+              <div className="panel__title">Breakpoints</div>
+              <button style={toolsButtonStyle} onClick={() => setBottomPanelTab("debug")}>
+                Open debugger
+              </button>
+            </div>
+            <BreakpointList
+              breakpoints={breakpoints}
+              onRemove={(spec) => setBreakpoints((previous) => previous.filter((entry) => entry !== spec))}
+            />
+          </div>
+
+          <div className="panel surface">
+            <div className="panel__header">
+              <div className="panel__title">Watches</div>
+              <button style={toolsButtonStyle} onClick={() => setBottomPanelTab("debug")}>
+                Manage
+              </button>
+            </div>
+            <WatchManagerPanel
+              watches={watches}
+              symbols={symbolTable}
+              values={watchValues}
+              onAdd={(spec) =>
+                setWatches((previous) =>
+                  previous.find((entry) => entry.kind === spec.kind && entry.identifier === spec.identifier)
+                    ? previous
+                    : [...previous, spec],
+                )
+              }
+              onRemove={(spec) =>
+                setWatches((previous) =>
+                  previous.filter((entry) => !(entry.kind === spec.kind && entry.identifier === spec.identifier)),
+                )
+              }
+            />
+          </div>
+        </aside>
+      </section>
+
+      <section className="panel surface dock-panel">
+        <div className="panel__header">
+          <div className="panel__title">Output &amp; Diagnostics</div>
+          <div className="segmented">
+            {["terminal", "execute", "debug"].map((tab) => (
+              <button
+                key={tab}
+                className={bottomPanelTab === tab ? "segmented__item segmented__item--active" : "segmented__item"}
+                onClick={() => setBottomPanelTab(tab as typeof bottomPanelTab)}
+              >
+                {tab.charAt(0).toUpperCase() + tab.slice(1)}
+              </button>
+            ))}
+          </div>
+          <button style={toolsButtonStyle} onClick={() => setBottomPanelOpen((open) => !open)}>
+            {isBottomPanelOpen ? "Collapse" : "Expand"} panel
           </button>
         </div>
-      )}
+        {isBottomPanelOpen ? <div className="dock-panel__content">{renderBottomPanel()}</div> : null}
+      </section>
+
       {detachedTools.map((entry) => {
         const tool = availableTools.find((item) => item.id === entry.id);
         if (!tool || !tool.Component) return null;
