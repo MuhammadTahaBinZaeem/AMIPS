@@ -16,3 +16,11 @@ If `npm install` ends with cleanup errors like `EPERM: operation not permitted` 
 
 ## Deprecated `boolean@3.2.0` warning
 The install may print a deprecation warning for `boolean@3.2.0`. This comes from Electron's optional proxy helper (`global-agent`) and does not block installs or builds. After cleaning with the steps above, the warning can be safely ignored until upstream packages drop the dependency.
+
+## TLS handshake errors when starting Electron
+Some Windows environments inject custom certificates that can cause repeated messages like `ssl_client_socket_impl.cc(878) handshake failed` when launching `npm run dev`. The dev server prefers HTTP where possible and now instructs Electron to allow insecure localhost certificates when `VITE_DEV_SERVER_URL` uses HTTPS. If the errors persist, override the dev server URL to use HTTP explicitly:
+
+```bash
+set VITE_DEV_SERVER_URL=http://localhost:5173
+npm run dev
+```
