@@ -18,8 +18,17 @@ const normalizeDevServerUrl = (rawUrl?: string): string => {
 
 const rawDevServerUrl = process.env.VITE_DEV_SERVER_URL;
 const devServerUrl = normalizeDevServerUrl(rawDevServerUrl);
+const devServerUsesHttps = rawDevServerUrl?.startsWith("https://") ?? false;
 const devToolsEnabled = process.env.ELECTRON_OPEN_DEVTOOLS === "true";
 const devServerHostnames = new Set<string>();
+
+if (process.env.NODE_ENV === "development" && devServerUsesHttps) {
+  // Electron logs noisy TLS handshake failures in environments with self-signed
+  // dev server certificates. Allow insecure localhost certificates to avoid
+  // the errors while still preferring HTTP when available.
+  app.commandLine.appendSwitch("allow-insecure-localhost");
+  app.commandLine.appendSwitch("ignore-certificate-errors");
+}
 
 try {
   devServerHostnames.add(new URL(devServerUrl).hostname);
