@@ -19,6 +19,21 @@ const normalizeDevServerUrl = (rawUrl?: string): string => {
 const rawDevServerUrl = process.env.VITE_DEV_SERVER_URL;
 const devServerUrl = normalizeDevServerUrl(rawDevServerUrl);
 const devToolsEnabled = process.env.ELECTRON_OPEN_DEVTOOLS === "true";
+const devServerHostnames = new Set<string>();
+
+try {
+  devServerHostnames.add(new URL(devServerUrl).hostname);
+} catch (error) {
+  console.warn("Unable to parse normalized dev server URL", devServerUrl, error);
+}
+
+if (rawDevServerUrl && rawDevServerUrl !== devServerUrl) {
+  try {
+    devServerHostnames.add(new URL(rawDevServerUrl).hostname);
+  } catch (error) {
+    console.warn("Unable to parse raw dev server URL", rawDevServerUrl, error);
+  }
+}
 
 const renderErrorFallback = async (
   window: BrowserWindow,
@@ -157,6 +172,32 @@ async function createWindow(): Promise<void> {
 }
 
 app.whenReady().then(async () => {
+  if (process.env.NODE_ENV === "development") {
+    session.defaultSession.setCertificateVerifyProc((request, callback) => {
+      if (devServerHostnames.has(request.hostname)) {
+        callback(0);
+        return;
+      }
+
+      callback(-3);
+    });
+
+    app.on("certificate-error", (event, webContents, url, error, certificate, callback) => {
+      try {
+        const { hostname } = new URL(url);
+        if (devServerHostnames.has(hostname)) {
+          event.preventDefault();
+          callback(true);
+          return;
+        }
+      } catch (parseError) {
+        console.warn("Failed to parse certificate error URL", url, parseError);
+      }
+
+      callback(false);
+    });
+  }
+
   try {
     await session.defaultSession.setProxy({ mode: "direct" });
   } catch (error) {
