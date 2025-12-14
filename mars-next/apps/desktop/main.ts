@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, session } from "electron";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import type { PseudoOpsFileSnapshot, PseudoOpsOverride } from "../src/shared/bridge";
+import type { BridgeHealth, PseudoOpsFileSnapshot, PseudoOpsOverride } from "../src/shared/bridge";
 
 const preloadPath = join(__dirname, "preload.js");
 const rendererIndexPath = join(__dirname, "../renderer/index.html");
@@ -60,6 +60,13 @@ ipcMain.on("pseudoOps:save", (event, contents: string, destinationPath: string) 
   writeFileSync(destinationPath, contents, "utf8");
   event.returnValue = destinationPath;
 });
+
+ipcMain.handle("bridge:ping", async (): Promise<BridgeHealth> => ({
+  ok: true,
+  backend: "electron",
+  workingDirectory: process.cwd(),
+  message: "Electron bridge connected",
+}));
 
 const normalizeDevServerUrl = (rawUrl?: string): string => {
   const value = rawUrl ?? "http://localhost:5173";
