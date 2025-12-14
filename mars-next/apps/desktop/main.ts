@@ -168,6 +168,31 @@ const renderErrorFallback = async (
   await window.loadURL(dataUrl);
 };
 
+const loadBundledRenderer = async (window: BrowserWindow): Promise<boolean> => {
+  if (!existsSync(rendererIndexPath)) {
+    await renderErrorFallback(
+      window,
+      "Renderer unavailable",
+      "The packaged renderer bundle could not be found. Run `npm run build` to generate dist/renderer before launching Electron.",
+    );
+    return false;
+  }
+
+  try {
+    await window.loadURL(rendererFileUrl);
+    return true;
+  } catch (error) {
+    console.error("Failed to load renderer", error);
+    await renderErrorFallback(
+      window,
+      "Renderer unavailable",
+      "The packaged renderer bundle could not be loaded.",
+      error,
+    );
+    return false;
+  }
+};
+
 async function createWindow(): Promise<void> {
   const window = new BrowserWindow({
     width: 1200,
@@ -204,34 +229,13 @@ async function createWindow(): Promise<void> {
 
     if (!loaded) {
       console.error("Failed to load dev server, falling back to bundled renderer");
-      try {
-        await window.loadURL(rendererFileUrl);
-        loaded = true;
-      } catch (fallbackError) {
-        console.error("Failed to load bundled renderer", fallbackError);
-        await renderErrorFallback(
-          window,
-          "Renderer unavailable",
-          "Neither the dev server nor the packaged renderer could be loaded.",
-          lastError ?? fallbackError,
-        );
-      }
+      loaded = await loadBundledRenderer(window);
     }
     if (devToolsEnabled) {
       window.webContents.openDevTools({ mode: "detach" });
     }
   } else {
-    try {
-      await window.loadURL(rendererFileUrl);
-    } catch (error) {
-      console.error("Failed to load renderer", error);
-      await renderErrorFallback(
-        window,
-        "Renderer unavailable",
-        "The packaged renderer bundle could not be loaded.",
-        error,
-      );
-    }
+    await loadBundledRenderer(window);
   }
 }
 
