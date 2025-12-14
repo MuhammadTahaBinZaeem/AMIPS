@@ -1,8 +1,4 @@
-export interface PseudoOpsFileSnapshot {
-  sourcePath: string;
-  savePath: string;
-  contents: string;
-}
+import { getRendererApi, type PseudoOpsFileSnapshot } from "../../../shared/bridge";
 
 function getFsAndPath(): { fs: typeof import("fs"); path: typeof import("path") } {
   const fs = require("fs") as typeof import("fs");
@@ -13,7 +9,9 @@ function getFsAndPath(): { fs: typeof import("fs"); path: typeof import("path") 
 function resolveUserPseudoOpsPath(fs: typeof import("fs"), path: typeof import("path")): string | null {
   const candidates = [
     path.resolve(process.cwd(), "PseudoOps.txt"),
+    path.resolve(process.cwd(), "PseudoOps.json"),
     path.resolve(process.cwd(), "config", "PseudoOps.txt"),
+    path.resolve(process.cwd(), "config", "PseudoOps.json"),
   ];
 
   return candidates.find((candidate) => fs.existsSync(candidate)) ?? null;
@@ -27,11 +25,17 @@ function resolveBundledPseudoOpsPath(fs: typeof import("fs"), path: typeof impor
   }
 
   candidates.push(path.resolve(process.cwd(), "resources", "PseudoOps.txt"));
+  candidates.push(path.resolve(process.cwd(), "resources", "PseudoOps.json"));
 
   return candidates.find((candidate) => fs.existsSync(candidate)) ?? null;
 }
 
 export function loadPseudoOpsFile(): PseudoOpsFileSnapshot {
+  const rendererApi = getRendererApi();
+  if (rendererApi?.loadPseudoOpsFile) {
+    return rendererApi.loadPseudoOpsFile();
+  }
+
   const { fs, path } = getFsAndPath();
 
   const existingUserPath = resolveUserPseudoOpsPath(fs, path);
@@ -49,6 +53,11 @@ export function loadPseudoOpsFile(): PseudoOpsFileSnapshot {
 }
 
 export function savePseudoOpsFile(contents: string, destinationPath: string): string {
+  const rendererApi = getRendererApi();
+  if (rendererApi?.savePseudoOpsFile) {
+    return rendererApi.savePseudoOpsFile(contents, destinationPath);
+  }
+
   const { fs, path } = getFsAndPath();
 
   fs.mkdirSync(path.dirname(destinationPath), { recursive: true });

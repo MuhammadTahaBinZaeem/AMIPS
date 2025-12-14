@@ -1,3 +1,4 @@
+import { getRendererApi } from "../../shared/bridge";
 import { Lexer } from "./Lexer";
 
 export type IncludeResolver = (absolutePath: string) => string;
@@ -14,6 +15,11 @@ export interface ProcessedSource {
 }
 
 const createDefaultResolver = (): IncludeResolver | null => {
+  const rendererApi = getRendererApi();
+  if (rendererApi?.readTextFileSync) {
+    return (absolutePath: string) => rendererApi.readTextFileSync(absolutePath);
+  }
+
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const fs = require("fs") as typeof import("fs");
