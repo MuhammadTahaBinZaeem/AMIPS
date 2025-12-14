@@ -54,6 +54,7 @@ import { ToolLoader } from "../core/tools/ToolLoader";
 import { HelpSidebar } from "../features/help/components/HelpSidebar";
 import { helpReducer, initialHelpState } from "../features/help";
 import { renderToolIcon } from "../ui/icons/ToolIcons";
+import { useBridgeHealth } from "../shared/hooks/useBridgeHealth";
 
 const initialSettings = loadSettings();
 
@@ -198,6 +199,11 @@ export function App(): React.JSX.Element {
   const fallbackMemory = useMemo(() => new Memory(), []);
   const workingDirectory = fileManager.workingDirectory ?? getWorkingDirectory();
   const activeFileRecord = activeFile ? fileManager.openFiles[activeFile] ?? null : null;
+  const bridgeHealth = useBridgeHealth();
+  const connectionLabel = useMemo(() => {
+    const modeLabel = bridgeHealth.backend === "electron" ? "Electron shell" : "Browser core";
+    return bridgeHealth.message ? `${modeLabel} · ${bridgeHealth.message}` : modeLabel;
+  }, [bridgeHealth]);
   const isDirty = activeFile ? Boolean(activeFileRecord?.isDirty) : source.trim().length > 0;
   const dockedTools = useMemo(() => openTools.filter((tool) => tool.mode === "docked"), [openTools]);
   const detachedTools = useMemo(() => openTools.filter((tool) => tool.mode === "detached"), [openTools]);
@@ -1392,7 +1398,12 @@ export function App(): React.JSX.Element {
           <div className="panel surface run-panel">
             <div className="panel__header">
               <div className="panel__title">Assembler &amp; Execution</div>
-              <StatusBar activeFile={activeFile} workingDirectory={workingDirectory} dirty={isDirty} />
+              <StatusBar
+                activeFile={activeFile}
+                workingDirectory={workingDirectory}
+                dirty={isDirty}
+                connection={{ label: connectionLabel, ok: bridgeHealth.ok }}
+              />
             </div>
             <div className="run-panel__content">
               <RunToolbar

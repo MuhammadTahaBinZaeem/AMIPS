@@ -6,6 +6,7 @@ const api: MarsRendererApi = {
   loadPseudoOpsFile: () => ipcRenderer.sendSync("pseudoOps:load"),
   savePseudoOpsFile: (contents, destinationPath) => ipcRenderer.sendSync("pseudoOps:save", contents, destinationPath),
   loadUserPseudoOpsOverride: () => ipcRenderer.sendSync("pseudoOps:override"),
+  ping: () => ipcRenderer.invoke("bridge:ping"),
 };
 
 contextBridge.exposeInMainWorld("api", api);
