@@ -1,10 +1,65 @@
-import { app, BrowserWindow, session } from "electron";
-import { join } from "node:path";
+import { app, BrowserWindow, ipcMain, session } from "electron";
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import type { PseudoOpsFileSnapshot, PseudoOpsOverride } from "../src/shared/bridge";
 
 const preloadPath = join(__dirname, "preload.js");
 const rendererIndexPath = join(__dirname, "../renderer/index.html");
 const rendererFileUrl = pathToFileURL(rendererIndexPath).toString();
+
+const pseudoOpsUserCandidates = [
+  resolve(process.cwd(), "PseudoOps.txt"),
+  resolve(process.cwd(), "PseudoOps.json"),
+  resolve(process.cwd(), "config", "PseudoOps.txt"),
+  resolve(process.cwd(), "config", "PseudoOps.json"),
+];
+
+const pseudoOpsBundledCandidates = [
+  resolve(__dirname, "../../../resources/PseudoOps.txt"),
+  resolve(process.cwd(), "resources", "PseudoOps.txt"),
+];
+
+const loadPseudoOpsSnapshot = (): PseudoOpsFileSnapshot => {
+  const userPath = pseudoOpsUserCandidates.find((candidate) => existsSync(candidate));
+  const bundledPath = pseudoOpsBundledCandidates.find((candidate) => existsSync(candidate));
+  const sourcePath = userPath ?? bundledPath;
+
+  if (!sourcePath) {
+    throw new Error("PseudoOps.txt not found in working directory or bundled resources.");
+  }
+
+  const contents = readFileSync(sourcePath, "utf8");
+  const savePath = userPath ?? resolve(process.cwd(), "config", sourcePath.endsWith(".json") ? "PseudoOps.json" : "PseudoOps.txt");
+
+  return { contents, sourcePath, savePath };
+};
+
+const loadUserPseudoOpsOverride = (): PseudoOpsOverride | null => {
+  const userPath = pseudoOpsUserCandidates.find((candidate) => existsSync(candidate));
+  if (!userPath) return null;
+
+  const contents = readFileSync(userPath, "utf8");
+  return { path: userPath, contents, isJson: userPath.toLowerCase().endsWith(".json") };
+};
+
+ipcMain.on("file:read-text", (event, path: string) => {
+  event.returnValue = readFileSync(path, "utf8");
+});
+
+ipcMain.on("pseudoOps:load", (event) => {
+  event.returnValue = loadPseudoOpsSnapshot();
+});
+
+ipcMain.on("pseudoOps:override", (event) => {
+  event.returnValue = loadUserPseudoOpsOverride();
+});
+
+ipcMain.on("pseudoOps:save", (event, contents: string, destinationPath: string) => {
+  mkdirSync(dirname(destinationPath), { recursive: true });
+  writeFileSync(destinationPath, contents, "utf8");
+  event.returnValue = destinationPath;
+});
 
 const normalizeDevServerUrl = (rawUrl?: string): string => {
   const value = rawUrl ?? "http://localhost:5173";

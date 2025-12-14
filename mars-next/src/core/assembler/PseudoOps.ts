@@ -1,5 +1,5 @@
-import type { ReadFileSync } from "node:fs";
 import type { MacroKind } from "./MacroParser";
+import { getRendererApi, type PseudoOpsOverride } from "../../shared/bridge";
 
 export interface PseudoOpDefinition {
   /** Example syntax split into tokens (operator is token 0; parentheses are tokens, commas are not). */
@@ -150,6 +150,7 @@ export type PseudoOpTable = Map<string, PseudoOpDefinition[]>;
 
 let cachedPseudoOps: PseudoOpTable | null = null;
 let cachedPseudoOpDocumentation: PseudoOpDocumentation[] | null = null;
+let cachedBundledPseudoOpsText: string | null = null;
 
 /**
  * Load and parse the bundled PseudoOps.txt resource into a table keyed by mnemonic.
@@ -157,19 +158,19 @@ let cachedPseudoOpDocumentation: PseudoOpDocumentation[] | null = null;
 export function loadPseudoOpTable(): PseudoOpTable {
   if (cachedPseudoOps) return cachedPseudoOps;
 
-  const fs = require("fs") as typeof import("fs");
-  const pathModule = require("path") as typeof import("path");
+  const rendererApi = getRendererApi();
+  const snapshot = rendererApi?.loadPseudoOpsFile?.();
+  const baseContents = snapshot?.contents ?? loadBundledPseudoOpsFromDisk();
 
-  const builtInPath = resolvePseudoOpsPath(fs, pathModule);
-  const builtInContents = fs.readFileSync(builtInPath, "utf8");
-  const table = parsePseudoOpsFile(builtInContents);
+  if (!baseContents) {
+    throw new Error("PseudoOps.txt could not be loaded.");
+  }
 
-  const userPath = resolveUserPseudoOpsPath(fs, pathModule);
-  if (userPath) {
-    const userContents = fs.readFileSync(userPath, "utf8");
-    const userTable = isJsonPseudoOpFile(userPath)
-      ? parsePseudoOpsJson(userContents)
-      : parsePseudoOpsFile(userContents);
+  const table = parsePseudoOpsFile(baseContents);
+
+  const override = rendererApi?.loadUserPseudoOpsOverride?.() ?? loadUserPseudoOpsOverrideFromDisk();
+  if (override && (!snapshot || override.path !== snapshot.sourcePath)) {
+    const userTable = override.isJson ? parsePseudoOpsJson(override.contents) : parsePseudoOpsFile(override.contents);
     mergePseudoOpTables(table, userTable);
   }
 
@@ -364,38 +365,6 @@ function stripInlineComment(line: string): { body: string; description?: string 
     description: line.substring(hashIndex + 1).trim(),
   };
 }
-function resolvePseudoOpsPath(
-  fs: { existsSync: (path: string) => boolean; readFileSync: ReadFileSync },
-  pathModule: typeof import("path"),
-): string {
-  const candidates: string[] = [];
-
-  if (typeof __dirname !== "undefined") {
-    candidates.push(pathModule.resolve(__dirname, "../../../resources/PseudoOps.txt"));
-  }
-
-  candidates.push(pathModule.resolve(process.cwd(), "resources", "PseudoOps.txt"));
-
-  const found = candidates.find((candidate) => fs.existsSync(candidate));
-  if (found) return found;
-
-  throw new Error("PseudoOps.txt not found. Checked: " + candidates.join(", "));
-}
-
-function resolveUserPseudoOpsPath(
-  fs: { existsSync: (path: string) => boolean },
-  pathModule: typeof import("path"),
-): string | null {
-  const candidates = [
-    pathModule.resolve(process.cwd(), "PseudoOps.txt"),
-    pathModule.resolve(process.cwd(), "PseudoOps.json"),
-    pathModule.resolve(process.cwd(), "config", "PseudoOps.txt"),
-    pathModule.resolve(process.cwd(), "config", "PseudoOps.json"),
-  ];
-
-  return candidates.find((candidate) => fs.existsSync(candidate)) ?? null;
-}
-
 function mergePseudoOpTables(base: PseudoOpTable, overrides: PseudoOpTable): void {
   for (const [mnemonic, definitions] of overrides.entries()) {
     base.set(mnemonic, definitions);
@@ -403,8 +372,63 @@ function mergePseudoOpTables(base: PseudoOpTable, overrides: PseudoOpTable): voi
 }
 
 function isJsonPseudoOpFile(path: string): boolean {
-  const pathModule = require("path") as typeof import("path");
-  return pathModule.extname(path).toLowerCase() === ".json";
+  return path.toLowerCase().endsWith(".json");
+}
+
+function loadBundledPseudoOpsFromDisk(): string {
+  if (cachedBundledPseudoOpsText !== null) return cachedBundledPseudoOpsText;
+  if (typeof require === "undefined") return "";
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const fs = require("fs") as typeof import("fs");
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const path = require("path") as typeof import("path");
+
+    const candidates = [
+      path.resolve(typeof __dirname !== "undefined" ? __dirname : process.cwd(), "../../../resources/PseudoOps.txt"),
+      path.resolve(process.cwd(), "resources", "PseudoOps.txt"),
+    ];
+
+    const found = candidates.find((candidate) => fs.existsSync(candidate));
+    if (found) {
+      cachedBundledPseudoOpsText = fs.readFileSync(found, "utf8");
+      return cachedBundledPseudoOpsText;
+    }
+  } catch {
+    // fall through to empty string
+  }
+
+  cachedBundledPseudoOpsText = "";
+  return cachedBundledPseudoOpsText;
+}
+
+function loadUserPseudoOpsOverrideFromDisk(): PseudoOpsOverride | null {
+  if (typeof require === "undefined") return null;
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const fs = require("fs") as typeof import("fs");
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const path = require("path") as typeof import("path");
+
+    const candidates = [
+      path.resolve(process.cwd(), "PseudoOps.txt"),
+      path.resolve(process.cwd(), "PseudoOps.json"),
+      path.resolve(process.cwd(), "config", "PseudoOps.txt"),
+      path.resolve(process.cwd(), "config", "PseudoOps.json"),
+    ];
+
+    const found = candidates.find((candidate) => fs.existsSync(candidate));
+    if (found) {
+      const contents = fs.readFileSync(found, "utf8");
+      return { path: found, contents, isJson: found.toLowerCase().endsWith(".json") };
+    }
+  } catch {
+    // ignore
+  }
+
+  return null;
 }
 
 function addJsonEntry(table: PseudoOpTable, entry: unknown, mnemonicHint: string | undefined): void {
