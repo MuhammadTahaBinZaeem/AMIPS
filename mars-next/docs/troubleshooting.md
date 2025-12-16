@@ -24,3 +24,13 @@ Some Windows environments inject custom certificates that can cause repeated mes
 set VITE_DEV_SERVER_URL=http://localhost:5173
 npm run dev
 ```
+
+## Blank black window when launching the desktop app
+If the Electron window opens but appears as a solid black screen, the renderer bundle or the pseudo-instruction table could not be loaded:
+
+- Confirm the React renderer is available:
+  - Development: run the dev stack with `npm run dev`, which starts the Vite server on `http://localhost:5173` (or the `VITE_DEV_SERVER_URL` override).
+  - Production: build the renderer with `npm run build` so `dist/renderer/index.html` exists before launching Electron.
+- Ensure a pseudo-op table is present: keep `PseudoOps.txt` (or `PseudoOps.json`) in the repo root or `config/` so the assembler can initialise correctly. The bundled copy under `resources/` will be used if no override is provided.
+
+The Electron main process falls back to an inline error page when it cannot find the renderer bundle, but its dark colour scheme can look like an empty black window if CSS fails to load. Serving the dev renderer or building the production bundle restores the UI.
